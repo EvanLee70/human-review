@@ -91,6 +91,9 @@ SEQLINK_JS = _script("seqlink.js")
 
 SEQFOLD_JS = _script("seqfold.js")
 
+
+SEQHEADS_JS = _script("seqheads.js")
+
 HSCROLL_JS = _script("hscroll.js")
 
 

@@ -147,3 +147,10 @@
 .diagram .rerun-acts .cmd:has(.cmd-run[data-action^="drawio-redraw:"]) .cmd-copy:hover,
 .diagram .rerun-acts .cmd:has(.cmd-run[data-action^="drawio-redraw:"]) .cmd-run:hover {
   color:var(--dgm-diff-del); border-color:var(--dgm-diff-del); }
+/* The frozen participant row SEQHEADS_JS pins under the masthead. Below the masthead's 31,
+   so a tab strip that wraps onto a second row still covers it rather than the other way
+   round, and below the arrow panel's 40, which opens from an arrow under it. */
+#seqheads { position:fixed; z-index:25; overflow:hidden; background:var(--dgm-bg);
+            border-bottom:1px solid var(--line); box-shadow:0 6px 12px -8px rgba(0,0,0,.45); }
+#seqheads[hidden] { display:none; }
+#seqheads svg { position:absolute; top:0; display:block; }
