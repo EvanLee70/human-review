@@ -431,6 +431,38 @@ def test_a_node_folds_open_onto_its_own_lines_and_only_the_arrow_navigates():
     assert "border-left:6px solid var(--cg-arrow)" in delta.CSS, "edges end in arrowheads"
 
 
+def test_a_call_into_the_same_class_hangs_below_and_only_another_class_moves_right():
+    """Width is what makes a reader scroll the graph sideways, and a mapper handing its
+    elements to its own overload is not a step anywhere new. So a same-class callee goes
+    under its caller (`cg-down`), and only a call into another class opens a column."""
+    nodes = [_gnode("a.Ctl#go", calls=["a.Map#all"]),
+             _gnode("a.Map#all", cog=1, calls=["a.Map#one", "a.Pet#toDto"]),
+             _gnode("a.Map#one", cog=2), _gnode("a.Pet#toDto", cog=1)]
+    out, drawn = delta._graph(nodes)
+    all_ = re.search(r'<div class="cg-t cg-v"><div class="cg-row"><div class="cg-stem">'
+                     r'<div class="cg-n[^>]*><span class="cg-c">Map</span>'
+                     r'.*?all\(\)(.*)', out, re.S)
+    assert all_, "Map.all() carries a same-class callee below it"
+    right, below = all_[1].split('<div class="cg-down">', 1)
+    assert "toDto()" in right and "one()" not in right, "the other class goes right"
+    assert "one()" in below and "toDto()" not in below, "the same class goes down"
+    assert drawn == {"a.Ctl#go", "a.Map#all", "a.Map#one", "a.Pet#toDto"}
+    assert "border-top:6px solid var(--cg-arrow)" in delta.CSS, "and its arrow points down"
+
+
+def test_recursion_draws_each_method_once():
+    """A method that calls itself, or two that call each other, is still a finite graph:
+    each method is drawn once, under whoever reached it first, and a call back into one
+    already drawn adds no edge."""
+    nodes = [_gnode("a.Ctl#go", calls=["a.Tree#walk"]),
+             _gnode("a.Tree#walk", cog=2, calls=["a.Tree#walk", "a.Tree#visit", "a.Ctl#go"]),
+             _gnode("a.Tree#visit", cog=1, calls=["a.Tree#walk"])]
+    out, drawn = delta._graph(nodes)
+    assert drawn == {"a.Ctl#go", "a.Tree#walk", "a.Tree#visit"}
+    assert out.count("walk()</span>") == 1 and out.count("visit()</span>") == 1
+    assert out.count("go()</span>") == 1
+
+
 def test_a_graph_needs_edges_and_a_new_entry_point_marks_nothing():
     old_snapshot = {"flow": [{"method": "a.X#go", "cognitive": 1}]}
     assert delta.graph_nodes(old_snapshot, None) == [], "no `calls`: an old snapshot"

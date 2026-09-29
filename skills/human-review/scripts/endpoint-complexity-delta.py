@@ -205,7 +205,18 @@ def _graph(nodes, groups=()) -> tuple[str, set[str]]:
 
     Each method appears once, under whoever reached it first — the same breadth-first
     order the score is summed in, so the graph and the number can never disagree about
-    what is in the flow. A node is the class above `method()` below, its cognitive score
+    what is in the flow. That is also what keeps recursion finite: a method that calls
+    itself, or calls back into one already drawn, adds no edge, and the `+1` the extractor
+    charges for it is one of the lines inside the box.
+
+    Only a call into another class moves right. A call that stays in the class — a public
+    mapper handing its elements to its own private overload — hangs *below* its caller,
+    with an arrow pointing down: the reader is still in the same file, and the graph spends
+    its width only on what crosses a class boundary. The width is what makes a reader
+    scroll sideways; a mapper chain drawn one column per method was a screen and a half
+    of it.
+
+    A node is the class above `method()` below, its cognitive score
     beside them, and two handles: ↗ opens the method in the editor, a click anywhere else
     on the box folds open the lines that make up its score. That used to be a second list
     under the graph, the same methods again in another order — the reader had to match a
@@ -245,15 +256,19 @@ def _graph(nodes, groups=()) -> tuple[str, set[str]]:
         shown = sorted(heavy, key=lambda c: -w(c))[:GRAPH_KIDS]
         shown = [c for c in heavy if c in shown]  # keep the call order among those shown
         rest = [c for c in heavy if c not in shown]
-        parts = [tree(c) for c in shown]
+        home = k.partition("#")[0]
+        down = [tree(c) for c in shown if c.partition("#")[0] == home]
+        parts = [tree(c) for c in shown if c.partition("#")[0] != home]
         if rest:
             names = "\n".join(by[c]["display"] for c in rest)
             parts.append(f'<div class="cg-t"><span class="cg-more"'
                          f'{_tip("Also called, and folded to keep this readable:" + chr(10) + names)}>'
                          f'+{len(rest)}</span></div>')
         sub = f'<div class="cg-kids">{"".join(parts)}</div>' if parts else ""
+        below = f'<div class="cg-down">{"".join(down)}</div>' if down else ""
         node = _node(by[k], lines_of.get(k))
-        return f'<div class="cg-t">{node}{sub}</div>'
+        return (f'<div class="cg-t{" cg-v" if down else ""}"><div class="cg-row">'
+                f'<div class="cg-stem">{node}</div>{sub}</div>{below}</div>')
 
     body = tree(root)
     return (f'<div class="cg" role="group" aria-label="Call graph of this entry point">'
@@ -285,7 +300,8 @@ def _node(n, group=None) -> str:
     """A method as a box. The box itself is a toggle, not a link: a click selects it and,
     when the method was charged for anything, folds its lines open inside it. Navigation
     is the ↗ alone — a box that sometimes opened the editor and sometimes did nothing was
-    a box nobody dared click."""
+    a box nobody dared click. The ↗ sits inside the class badge, right after the name: it
+    opens that class, and the name is where the eye already is when it wants to."""
     cls, name = _split(n["method"])
     cog, d = n["cognitive"], n["delta"]
     mark = " cg-add" if d > 0 else " cg-cut" if d < 0 else ""
@@ -300,6 +316,7 @@ def _node(n, group=None) -> str:
     go = (f'<a class="cg-go" href="vscode://file/{found[0]}:{found[1]}:1"'
           f'{_tip("Open " + n["display"] + " in VS Code")} aria-label="Open in VS Code">↗</a>'
           if found else "")
+    go = f" {go}" if go else ""
     tog = '<span class="cg-tog" aria-hidden="true"></span>' if hits else ""
     delta = (f'<b class="cg-d">+{d}</b>' if d > 0 else
              f'<b class="cg-d">−{-d}</b>' if d < 0 else "")
@@ -307,10 +324,10 @@ def _node(n, group=None) -> str:
     has = " cg-has" if hits else ""
     return (f'<div class="cg-n{mark}{zero}{has}" tabindex="0" role="button"'
             f' aria-expanded="false"{_tip(tip)}>'
-            f'<span class="cg-c">{html.escape(cls)}</span>'
+            f'<span class="cg-c">{html.escape(cls)}{go}</span>'
             f'<span class="cg-cog">{cog}</span>'
             f'<span class="cg-m">{tog}{html.escape(name)}()</span>'
-            f'<span class="cg-tools">{go}</span>{delta}{lines}</div>')
+            f'{delta}{lines}</div>')
 
 
 WHY_EMPTY = ("Nothing counted: every method behind this entry point is straight-line code. "
@@ -731,7 +748,13 @@ a.cx-why-line:hover code { text-decoration:underline; }
     subtree is, and one wide branch then opens a screen of empty space above and below
     every sibling. Aligned to the top, a node sits level with its first callee and the
     elbows are drawn at a fixed height — half a node — from the top of each row. */
-.cg-t { --cg-mid:15px; display:flex; align-items:flex-start; position:relative; }
+.cg-t { --cg-mid:15px; display:flex; flex-direction:column; align-items:flex-start;
+        position:relative; }
+/* A node and the callees in other classes, to its right. The stem is the node's column,
+    stretched to the row's height so the rail down to its same-class callees can start
+    under the node however tall the branch beside it grows. */
+.cg-row { display:flex; align-items:flex-start; }
+.cg-stem { align-self:stretch; position:relative; }
 .cg-kids { display:flex; flex-direction:column; gap:3px; margin-left:12px; position:relative; }
 .cg-kids::before { content:""; position:absolute; left:-12px; top:var(--cg-mid); width:12px;
                    border-top:1px solid var(--cg-line); }
@@ -745,13 +768,29 @@ a.cx-why-line:hover code { text-decoration:underline; }
                           border-top:1px solid var(--cg-line); }
 /* The arrowhead: a border triangle hung off the callee's left edge, tip on its frame, so
     every edge reads caller → callee without an SVG. */
-.cg-kids > .cg-t > .cg-n::before, .cg-kids > .cg-t > .cg-more::before {
+.cg-kids > .cg-t > .cg-row > .cg-stem > .cg-n::before, .cg-kids > .cg-t > .cg-more::before {
     content:""; position:absolute; left:-7px; top:calc(var(--cg-mid) - 5px);
     border:4px solid transparent; border-left:6px solid var(--cg-arrow); border-right:0; }
 .cg-more { position:relative; }
+/* Calls that stay in the class hang below the caller: a rail down its left edge, and off
+    it one ┐ per callee ending in an arrowhead on the callee's top — down means "same
+    file", right means "another class". Each callee gets its own branch off the rail, so
+    two siblings never read as a chain. */
+.cg-down { display:flex; flex-direction:column; align-items:flex-start; gap:10px;
+           padding-top:10px; margin-left:14px; }
+.cg-v > .cg-row > .cg-stem::after { content:""; position:absolute; left:8px; top:var(--cg-mid);
+                                    bottom:0; border-left:1px solid var(--cg-line); }
+.cg-down > .cg-t::before { content:""; position:absolute; left:-6px; top:-10px; bottom:0;
+                           border-left:1px solid var(--cg-line); }
+.cg-down > .cg-t:last-child::before { bottom:auto; height:3px; }
+.cg-down > .cg-t::after { content:""; position:absolute; left:-6px; top:-8px; width:14px;
+                          height:2px; border:solid var(--cg-line); border-width:1px 1px 0 0; }
+.cg-down > .cg-t > .cg-row > .cg-stem > .cg-n::before {
+    content:""; position:absolute; left:3px; top:-7px;
+    border:4px solid transparent; border-top:6px solid var(--cg-arrow); border-bottom:0; }
 .cg { --cg-line:color-mix(in srgb, var(--muted) 55%, transparent); --cg-arrow:var(--muted); }
-/* A node: the class badge over the `method()` badge, the ↗ to the right of the class and
-    the score to the right of the method — the score is the method's, so it sits on its row. The names are set in the UI face, not monospace: the
+/* A node: the class badge, its ↗ inside it after the name, over the `method()` badge
+    with the score to its right — the score is the method's, so it sits on its row. The names are set in the UI face, not monospace: the
     graph is as wide as its deepest chain times its widest names, and a proportional face
     buys back a fifth of that. */
 .cg-n { display:inline-grid; grid-template-columns:auto auto; column-gap:5px; row-gap:1px;
@@ -766,16 +805,17 @@ a.cx-why-line:hover code { text-decoration:underline; }
                 background:color-mix(in srgb, var(--link) 12%, var(--card)); opacity:1; }
 .cg-c, .cg-m { font:600 10.5px/1.3 system-ui,sans-serif; padding:0 4px; border-radius:4px;
                grid-column:1; justify-self:start; }
+.cg-c { grid-column:1 / 3; }
 .cg-c { color:var(--muted); border:1px solid var(--line); font-weight:500; }
 .cg-m { background:var(--code-bg); border:1px solid transparent; }
 .cg-cog { grid-column:2; grid-row:2; font:700 9.5px/1.3 ui-monospace,Menlo,monospace;
           text-align:right; font-variant-numeric:tabular-nums; }
-.cg-tools { grid-column:2; grid-row:1; justify-self:end; }
 /* ↗ is the only way into the editor from the graph, so it is a real target, not a glyph:
     a small square that fills blue under the pointer. */
 a.cg-go { display:inline-block; min-width:14px; text-align:center; border-radius:3px;
           font:700 11px/14px system-ui,sans-serif; color:var(--link); text-decoration:none; }
 a.cg-go:hover { background:var(--link); color:var(--card); }
+.cg-c a.cg-go { min-width:12px; font-size:10.5px; line-height:1; }
 /* The fold's caret sits in front of the method name, the word a reader clicks on. */
 .cg-tog::before { content:"\\25B8"; display:inline-block; width:.8em; color:var(--muted);
                   transition:transform .12s; }
