@@ -466,7 +466,7 @@ over. Nothing describes the journey twice, so nothing can drift.
 environment first and the verbs that act on it after:
 
 ```
-served    Deployed app   http://localhost:53421     Stop ■   Where ↗   [Reset DB]
+served    Deployed app   http://localhost:53421     Stop ■   [Reset DB] [green]  DB: green
 off disk  Deployed app   Offline    Start App in Docker 📋   Stop 📋   Where 📋
 ```
 
@@ -497,8 +497,9 @@ while its precondition is missing is one that lies:
 |---|---|---|
 | `Start` | `command` | off disk always; served, while nothing is up |
 | `Stop` | `stop` | off disk always; served, while something is up |
-| `Where` | `urlCommand` | off disk always; served, while something is up |
+| `Where` | `urlCommand` | while nothing is up — with the app up, the address is already the link |
 | `Reset DB` | `reset` | served, and something answers at the address |
+| one per fixture | `reset`, and `GET <reset>` lists it | as `Reset DB` |
 
 Off disk all three are on screen whatever the health check says. None of them can *run*
 there — they are clipboards — and a clipboard for `stop` is exactly as useful with the app
@@ -511,7 +512,17 @@ anybody to paste and nothing for a clipboard there to be the honest form of.
 turning `… up --ref abc` into `… down --ref abc` by string surgery works for one host and
 fails silently on the next. `stop` is a command the host runs; `reset` is a path the
 environment answers on `POST` to put the data back to its starting point. Omit either and
-no button is drawn. Resetting is never automatic — doing it on every link click would throw
+no button is drawn.
+
+The environment may also offer **fixtures**: named datasets it restores *on top of* the
+seed. The row asks `GET <base><reset>` for them each time it finds the app up, and draws
+one button per name after `Reset DB`; a click is `POST <reset>/<name>`. The expected answer
+is `{"fixtures": ["green", …], "current": "green"}` — `current` being what the database was
+last reset to, shown as `DB: green` whenever there is more than one state to be in. Nothing
+in the content file lists them: a fixture added to the project is a button on the next
+probe, and an environment that answers with no list keeps the lone `Reset DB`.
+
+Resetting is never automatic — doing it on every link click would throw
 away work the reviewer was in the middle of — and `Stop` empties the address box, since
 leaving it behind would leave every link in the transcript pointing confidently at nothing.
 
@@ -520,18 +531,17 @@ leaving it behind would leave every link in the transcript pointing confidently 
 `.human-review/.actions.json` and the button sends the id of the one it wants, never the
 command itself. Served, `Start` has the server scrape the `http://localhost:<port>` line
 the command prints and fills the address in — which replaces the `Offline` pill with the
-address as a link, and brings up `Stop`, `Where`, `Reset DB` and every `▸` in the
+address as a link, and brings up `Stop`, `Reset DB` and every `▸` in the
 transcript.
 
 Off disk none of that exists, and the row says so by wearing the clipboard rather than by
 disappearing. `drive` falls back to the clipboard the same way.
 
 `urlCommand` is **optional** and is the same host asked where the environment already
-*is* — `url` rather than `up`. It is what the **Where** verb runs, and it is also run once
-when a served page loads with no address remembered, which covers the reader who opens a
-guide somebody else already started the environment for, and the browser with site data
-blocked where the remembered base was never there. It
-is never derived from `command`: turning `up` into `url` by string surgery works for one
+*is* — `url` rather than `up`. It is what the **Where** verb runs — on screen only while
+nothing answers, which covers the reader who opens a guide somebody else already started
+the environment for, and the browser with site data blocked where the remembered base was
+never there. It is never run merely because the page opened. It is never derived from `command`: turning `up` into `url` by string surgery works for one
 host and fails silently on the next, at load time, where nobody sees it fail.
 
 Keep the film's section id `video` (it has outlived two tab reshuffles, so `#video` still

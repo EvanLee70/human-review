@@ -194,7 +194,7 @@ def test_every_verb_starts_hidden_and_is_raised_by_the_script(tmp_path):
     out = build.video_html(s, tmp_path)
     for verb in ("start", "stop", "where"):
         assert f'<span class="appenv-act appenv-{verb}" hidden>' in out
-    at = out.index("appenv-reset")
+    at = out.index('class="appenv-reset"')
     tag = out[out.rindex("<button", 0, at):out.index(">", at) + 1]
     assert " hidden " in tag and 'aria-disabled="true"' in tag
 
@@ -218,7 +218,7 @@ def test_off_disk_every_verb_is_the_clipboard_for_its_own_command(tmp_path):
     # there is nothing for a clipboard there to be the honest form of.
     for verb in ("start", "stop", "where"):
         assert f".appenv:not(.appenv-served) .appenv-{verb}" not in build.CSS
-    assert ".appenv:not(.appenv-served) .appenv-reset { display:none; }" in build.CSS
+    assert ".appenv:not(.appenv-served) .appenv-resets { display:none; }" in build.CSS
     # The second row is gone, name and all.
     for dead in ("appenv-manual", "appenv-cmd", "appenv-verb"):
         assert dead not in out and f".{dead}" not in build.CSS

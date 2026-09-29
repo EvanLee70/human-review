@@ -58,12 +58,17 @@ PROBE = """() => {
     url: vis(url) ? [url.textContent, url.getAttribute('href'), url.target] : null,
     start: verb('start'), stop: verb('stop'), where: verb('where'),
     reset: vis(q('.appenv-reset')) ? q('.appenv-reset').textContent : null,
+    // The fixture buttons the environment reported, after Reset DB, and the note saying
+    // which state it was last reset to.
+    fixtures: [...document.querySelectorAll('.appenv-reset')].slice(1).filter(vis)
+                .map(b => b.textContent),
+    db: vis(q('.appenv-db')) ? q('.appenv-db').textContent : null,
   };
 }"""
 
 
 def _page(served: bool, live: bool, hang: bool = False, slow_probe: bool = False,
-          fail: bool = False) -> str:
+          fail: bool = False, fixtures: dict | None = None) -> str:
     """`hang` is a command that never finishes — which is the state worth looking at, and
     the only one the settled-state tests below can never catch: `docker compose up` on a
     cold cache is minutes of the row saying "Starting…" and nothing else. `slow_probe`
@@ -74,18 +79,22 @@ def _page(served: bool, live: bool, hang: bool = False, slow_probe: bool = False
     # — leaving the page showing the *previous* case's row, which reads as a bug in the bar.
     stub = """<script>
 window.SERVED = %s; window.LIVE = %s; window.HANG = %s; window.SLOW = %s;
-window.FAIL = %s;
+window.FAIL = %s; window.FIXTURES = %s;
 window.HR = {onready: fn => setTimeout(fn, 0), can: () => window.SERVED,
              run: () => window.HANG ? new Promise(() => {})
                       : window.FAIL ? Promise.resolve({state: 'failed', exit: 1, result: {},
                                                        output: 'context not found\\n'})
                                     : Promise.resolve({state: 'done', result: {}}),
              tail: snap => (snap && snap.output || '').trim()};
-window.fetch = () => window.SLOW ? new Promise(() => {})
-                                 : window.LIVE ? Promise.resolve({ok: true})
-                                               : Promise.reject(new Error('down'));
+// `GET <reset>` is the environment listing its fixtures; `null` is an environment from
+// before fixtures, whose answer has no list in it.
+window.fetch = url => window.SLOW ? new Promise(() => {})
+  : !window.LIVE ? Promise.reject(new Error('down'))
+  : /__reset$/.test(url) && window.FIXTURES
+    ? Promise.resolve({ok: true, json: () => Promise.resolve(window.FIXTURES)})
+  : Promise.resolve({ok: true, json: () => Promise.resolve({ok: true})});
 </script>""" % (json.dumps(served), json.dumps(live), json.dumps(hang),
-                json.dumps(slow_probe), json.dumps(fail))
+                json.dumps(slow_probe), json.dumps(fail), json.dumps(fixtures))
     return ("<!doctype html><meta charset=utf-8><style>" + build.CSS + "</style>"
             + stub + build.runtime_html(RUNTIME) + build.APP_ENV_JS)
 
@@ -107,8 +116,8 @@ def row():
         settled = ("() => document.querySelector('.appenv-state').dataset.state"
                    " !== 'unknown'")
 
-        def read(served, live):
-            page.set_content(_page(served, live))
+        def read(served, live, fixtures=None):
+            page.set_content(_page(served, live, fixtures=fixtures))
             page.wait_for_function(settled)
             page.wait_for_timeout(60)
             page.wait_for_function(settled)
@@ -126,11 +135,11 @@ def test_offline_says_offline_and_shows_no_address(row):
     seen = row(served=True, live=False)
     assert seen["state"] == "Offline"
     assert seen["url"] is None
-    # The one verb that changes what the row just said, and nothing that acts on an app
-    # that is not there. Stop with nothing to stop and Where with nowhere to go are two
-    # controls that can only fail, in a row a reader scans in one glance.
+    # The verb that changes what the row just said, and the one that finds an instance
+    # this browser does not remember. Stop with nothing to stop can only fail.
     assert seen["start"]["word"] == "Start App in Docker"
-    assert seen["stop"] is None and seen["where"] is None
+    assert seen["where"]["word"] == "Where"
+    assert seen["stop"] is None
     assert seen["reset"] is None
     # Which face that verb wears is SERVER_JS's answer, per action, and this page stubs
     # SERVER_JS out on purpose — see test_command_html.py for the raising, and the real
@@ -146,13 +155,31 @@ def test_live_shows_the_address_as_a_link_into_a_new_tab(row):
     seen = row(served=True, live=True)
     assert seen["state"] is None
     assert seen["url"] == ["http://localhost:4200", "http://localhost:4200", "_blank"]
-    # Start is gone and the two verbs that act on a running app take its place. `Where` is
-    # not the address repeated: the address is what *this browser* remembers, and Where is
-    # the host being asked — which is the answer for the reader whose site data is blocked,
-    # or who is reading a page somebody else served.
+    # Start is gone and Stop takes its place. Where goes too: with the address already in
+    # the row as a link, it was the same link again with an arrow on it.
     assert seen["start"] is None
-    assert seen["stop"]["word"] == "Stop" and seen["where"]["word"] == "Where"
+    assert seen["stop"]["word"] == "Stop" and seen["where"] is None
     assert seen["reset"] == "Reset DB"
+    # An environment that lists no fixtures has one state to be in, so nothing says which.
+    assert seen["fixtures"] == [] and seen["db"] is None
+
+
+def test_live_draws_one_reset_button_per_fixture_the_environment_lists(row):
+    """The fixtures are the running environment's to name — the page lists none of them —
+    so a SQL file added to the project is a button on the next probe, with no rebuild."""
+    seen = row(served=True, live=True,
+               fixtures={"ok": True, "fixtures": ["green", "busy-day"], "current": "green"})
+    assert seen["reset"] == "Reset DB"
+    assert seen["fixtures"] == ["green", "busy-day"]
+    assert seen["db"] == "DB: green"
+
+
+def test_fixture_buttons_leave_with_the_app(row):
+    """Down, there is nothing to reset: the fixtures go with Reset DB, and so does the note
+    saying which one the database is in."""
+    seen = row(served=True, live=False,
+               fixtures={"ok": True, "fixtures": ["green"], "current": "green"})
+    assert seen["reset"] is None and seen["fixtures"] == [] and seen["db"] is None
 
 
 def test_off_disk_every_verb_is_on_screen_as_its_own_clipboard(row):

@@ -3,7 +3,7 @@
 // Two copies of this report exist and the row has to be honest in both, and it is now the
 // *same row* in both — one line of verbs, and only the click differs. Served, a verb runs
 // its command through the review server and the row keeps its own state: nothing
-// answering, so Start; something answering, so the address as a link, then Stop and Where.
+// answering, so Start and Where; something answering, so the address as a link, then Stop.
 // Off disk nothing here can run, so every verb is a clipboard for its command and all
 // three are on screen, because which line the reader wants to paste is their business.
 //
@@ -28,7 +28,11 @@
   var acts = {start: bar.querySelector('.appenv-start'),
               stop: bar.querySelector('.appenv-stop'),
               where: bar.querySelector('.appenv-where')};
+  // The seed's button, which the build draws, and after it one per fixture the running
+  // environment reports — those are drawn here, because only the environment knows them.
+  var resets = bar.querySelector('.appenv-resets');
   var reset = bar.querySelector('.appenv-reset');
+  var dbNote = bar.querySelector('.appenv-db');
   // One command at a time. `docker compose up` is minutes, the row stays readable
   // throughout, and a second press in the middle of it is a reader who could not tell the
   // first one had started — a Stop sent into a half-built stack is the worst of them.
@@ -92,8 +96,12 @@
   function setLive(live, why) {
     show(acts.start, !served || !live);
     show(acts.stop, !served || live);
-    show(acts.where, !served || live);
-    gate(reset, live, 'Put the demo data back to its seed');
+    // Only while nothing answers. With the app up, the address is already in the row as a
+    // link and Where was the same link again with an arrow on it; with the app down, Where
+    // is the one control that can find an instance this browser does not remember.
+    show(acts.where, !live);
+    resetButtons().forEach(function (el) { gate(el, live, resetTip(el.dataset.fixture)); });
+    if (dbNote && !live) dbNote.hidden = true;
     [].forEach.call(document.querySelectorAll('.cue-drive'), function (el) {
       arm(el, live, live ? 'Drive the app to this point' : why);
     });
@@ -137,9 +145,57 @@
       if (!r.ok) throw 0;
       say('live', '');
       setLive(true);
+      listFixtures(b);
     }).catch(function () {
       down('Nothing is answering at ' + b + ' \u2014 start it first');
     });
+  }
+
+  function resetButtons() {
+    return resets ? [].slice.call(resets.querySelectorAll('.appenv-reset')) : [];
+  }
+  function resetTip(name) {
+    return name ? 'Put the demo data back to its seed, then load the \u201c' + name
+                  + '\u201d fixture on top of it'
+                : 'Put the demo data back to its seed';
+  }
+  // Which state the database was last reset to — "last reset to" and not "is in", since a
+  // reviewer may have typed since. Only worth saying when there is more than one state to
+  // be in: next to a lone Reset DB, "DB: seed" is a word about nothing.
+  function noteDb(current) {
+    if (!dbNote) return;
+    var any = resetButtons().length > 1;
+    dbNote.hidden = !any || !current;
+    dbNote.textContent = current ? 'DB: ' + current : '';
+    dbNote.dataset.tip = 'The dataset this database was last reset to \u2014 anything '
+      + 'typed since sits on top of it';
+  }
+
+  // The fixtures are the environment's to name, and asked for every time it is found up:
+  // a file added to the project is a button on the next probe, and an instance built from
+  // a commit that had none answers with none — or, older still, with no list at all,
+  // which is the same thing. Any failure leaves the lone Reset DB, which is what it was.
+  function listFixtures(b) {
+    if (!bar.dataset.reset) return;
+    fetch(b + bar.dataset.reset, {cache: 'no-store'}).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (info) {
+      // The row may have moved on while this was in flight — stopped, or pointed at
+      // another instance — and buttons for that one must not land in this one's row.
+      if (!info || base() !== b || state.dataset.state !== 'live') return;
+      var names = Array.isArray(info.fixtures) ? info.fixtures : [];
+      resetButtons().slice(1).forEach(function (el) { el.remove(); });
+      names.forEach(function (name) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'appenv-reset';
+        btn.dataset.fixture = name;
+        btn.textContent = name;
+        gate(btn, true, resetTip(name));
+        resets.insertBefore(btn, dbNote);
+      });
+      noteDb(info.current);
+    }).catch(function () {});
   }
 
   // What a verb that exited non-zero leaves in the row: its own word, and the last line it
@@ -234,17 +290,15 @@
     });
   });
 
-  // Where: the address of the instance, and a way into it.
+  // Where: ask the host which instance is up, and open it.
   //
-  // It is the one verb of the three that is not a state change, which is why it is worth a
-  // control of its own beside the address it duplicates: the address in the row is the one
-  // *this browser* remembers, and Where is the host being asked. A reader who started the
-  // stack in another tab, or cleared their site data, or is looking at a page somebody
-  // else served has nothing remembered — and this is the button that fixes that without
-  // a terminal. When the base is already known it skips the round trip and just opens it.
+  // It is the one verb of the three that is not a state change, and it is on screen only
+  // while the row says Offline: the address the row knows is the one *this browser*
+  // remembers, and Where is the host being asked. A reader who started the stack in
+  // another tab, or cleared their site data, or is looking at a page somebody else served
+  // has nothing remembered — and this is the button that fixes that without a terminal.
+  // Always the round trip: whatever base is remembered is, by now, not answering.
   onrun(acts.where, function () {
-    var b = base();
-    if (b) { window.open(b, '_blank', 'noopener'); return; }
     drive('demo-env-url', 'Asking', function (done) {
       if (done.state === 'done' && adopt(done.result && done.result.base)) {
         var u = base();
@@ -316,15 +370,28 @@
   // reviewer was in the middle of; the duplicate rows and unique-constraint collisions it
   // exists to prevent are the reviewer's own repeated form submissions, and they know
   // when they have made a mess.
-  if (reset) reset.addEventListener('click', function () {
-    if (blocked(reset)) return;
+  //
+  // One listener for the whole group, since the fixture buttons come and go with the
+  // probe. The environment answers with the state it reset to, which is what the note says.
+  if (resets) resets.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.appenv-reset');
+    if (!btn || blocked(btn)) return;
     var b = base();
     if (!b) return;
-    reset.disabled = true; reset.textContent = 'Resetting\u2026';
-    fetch(b + bar.dataset.reset, {method: 'POST', cache: 'no-store'}).then(function (r) {
-      reset.textContent = r.ok ? 'Reset' : 'Reset failed';
-    }).catch(function () { reset.textContent = 'Reset failed'; }).then(function () {
-      setTimeout(function () { reset.textContent = 'Reset DB'; reset.disabled = false; }, 1400);
+    var name = btn.dataset.fixture, face = btn.textContent, all = resetButtons();
+    all.forEach(function (el) { el.disabled = true; });
+    btn.textContent = 'Resetting\u2026';
+    fetch(b + bar.dataset.reset + (name ? '/' + encodeURIComponent(name) : ''),
+          {method: 'POST', cache: 'no-store'}).then(function (r) {
+      btn.textContent = r.ok ? 'Reset' : 'Reset failed';
+      return r.ok ? r.json().then(function (j) { noteDb(j.current || name || 'seed'); },
+                                  function () { noteDb(name || 'seed'); })
+                  : null;
+    }).catch(function () { btn.textContent = 'Reset failed'; }).then(function () {
+      setTimeout(function () {
+        btn.textContent = face;
+        all.forEach(function (el) { el.disabled = false; });
+      }, 1400);
     });
   });
 })();

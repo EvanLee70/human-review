@@ -762,8 +762,18 @@ def runtime_html(rt) -> str:
         # Not a shell command and so not one of the three: it is a POST the *application*
         # answers, which is why it works off disk as soon as something is up, and why it
         # has no line for anybody to paste.
-        controls += ('<button type="button" class="appenv-reset" hidden aria-disabled="true"'
-                     ' data-tip="Put the demo data back to its seed">Reset DB</button>')
+        #
+        # A group and not one button: the environment may know named fixtures — datasets
+        # it restores *on top of* the seed — and it is the running environment that says
+        # which, when the probe asks `GET <reset>`. Nothing here lists them, so a fixture
+        # added to the project is a button on the next probe, with no rebuild of this page
+        # and no second list to fall out of step with the files. APP_ENV_JS appends one
+        # `.appenv-reset` per fixture after this one, and the `.appenv-db` note after them.
+        controls += ('<span class="appenv-resets">'
+                     '<button type="button" class="appenv-reset" data-fixture="" hidden'
+                     ' aria-disabled="true" data-tip="Put the demo data back to its seed">'
+                     'Reset DB</button>'
+                     '<span class="appenv-db" hidden></span></span>')
 
     return (f'<div class="appenv" data-fallback="{html.escape(fallback)}"'
             f'{f' data-reset="{html.escape(rt["reset"])}"' if rt.get("reset") else ""}'
