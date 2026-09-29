@@ -128,10 +128,20 @@
     return spans;
   }
 
-  // The values are what the reader switched on to see, so each one is marked where it
-  // landed in the statement — otherwise `=1` reads as a literal the query always had.
-  function renderBody(text, sent) {
-    var spans = sent != null ? valueSpans(sent, text) : null;
+  // Where each `?` sits in the statement as sent — the same holes the values fill.
+  function placeholderSpans(sent) {
+    var spans = [], at = -1;
+    while ((at = sent.indexOf('?', at + 1)) >= 0) spans.push([at, at + 1]);
+    return spans;
+  }
+
+  // Both renderings mark the same holes: the `?` as sent, and what was put back into each —
+  // otherwise `=1` reads as a literal the query always had, and toggling makes the eye hunt
+  // for what changed. Only a statement that lines up with its values is marked, which is
+  // also what tells a placeholder from a `?` that is just text.
+  function renderBody(text, on) {
+    var bound = step.alternate && valueSpans(step.text, step.alternate.text);
+    var spans = !bound ? null : on ? bound : placeholderSpans(text);
     if (!spans) { els.body.textContent = text; return; }
     els.body.textContent = '';
     var at = 0;
@@ -153,7 +163,7 @@
     var view = on ? step.alternate : step;
     els.label.textContent = view.label || '';
     els.label.hidden = !view.label;
-    renderBody(view.text, on ? step.text : null);
+    renderBody(view.text, on);
     els.toggle.hidden = !step.alternate;
     if (step.alternate) {
       // One word, because it sits against the end of the title and the sentence it
