@@ -2610,8 +2610,8 @@ def test_piles_out_of_canonical_order_are_called_out(tmp_path):
 
 
 def test_the_piles_render_as_rounds_whatever_the_content_file_order(tmp_path):
-    """Round I (assumptions, while coding) then round II (open, then auto-fixed), each
-    round's first heading wearing its kicker once; no round III without data for one."""
+    """Round I (assumptions, while coding), round II (open, the review) and round III
+    (auto-fixed, the pass that applied the fixes), each heading wearing its kicker once."""
     page, _ = _build(tmp_path, dict(
         BARE, findings=[{"title": "ff", "body": "x"}], autofixes=[{"title": "fixed"}],
         assumptions=[_assumption(title="aa")],
@@ -2620,7 +2620,8 @@ def test_the_piles_render_as_rounds_whatever_the_content_file_order(tmp_path):
                           {"type": "assumptions", "mode": "A"}]}]))
     assert page.index('id="assumed"') < page.index('id="first"') < page.index('id="fixed"')
     assert page.count("<b>Round I</b>") == 1 and page.count("<b>Round II</b>") == 1
-    assert "Round III" not in page
+    assert page.count("<b>Round III</b>") == 1
+    assert page.index("<b>Round III</b>") < page.index('id="fixed"')
 
 
 def test_open_issues_are_listed_worst_first():

@@ -757,7 +757,7 @@ def opening_lede(spec) -> str:
         # reviewer's. Mode C is still the exception: there is no count to give, only the
         # reason there is none.
         # First, since the piles read as rounds: what was assumed while coding (I) came
-        # before anything the review raised or fixed (II).
+        # before anything the review raised (II) or fixed (III).
         parts.insert(0, clause(
             "coder could not be asked"
             if block.get("mode") == "C" and not assumed
@@ -1297,11 +1297,11 @@ def aftermath_html(out_dir: Path, root: Path, base_ref: str | None = None) -> st
 PILE_BLOCKS = ("findings", "assumptions", "autofixes")
 
 
-#: The rounds the piles belong to, in the order they happened: what the coder assumed while
-#: implementing (I), then what the code review raised or fixed (II). A round III — a second
-#: review after human corrections — has no data behind it yet, so it is never drawn.
+#: The rounds the piles belong to, in the order they ran on the model: what the coder
+#: assumed while implementing (I), what the code review raised (II), and the pass that
+#: then applied the fixes it accepted (III) — a third run of its own, not part of the review.
 PILE_ROUND = {"assumptions": ("I", "while coding"),
-              "findings": ("II", "code review"), "autofixes": ("II", "code review")}
+              "findings": ("II", "code review"), "autofixes": ("III", "fixing the review")}
 
 
 def _round_kicker(spec, kind) -> str:
