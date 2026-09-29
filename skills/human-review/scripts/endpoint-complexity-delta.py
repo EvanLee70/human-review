@@ -265,7 +265,8 @@ def _graph(nodes, groups=()) -> tuple[str, set[str]]:
                          f'{_tip("Also called, and folded to keep this readable:" + chr(10) + names)}>'
                          f'+{len(rest)}</span></div>')
         sub = f'<div class="cg-kids">{"".join(parts)}</div>' if parts else ""
-        below = f'<div class="cg-down">{"".join(down)}</div>' if down else ""
+        fork = " cg-fork" if len(down) > 1 else ""
+        below = f'<div class="cg-down{fork}">{"".join(down)}</div>' if down else ""
         node = _node(by[k], lines_of.get(k))
         return (f'<div class="cg-t{" cg-v" if down else ""}"><div class="cg-row">'
                 f'<div class="cg-stem">{node}</div>{sub}</div>{below}</div>')
@@ -772,19 +773,28 @@ a.cx-why-line:hover code { text-decoration:underline; }
     content:""; position:absolute; left:-7px; top:calc(var(--cg-mid) - 5px);
     border:4px solid transparent; border-left:6px solid var(--cg-arrow); border-right:0; }
 .cg-more { position:relative; }
-/* Calls that stay in the class hang below the caller: a rail down its left edge, and off
-    it one ┐ per callee ending in an arrowhead on the callee's top — down means "same
-    file", right means "another class". Each callee gets its own branch off the rail, so
-    two siblings never read as a chain. */
+/* Calls that stay in the class hang below the caller, flush with its left edge: the rail
+    down from under the caller runs straight into an arrowhead on the callee's top — down
+    means "same file", right means "another class". A second callee cannot take that line,
+    it would run through the first and read as a chain, so under a fork the rail also
+    turns left, runs down outside the boxes and comes back in with a ┐ over each later
+    callee. */
 .cg-down { display:flex; flex-direction:column; align-items:flex-start; gap:10px;
-           padding-top:10px; margin-left:14px; }
-.cg-v > .cg-row > .cg-stem::after { content:""; position:absolute; left:8px; top:var(--cg-mid);
+           padding-top:10px; position:relative; }
+/* The rail starts at the caller's bottom edge, not its middle: a dimmed caller is
+    translucent, and a line from its middle showed through it. */
+.cg-v > .cg-row > .cg-stem::after { content:""; position:absolute; left:8px;
+                                    top:calc(2 * var(--cg-mid) + 6px);
                                     bottom:0; border-left:1px solid var(--cg-line); }
-.cg-down > .cg-t::before { content:""; position:absolute; left:-6px; top:-10px; bottom:0;
+.cg-down::after { content:""; position:absolute; left:8px; top:0; height:3px;
+                  border-left:1px solid var(--cg-line); }
+.cg-fork::before { content:""; position:absolute; left:-6px; top:0; width:14px;
+                   border-top:1px solid var(--cg-line); }
+.cg-fork > .cg-t::before { content:""; position:absolute; left:-6px; top:-10px; bottom:0;
                            border-left:1px solid var(--cg-line); }
-.cg-down > .cg-t:last-child::before { bottom:auto; height:3px; }
-.cg-down > .cg-t::after { content:""; position:absolute; left:-6px; top:-8px; width:14px;
-                          height:2px; border:solid var(--cg-line); border-width:1px 1px 0 0; }
+.cg-fork > .cg-t:last-child::before { bottom:auto; height:3px; }
+.cg-fork > .cg-t + .cg-t::after { content:""; position:absolute; left:-6px; top:-8px; width:14px;
+                                  height:2px; border:solid var(--cg-line); border-width:1px 1px 0 0; }
 .cg-down > .cg-t > .cg-row > .cg-stem > .cg-n::before {
     content:""; position:absolute; left:3px; top:-7px;
     border:4px solid transparent; border-top:6px solid var(--cg-arrow); border-bottom:0; }
