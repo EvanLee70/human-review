@@ -412,3 +412,21 @@ button.chip-rerun-ai .rr-ico { font-size:1em; vertical-align:-.05em; }
 /* A verb the row is mid-way through running: hidden a moment later by the same call that
     disarms it, but greyed for the frame in between rather than flickering live. */
 .appenv button[aria-disabled="true"] { cursor:not-allowed; opacity:.45; }
+/* The tab pill is the progress bar of its own regeneration: while a rerun re-derives what a
+   tab shows, the pill fills left to right in the ↺'s green, as far as that tab's producers
+   have got (`rerun.js`). The band under the masthead says which step is running; the strip
+   says which tabs are being rebuilt, and how far each is — the question a reader who
+   pressed the masthead ↺ is actually asking. A registered property so the fill glides
+   between polls instead of jumping. `html` in front because frame.css, emitted after this
+   file, sets the pill's whole `background` in every state. */
+@property --tab-fill { syntax:'<percentage>'; inherits:false; initial-value:0%; }
+html .tabstrip button.tab.tab-regen {
+            --regen:rgba(46,125,50,.34);
+            background-image:linear-gradient(90deg, var(--regen) var(--tab-fill),
+                                             transparent var(--tab-fill));
+            transition:background .18s, border-color .18s, color .18s, padding .22s ease,
+                       --tab-fill 1s linear; }
+@media (prefers-color-scheme:dark) {
+  html .tabstrip button.tab.tab-regen { --regen:rgba(107,212,138,.36); } }
+@media (prefers-reduced-motion:reduce) {
+  html .tabstrip button.tab.tab-regen { transition:none; } }

@@ -63,6 +63,45 @@
     var BUILD = /\[refresh\] \$ [^\n]*build-review-html\.py/g;
     var runStarted = 0, began = {}, primed = false, kind = 'rerun';
 
+    // The tab pills, each its own progress bar. A tab is what its free ↺ re-derives
+    // (`data-steps`), so how far along a tab is comes from the same step lines as the band:
+    // a step done or skipped counts whole, the one in flight by the time it has run against
+    // what it took last time. A tab joins the run when one of its steps is in it — the one
+    // whose ↺ was pressed from the start, so the press shows at once. Never backwards: the
+    // tail the server hands back is the run's last lines, and a step that scrolled out of it
+    // has not come undone. The tab's own steps take it to 80%, the build that follows them
+    // the rest of the way: until the reload nothing on the tab has changed, but a bar that
+    // stood still for the fifteen seconds of the build read as a run that had hung.
+    var tabs = [];
+    document.querySelectorAll('.tabstrip .tabre > .tabrerun[data-rerun="__rerun__"][data-steps]')
+      .forEach(function (b) {
+        var pill = b.parentNode.previousElementSibling;
+        if (!pill || !pill.classList.contains('tab')) return;
+        tabs.push({pill: pill, id: b.getAttribute('data-tab'), on: false, at: 0,
+                   steps: b.getAttribute('data-steps').split(',').filter(Boolean)});
+      });
+    function paintTab(t, frac) {
+      t.at = Math.max(t.at, frac);
+      if (!t.on) { t.on = true; t.pill.classList.add('tab-regen'); }
+      t.pill.style.setProperty('--tab-fill', (t.at * 100).toFixed(1) + '%');
+    }
+    function paintTabs(frac, built) {
+      tabs.forEach(function (t) {
+        var mine = t.steps.filter(function (n) { return n in frac || order.indexOf(n) >= 0; });
+        if (!mine.some(function (n) { return n in frac; })) return;
+        var got = 0, all = 0;
+        mine.forEach(function (n) { all += expected(n); got += (frac[n] || 0) * expected(n); });
+        paintTab(t, Math.min(0.98, 0.8 * (all ? got / all : 0) + 0.2 * built));
+      });
+    }
+    function clearTabs() {
+      tabs.forEach(function (t) {
+        t.on = false; t.at = 0;
+        t.pill.classList.remove('tab-regen');
+        t.pill.style.removeProperty('--tab-fill');
+      });
+    }
+
     function expected(name) {
       return typeof steps[name] === 'number' ? steps[name] : (expect['default'] || 5);
     }
@@ -87,8 +126,10 @@
     }
     // `only`: the steps a tab's ↻ re-runs, so the bar measures that run and not the
     // masthead's whole list.
-    function start(k, startedAt, only) {
+    function start(k, startedAt, only, tab) {
       kind = k || 'rerun';
+      clearTabs();
+      tabs.forEach(function (t) { if (t.id === tab) paintTab(t, 0.02); });
       order = only && only.length
         ? only.slice() : Object.keys(steps);
       runStarted = startedAt ? startedAt * 1000 : Date.now();
@@ -118,23 +159,28 @@
       // from the run's clock for as long as it lasts; only a line that arrives on a
       // later poll is clocked at the moment it arrives.
       var clock = primed; primed = true;
-      var done = 0, spent = 0, current = null;
+      var done = 0, spent = 0, current = null, stepFrac = {};
       seen.forEach(function (st, i) {
         var last = i === seen.length - 1;
         if (!began[st.name]) began[st.name] = clock ? now : -1;
         if (st.mark !== '*' || !last || building) {
           done += expected(st.name);
+          stepFrac[st.name] = 1;
           if (st.mark === '*') spent += expected(st.name);
           return;
         }
         current = st.name;
-        done += credit(st.name, spent, expected(st.name));
+        var ran = credit(st.name, spent, expected(st.name));
+        done += ran;
+        stepFrac[st.name] = ran / expected(st.name);
       });
       var all = total();
       if (building) {
         if (!began['\0build']) began['\0build'] = clock ? now : -1;
         done = all - (expect.build || 15) + credit('\0build', spent, expect.build || 15);
       }
+      paintTabs(stepFrac, building
+        ? credit('\0build', spent, expect.build || 15) / (expect.build || 15) : 0);
       var frac = Math.max(0, Math.min(1, all ? done / all : 0));
       fill.style.width = (frac * 100).toFixed(1) + '%';
       var n = order.length || seen.length;
@@ -153,11 +199,12 @@
       eta.textContent = '~' + left + ' s left';
     }
     function finish() {
+      tabs.forEach(function (t) { if (t.on) paintTab(t, 1); });
       fill.style.width = '100%';
       say.textContent = 'Done — reloading…';
       eta.textContent = '';
     }
-    function hide() { box.hidden = true; }
+    function hide() { box.hidden = true; clearTabs(); }
     return {start: start, update: update, finish: finish, hide: hide};
   })();
 
@@ -254,7 +301,7 @@
     // whole list (the slow ones included, which the last run's timings may not know).
     var only = btn.getAttribute('data-steps');
     progress.start(btn.getAttribute('data-rerun') === '__rerun_ai__' ? 'rerun_ai' : 'rerun',
-                   0, only ? only.split(',') : null);
+                   0, only ? only.split(',') : null, tab);
     window.HR.run(btn.getAttribute('data-rerun'), tab ? {tab: tab} : {}, function (snap) {
       // One line, in the hover: the button has room for a word and the reader who wants
       // to know which producer it is on is the reader already pointing at it. The band

@@ -285,7 +285,10 @@ def main(argv=None) -> int:
     for cmd in commands:
         printable = " ".join(Path(c).name if c.startswith("/") and Path(c).exists() else c
                              for c in cmd)
-        print(f"[refresh] $ {printable}")
+        # Flushed, because the served page reads this line to learn the build has begun
+        # (`rerun.js`), and to a pipe Python holds it in a buffer until the process ends —
+        # the band and the tab fills stood still for the whole build, then the page reloaded.
+        print(f"[refresh] $ {printable}", flush=True)
         if args.dry_run:
             continue
         is_serve = cmd[1] == str(SERVE)

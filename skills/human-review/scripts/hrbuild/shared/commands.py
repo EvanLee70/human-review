@@ -140,6 +140,9 @@ def rerun_tests_chip(info: dict | None) -> str:
             f'data-tip="{html.escape(info["tip"], quote=True)}">{RUN_TESTS_FACE}</button>')
 
 
+TAB_RERUN_TIP = "Regenerate (scripted, free)"
+
+
 def tab_rerun_html(tab_id: str, label: str, info: dict | None) -> str:
     """The masthead's ↻, narrowed to one tab, beside that tab's pill on the strip.
 
@@ -158,9 +161,10 @@ def tab_rerun_html(tab_id: str, label: str, info: dict | None) -> str:
     tid = html.escape(tab_id, quote=True)
     name = html.escape(label, quote=True)
     steps = html.escape(",".join(info.get("steps") or []), quote=True)
-    tip = html.escape(info.get("tip") or f"Re-derive the {label} tab "
-                      f"({','.join(info.get('steps') or [])}) and rebuild the page. Free.",
-                      quote=True)
+    # The verb and the two facts that decide whether to press it: a script does it, not a
+    # model, and it costs nothing. Which producers it runs is the command's business, one
+    # hover away on the server's own log, not the tooltip's.
+    tip = html.escape(info.get("tip") or TAB_RERUN_TIP, quote=True)
     out = ('<span class="tabre">'
            '<button type="button" class="chip chip-rerun chip-served tabrerun" hidden '
            f'aria-disabled="true" data-rerun="__rerun__" data-tab="{tid}" '

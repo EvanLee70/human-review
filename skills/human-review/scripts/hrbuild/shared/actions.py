@@ -247,9 +247,8 @@ AI_STEPS = {"model": ("rerun-model.py", True), "review": ("rerun-review.py", Fal
 #: nothing else: the findings and the assumptions are a model's, and only a new review pass
 #: moves them. Said on the button, so a reader does not press it hoping for a new review.
 TAB_TIPS = {
-    "review": "Rebuilds the list of commits made since the review, from git, and rebuilds "
-              "the page. Free. It does not re-run the review: the findings and the "
-              "assumptions stay as they were written.",
+    "review": "Regenerate (scripted, free) \u2014 the commits made since the review, from "
+              "git. It does not re-run the review: the findings stay as they were written.",
 }
 
 
