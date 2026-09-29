@@ -80,10 +80,19 @@
         tabs.push({pill: pill, id: b.getAttribute('data-tab'), on: false, at: 0,
                    steps: b.getAttribute('data-steps').split(',').filter(Boolean)});
       });
+    // A lit pill is the run's bar, so the band under the masthead steps aside for it: the
+    // same bar twice, one over the other, was the tab pill's news told a second time. What
+    // the band said in words -- the step it is on, the seconds left -- moves into the hover
+    // of every lit pill (`sayTabs`). A run no pill has joined yet (the model thinking, a
+    // masthead press still on a step no tab owns) keeps the band: it is the only bar there.
     function paintTab(t, frac) {
       t.at = Math.max(t.at, frac);
-      if (!t.on) { t.on = true; t.pill.classList.add('tab-regen'); }
+      if (!t.on) { t.on = true; t.pill.classList.add('tab-regen'); box.hidden = true; }
       t.pill.style.setProperty('--tab-fill', (t.at * 100).toFixed(1) + '%');
+    }
+    function sayTabs() {
+      var line = say.textContent + (eta.textContent ? ' \u00b7 ' + eta.textContent : '');
+      tabs.forEach(function (t) { if (t.on) t.pill.setAttribute('data-tip', line); });
     }
     function paintTabs(frac, built) {
       tabs.forEach(function (t) {
@@ -98,6 +107,7 @@
       tabs.forEach(function (t) {
         t.on = false; t.at = 0;
         t.pill.classList.remove('tab-regen');
+        t.pill.removeAttribute('data-tip');
         t.pill.style.removeProperty('--tab-fill');
       });
     }
@@ -138,7 +148,8 @@
       fill.style.width = '0%';
       say.textContent = kind === 'rerun_ai' ? 'Asking the model…' : 'Rebuilding this page…';
       eta.textContent = startedAt ? 'started ' + clock(startedAt) : '';
-      box.hidden = false;
+      box.hidden = tabs.some(function (t) { return t.on; });
+      sayTabs();
     }
     function clock(epochSeconds) {
       var at = new Date(epochSeconds * 1000);
@@ -194,15 +205,17 @@
         say.textContent = kind === 'rerun_ai' ? 'Asking the model…' : 'Starting…';
       }
       // No estimate while the model is thinking: nothing on the page has measured that.
-      if (!seen.length && kind === 'rerun_ai') return;
-      var left = Math.max(1, Math.round(all - done));
-      eta.textContent = '~' + left + ' s left';
+      if (seen.length || kind !== 'rerun_ai') {
+        eta.textContent = '~' + Math.max(1, Math.round(all - done)) + ' s left';
+      }
+      sayTabs();
     }
     function finish() {
       tabs.forEach(function (t) { if (t.on) paintTab(t, 1); });
       fill.style.width = '100%';
       say.textContent = 'Done — reloading…';
       eta.textContent = '';
+      sayTabs();
     }
     function hide() { box.hidden = true; clearTabs(); }
     return {start: start, update: update, finish: finish, hide: hide};
@@ -304,8 +317,8 @@
                    0, only ? only.split(',') : null, tab);
     window.HR.run(btn.getAttribute('data-rerun'), tab ? {tab: tab} : {}, function (snap) {
       // One line, in the hover: the button has room for a word and the reader who wants
-      // to know which producer it is on is the reader already pointing at it. The band
-      // under the masthead says the rest.
+      // to know which producer it is on is the reader already pointing at it. The lit tab's
+      // hover, or the band under the masthead while no tab is lit, says the rest.
       var line = window.HR.tail(snap);
       btn.setAttribute('data-tip', line || 'Rebuilding this page\u2026');
       progress.update(snap);
