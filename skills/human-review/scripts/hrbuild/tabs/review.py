@@ -1513,12 +1513,14 @@ def prepare_pr_push(spec: dict, out_dir: Path, root: Path, skill_dir: Path) -> d
 
 
 def gh_comment_link(f) -> str:
-    """↗ beside an item's title, once it has a comment on the PR."""
+    """*on GitHub ↗* beside an item's title, once it has a comment on the PR. The words
+    say where the arrow goes; a bare ↗ read as "open this item" and left the reader
+    guessing."""
     url = f.get("_ghUrl")
     if not url:
         return ""
     return (f' <a class="f-gh" href="{html.escape(url, quote=True)}" target="_blank" '
-            'rel="noopener" data-tip="This item\'s comment on the pull request">↗</a>')
+            'rel="noopener" data-tip="This item\'s comment on the pull request">on GitHub ↗</a>')
 
 
 # Run on DOMContentLoaded, not inline: this sits in the Review tab, far above the page's

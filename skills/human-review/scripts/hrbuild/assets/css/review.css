@@ -191,5 +191,6 @@ a.f-src:hover, a.f-src:focus-visible { color:var(--link); border-color:var(--lin
   background:var(--bg); color:var(--fg); }
 .pr-push-dlg pre { max-height:60vh; overflow:auto; font-size:11px; white-space:pre-wrap; }
 .pr-push-dlg menu { display:flex; gap:.5rem; justify-content:flex-end; padding:0; }
-a.f-gh { text-decoration:none; margin-left:.25rem; color:var(--muted); }
+a.f-gh { text-decoration:none; margin-left:.35rem; color:var(--muted); font-size:.8rem;
+          font-weight:400; white-space:nowrap; }
 a.f-gh:hover, a.f-gh:focus-visible { color:var(--link); }
