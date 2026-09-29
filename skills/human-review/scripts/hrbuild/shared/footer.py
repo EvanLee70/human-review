@@ -11,13 +11,12 @@ HOME_URL = "https://github.com/victorrentea/human-review"
 # City, the feature video — by clicking, with nothing to install and nothing to download.
 # It is the one URL worth reading out to a room.
 #
-# The gallery index rather than this report's own address, on purpose: `publish-demo.sh`
-# copies review.html into `demo/<slug>/` **verbatim**, so the page cannot carry a link to
-# where it is about to be published — at build time it has no slug and no way to learn
-# one. Rewriting the file on publish would buy a self-address at the cost of the property
-# that makes the snapshot trustworthy, which is a bad trade for one href. The index lists
-# every snapshot with a card, so the reader is one click from the right one.
-DEMO_PAGES_URL = "https://victorrentea.github.io/human-review/"
+# The demo report itself rather than the gallery index: a reader who clicks "online"
+# wants to land on a report, not on a list of cards to choose from. The page still cannot
+# learn its own address — `publish-demo.sh` copies review.html into `demo/<slug>/`
+# verbatim, with no slug known at build time — so every page points at the one canonical
+# demo, and the gallery stays one click away from there.
+DEMO_PAGES_URL = "https://victorrentea.github.io/human-review/demo/review.html"
 
 # Still built and still linked from the index, just not from here: `.github/workflows/
 # demo-zip.yml` attaches a zip per snapshot to a rolling release. The footer used to offer
@@ -73,7 +72,7 @@ DEMO_DOCKER_URL = ("https://github.com/victorrentea/human-review/"
 TAKEAWAY = (
     '<span class="takeaway">'
     f'<a href="{DEMO_PAGES_URL}" target="_blank" rel="noopener" '
-    'data-tip="Every published snapshot on GitHub Pages — the live page, diagrams, '
+    'data-tip="The demo report on GitHub Pages — the live page, diagrams, '
     'Code City and the feature video. Nothing to install.">Browse it online</a> or '
     f'<a href="{DEMO_DOCKER_URL}" target="_blank" rel="noopener" '
     'data-tip="The same pages as a container: docker run --rm -p 8642:80 '
