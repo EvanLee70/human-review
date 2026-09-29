@@ -133,7 +133,7 @@ from hrbuild.tabs.review import (
     _assumptions_block, _code_totals, _confidence_chip, _finding_refs, _finding_source, _fold_note_lists,
     grade_reasons, grade_reasons_html, _first_clause, _CLAUSE_END, PILE_ROUND, _round_kicker,
     _LEDE_SHOWN, _LIST_OFFSET, _merge_seam_shas, _open_list, _pile_anchor, _raised_by,
-    _ref_link, _regenerate_offer, _revert_offer, _score_target, _tooling_commit_shas,
+    _ref_link, _regenerate_offer, _score_target, _tooling_commit_shas,
     gh_comment_link, prepare_pr_push, pr_comment_slug, PR_COMMENTS_JSON, PR_PILE_LETTER,
     PR_POSTED_JSON, PR_PUSH_JS, push_pr_button, push_pr_dialog, PUSH_PR_ACTION,
     PUSH_PR_DRY_ACTION, _PR_SLUG_MAX,

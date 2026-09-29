@@ -109,9 +109,8 @@
         : runhere
         ? 'Copied \u2014 this copy of the report cannot run it, so run it in a terminal'
         // The glyph, on a page that may or may not have a server. "…then reload this
-        // page" used to ride along here and was only ever true of one of the commands
-        // this now renders: `git revert` stages a diff and changes nothing the page
-        // shows. Where a reload *is* part of the job, the play glyph does it.
+        // page" used to ride along here and was only ever true of some of the commands
+        // this renders. Where a reload *is* part of the job, the play glyph does it.
         : 'Copied \u2014 paste it in a terminal'); });
   });
 

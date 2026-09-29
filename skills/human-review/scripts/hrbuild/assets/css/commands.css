@@ -182,13 +182,6 @@ button.chip-rerun-ai .rr-ico { font-size:1em; vertical-align:-.05em; }
    way for a reader who pressed one to know the other did the same thing. */
 .rband .rb-act .cmd-copy, .rband .rb-act .cmd-run { font-size:.82rem; font-weight:600;
             padding:.26rem .8rem; }
-/* `Revert it` sits ON the row of the commit it reverts, so it stays on the line instead
-   of taking one: the .rb-actions row below is a block under the whole list, and a flex
-   row inside an <li> would push the subject off its own line. Quieter than the band's
-   own button, too — the row's subject is the commit, not the offer. */
-.rband li .rb-act { margin-left:.45rem; vertical-align:baseline; }
-.rband li .rb-act .cmd-copy, .rband li .rb-act .cmd-run { font-size:.74rem;
-            font-weight:600; padding:.1rem .5rem; }
 /* "Open it in draw.io": under the drawing, never on it. The invitation used to be
    painted into the picture itself, which put a sentence about tooling on top of the map
    and made the reader read it again on every look. In HTML it is a link — it looks like

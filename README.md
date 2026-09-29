@@ -119,9 +119,10 @@ written. So the page can be accurate about a change set and misleading about the
 claims to be: the findings, the declined items, the assumptions, the film and the costs all
 describe the branch as the agent left it.
 
-The Review tab therefore opens with what landed after the review commit — each commit's
-sha, subject and files, and a button that runs `git revert --no-commit` on it and stops, so
-the click leaves a diff to look at rather than a commit made on your behalf. It is **red**
+The Review tab therefore opens with what landed after the review commit, folded to one
+line — how many commits, how many lines — that opens onto each commit's sha, subject and
+files, read from `git log`. Nothing on it is a button to undo them: what to do about a
+commit is the developer's call, made on the command line. It is **red**
 when a file no generator owns has moved and **grey** when every path in the range is
 generated, which is what `"generated": [globs]` in `human-review.json` is for: on a
 repository whose hooks regenerate diagrams and a spec on every commit, a band that does not

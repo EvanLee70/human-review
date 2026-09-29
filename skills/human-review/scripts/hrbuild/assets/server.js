@@ -324,7 +324,7 @@ window.HR = (function () {
     // page — one block can carry four, and a server that answers for the re-render does
     // not necessarily answer for the rest.
     // Every offer on the page, not only the ones under a diagram: the aftermath band's
-    // revert is the same control in a different place, and a selector naming one of the
+    // regenerate is the same control in a different place, and a selector naming one of the
     // two places is how the second one silently ships with both buttons on screen.
     [].forEach.call(document.querySelectorAll('button.runhere[data-action]'),
         function (b) {

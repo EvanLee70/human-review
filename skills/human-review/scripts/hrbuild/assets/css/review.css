@@ -53,6 +53,19 @@
 .rband-warn > p:first-child { color:var(--drift); }
 @media (prefers-color-scheme: dark) {
   .rband-alert > p:first-child b, .rband-alert > p:first-child { color:#f0757f; } }
+/* What landed after the review, folded to its one line: the count, in the band's colour,
+   and how it was read, muted. The commits and the explanation are one click away. */
+details.rband > summary { cursor:pointer; list-style:none; font-size:.9rem; line-height:1.6; }
+details.rband > summary::-webkit-details-marker { display:none; }
+details.rband > summary::before { content:"▸"; font-size:.75rem; margin-right:.35rem;
+            display:inline-block; }
+details.rband[open] > summary::before { content:"▾"; }
+details.rband[open] > summary { margin-bottom:.4rem; }
+details.rband > summary .rb-how { color:var(--muted); font-size:.85rem; }
+details.rband-alert > summary, details.rband-alert > summary b { color:#c62828; }
+details.rband-warn > summary { color:var(--drift); }
+@media (prefers-color-scheme: dark) {
+  details.rband-alert > summary, details.rband-alert > summary b { color:#f0757f; } }
 ol.findings { list-style:none; counter-reset:f; padding:0; margin:1rem 0; }
 ol.findings > li { counter-increment:f; background:var(--card); border:1px solid var(--line);
                     border-radius:8px; padding:.9rem 1.1rem; margin:.7rem 0; }

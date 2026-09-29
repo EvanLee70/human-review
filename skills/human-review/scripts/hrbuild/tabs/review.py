@@ -974,58 +974,10 @@ def _aftermath_files_tip(c: dict) -> str:
     return "\n".join(parts)
 
 
-def _revert_offer(c: dict, root: Path) -> str:
-    """*Revert it*, on the row of the commit it reverts.
-
-    It was taken off the rows once, on the argument that a commit in this band is not a
-    mistake but a commit the page has not caught up with — which is true of the *tooling*
-    half of the band, and is why this is only rendered over the branch's own commits, with
-    the cherry-picks folded away under their own grey row carrying nothing to press. Over
-    what a human actually wrote after the review was signed off, the question the band
-    raises is exactly "do I want this in the change under review", and the README has
-    promised the answer since the band was built.
-
-    It is safe to put behind a button because of the flag: `git revert --no-commit` stages
-    an inverse and stops. Nothing is committed, nothing is pushed, `git reset` undoes it —
-    the click leaves a diff to look at rather than a commit made on the reader's behalf,
-    which is the whole reason the band's promise is worded that way.
-
-    Per commit and not for the range, because the range is usually not what anyone wants
-    undone: the hand edit is the question and the guardrail beside it is not.
-
-    The **short** sha, not the full one: the command is what the clipboard hands over and
-    what its hover shows, and a reader checking that line before pasting it stops checking
-    at forty characters of hex. `git revert` resolves a short sha, and a prefix that is
-    genuinely ambiguous makes git refuse loudly instead of reverting the wrong commit.
-    """
-    short = c.get("short") or (c.get("sha") or "")[:9]
-    if not short:
-        return ""
-    aid = declare_action(
-        f"aftermath-revert:{short}",
-        f"cd {shlex.quote(str(root.resolve()))} && git revert --no-commit {short}",
-        label=f"Stage the inverse of {short} in the working tree")
-    return ('<span class="rb-act">'
-            + command_html(ACTIONS[aid]["command"], aid, label="Revert it",
-                           tip=(f"Revert it \u2014 runs `git revert --no-commit {short}` on the "
-                                "server serving this page. It stages the inverse and stops: "
-                                "nothing is committed, nothing is pushed, `git reset` undoes it."),
-                           running="Staging the inverse\u2026")
-            + '</span>')
-
-
-def _aftermath_commit(c: dict, root: Path | None = None) -> str:
-    """One commit's row: what it is, and — for the branch's own — what to do about it.
-
-    The sha (carrying the file list in its hover), what the commit did, when, and
-    *Revert it*. No `root`, no button: that is how the tooling fold renders the base's own
-    cherry-picks, which are `main` arriving the way this project's workflow says it should
-    and are not anybody's mistake to undo.
-
-    The band's other answer — *Regenerate the report* — stays where it is, once under the
-    whole list: it does not name a commit, so three copies of it under three shas would be
-    three identical buttons inviting the reader to work out which row each belonged to.
-    This one names one, which is exactly why it belongs on the row.
+def _aftermath_commit(c: dict) -> str:
+    """One commit's row: the sha (carrying the file list in its hover), what the commit
+    did, and when. Nothing to press: reverting, cherry-picking or re-reviewing any of it is
+    the developer's call, made from the command line, and the page does not teach it.
     """
     when = (c.get("when") or "")[:10]
     return ('<li>'
@@ -1033,7 +985,6 @@ def _aftermath_commit(c: dict, root: Path | None = None) -> str:
             f'{html.escape(c["short"])}</code> '
             f'{html.escape(c.get("subject", ""))}'
             + (f' <span class="rb-gen">{html.escape(when)}</span>' if when else "")
-            + (_revert_offer(c, root) if root is not None else "")
             + '</li>')
 
 
@@ -1186,19 +1137,19 @@ def _tooling_fold_html(commits: list[dict], base_label: str) -> str:
             f'</span></summary><ul>{items}</ul></details>')
 
 
-def _taken_fold_html(commits: list[dict], takeover: dict | None, review_short: str,
-                     root: Path) -> str:
+def _taken_fold_html(commits: list[dict], takeover: dict | None,
+                     review_short: str) -> str:
     """The branch's own commits a takeover accepted without a pass, folded to one row.
 
     They used to be a second list, above this band, typed by the agent that wrote the
     takeover note: the same kind of statement as the band, counted from a different commit,
     and frozen at the moment the note was written. Here they are read off `git` with the
     rest of the band, split from tooling the same way, and the note's heading rides in the
-    hover. Revert stays on every row: they are this branch's work, accepted, not reviewed."""
+    hover."""
     n = len(commits)
     when = html.escape(((takeover or {}).get("when") or "")[:10])
     tip = html.escape((takeover or {}).get("heading") or "", quote=True)
-    items = "".join(_aftermath_commit(c, root) for c in commits)
+    items = "".join(_aftermath_commit(c) for c in commits)
     return (f'<details class="toolcommits takenover" title="{tip}"><summary>'
             f'<span class="foldlbl">{n} commit{"" if n == 1 else "s"} after '
             f'<code>{html.escape(review_short)}</code> taken over without a new pass'
@@ -1280,9 +1231,9 @@ def aftermath_html(out_dir: Path, root: Path, base_ref: str | None = None) -> st
         # the list is code the review never judged, and only a new review pass — a commit
         # carrying `Review-Points:` — moves the point it is counted from. Said here, once,
         # so the button under the list is not mistaken for the thing that clears it.
-        head = (f'<p><b>{n} commit{plural}, {lines} line'
-                f'{"" if lines == 1 else "s"} changed since {since}.</b> '
-                'The findings, the assumptions and the requirements matrix were written '
+        title = (f'<b>{n} commit{plural}, {lines} line'
+                 f'{"" if lines == 1 else "s"} changed since {since}</b>')
+        head = ('<p>The findings, the assumptions and the requirements matrix were written '
                 'before them and have not seen them; every measured tab is rebuilt from '
                 'the branch as it is now.</p>')
         sub = (reviewed + '. '
@@ -1296,8 +1247,8 @@ def aftermath_html(out_dir: Path, root: Path, base_ref: str | None = None) -> st
         cls = "rband-alert"
         role = "alert"
     elif n:
-        head = (f'<p>{n} commit{plural} since {since}, and every file '
-                'in them is generated.</p>')
+        title = f'{n} commit{plural} since {since}, and every file in them is generated'
+        head = ''
         sub = (reviewed + '. '
                'Regenerated output, not somebody editing the change under review — which '
                'is why this band is grey.')
@@ -1306,30 +1257,38 @@ def aftermath_html(out_dir: Path, root: Path, base_ref: str | None = None) -> st
     elif taken:
         # Everything the branch did since the review was taken over, and nothing since:
         # the piles still describe the reviewed commit, and that is the one thing to say.
-        head = (f'<p>{len(taken)} commit{"" if len(taken) == 1 else "s"} taken over '
-                'without a new pass. The findings, the assumptions and the requirements '
-                'matrix describe the branch as it was reviewed.</p>')
+        title = (f'{len(taken)} commit{"" if len(taken) == 1 else "s"} taken over '
+                 'without a new pass')
+        head = ('<p>The findings, the assumptions and the requirements matrix describe '
+                'the branch as it was reviewed.</p>')
         sub = reviewed + '.'
         cls = "rband-warn"
         role = "status"
     else:
         # Every commit since the review folded away as tooling: nothing here is news
         # about the review, only about what `main` shipped in the meantime.
-        head = (f'<p>Only tooling from {html.escape(base_label)} since {since} '
-                '— nothing about this review changed.</p>')
+        title = (f'Only tooling from {html.escape(base_label)} since {since} '
+                 '— nothing about this review changed')
+        head = ''
         sub = reviewed + '.'
         cls = "rband-warn"
         role = "status"
-    return (f'<div class="rband {cls}" role="{role}">' + head
+    # Folded to its one line. The count is the news; the commits behind it are there to
+    # check, and a band that lists them open pushes the piles it qualifies off the screen.
+    how = ('read from <code>git log</code> after <code>'
+           + html.escape(doc.get("review_short", "")) + '</code>: every commit since, '
+           'with its message')
+    return (f'<details class="rband aftermath {cls}" role="{role}"><summary>{title}'
+            f' <span class="rb-how">\u2014 {how}</span></summary>' + head
             + f'<p class="rb-sub">{sub}</p>'
-            + ('<ul>' + "".join(_aftermath_commit(c, root) for c in branch_only) + '</ul>'
+            + ('<ul>' + "".join(_aftermath_commit(c) for c in branch_only) + '</ul>'
                if branch_only else '')
-            + (_taken_fold_html(taken, takeover, doc.get("review_short", ""), root)
+            + (_taken_fold_html(taken, takeover, doc.get("review_short", ""))
                if taken else '')
             + (_tooling_fold_html(tooling, base_label) if tooling else '')
             # After the list, not inside it: the commits are what happened, and this is the
             # one thing to do about all of them.
-            + _regenerate_offer(out_dir, root) + '</div>')
+            + _regenerate_offer(out_dir, root) + '</details>')
 
 
 #: The three block types that render the one list. Named so `render_block` can hand all
