@@ -373,7 +373,9 @@ def tests_chip(doc: dict | None) -> dict | None:
 #     was opened. It is a link to the issue, because the reader's next question after
 #     reading four sentences of a ticket is the rest of it;
 #   * the **colour legend** (`fully covered … N/A`) goes under the ticket it explains;
-#   * the **UI/API/unit key** goes under the card it explains.
+#   * the **UI/API/unit key** goes on the title row, over the card it explains, level
+#     with the ticket's title — the one stretch of that row that was empty — and each of
+#     its three words becomes a checkbox that filters the card's rows by kind.
 #
 # Nothing else moves. The card's own header strip — the robot, *Covering tests*, *as
 # matched by AI* — stays inside the card, where it is the exact counterpart of the strip
@@ -899,8 +901,7 @@ def coverage_side(side: str, frag: str, spec: dict, out_dir: Path, root: Path) -
             f'data-tip="{html.escape(COVCARD_TIP, quote=True)}" aria-hidden="true">📏</span>'
             f'<span class="rm-who">{COVCARD_WHO}</span></div>')
     side = re.sub(r'<div class="rm-tkhead">.*?</div>', lambda _: head, side, count=1, flags=re.S)
-    # Last in the column, under the UI/API/unit key: the card and its key keep exactly
-    # the look they had before coverage, and what no test reaches is a footnote to both.
+    # Last in the column, under the card: what no test reaches is a footnote to it.
     close = side.rfind("</div>")
     if close < 0:
         return side
@@ -919,20 +920,35 @@ def _load_test_changes(spec: dict, out_dir: Path) -> dict | None:
 def ticket_head(ref: dict | None) -> str:
     """The ticket's title over its frame — the issue's own, never the PR's.
 
-    GitHub's own shape, because that is where the reader has read this title before: the
-    title, then the number after it in the muted weight. The whole of it is the link;
-    half a title being clickable is a target nobody aims at. With no ticket resolved the
-    row is still there, empty, so both columns under it keep starting level."""
+    `Issue #37: Link Visit with Vet` — the number rides on the word it numbers, in the
+    muted weight. At the end of the title, GitHub's own place for it, it was a long line
+    away from the "Issue" it belongs to. The whole of it is the link; half a title being
+    clickable is a target nobody aims at. With no ticket resolved the row is still there,
+    empty, so both columns under it keep starting level."""
     if ref:
-        # "Issue:" first, so the heading says what it names before it names it: over the
+        # "Issue" first, so the heading says what it names before it names it: over the
         # ticket's own frame, a bare title read as the PR's.
-        face = (f'Issue: {html.escape(ref["title"])} '
-                f'<span class="rm-num">#{ref["number"]}</span>')
+        face = (f'Issue <span class="rm-num">#{ref["number"]}</span>: '
+                f'{html.escape(ref["title"])}')
         title = (f'<a class="rm-title" href="{html.escape(ref["url"])}">{face}</a>'
                  if ref.get("url") else f'<span class="rm-title">{face}</span>')
     else:
         title = ""
     return f'<p class="rm-head">{title}</p>'
+
+
+def cats_filter(cats: str) -> str:
+    """The UI/API/unit key, each entry wrapped in a checked checkbox that filters the card.
+
+    The key already named every kind the card lists, one chip and a few words each, so the
+    filter is the key itself rather than a second row of the same three words. Entries the
+    regex does not recognise are left as the model wrote them."""
+    def entry(m: re.Match) -> str:
+        cat = html.escape(m.group(2), quote=True)
+        return (f'<label class="rm-catf"><input type="checkbox" checked data-cat="{cat}">'
+                f'{m.group(1)}{m.group(3)}</label>')
+    return re.sub(r'<span>\s*(<span class="rm-cat" data-cat="([^"]+)"[^>]*>.*?</span>)(.*?)</span>',
+                  entry, cats, flags=re.S)
 
 
 #: The layout above, as the stylesheet that has to hold it. Emitted with the fragment
@@ -979,13 +995,22 @@ REQMAP_CSS = """
    to the other side. The shared `--rm-key-h` band goes with them: above the frames it
    kept two unequal rows on one line, and under them there is nothing to keep level. */
 .reqmap .rm-legend{min-height:0;margin:10px 2px 0}
-.reqmap .rm-cats{min-height:0;margin:10px 2px 0}
+/* The UI/API/unit key sits on the title row, over the card, in the stretch the title left
+   empty; its margins are the title's, so the two read as one line. */
+.reqmap .rm-cats{grid-column:2;grid-row:1;align-self:center;min-height:0;margin:10px 2px 8px}
+.reqmap .rm-cats .rm-catf{display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+  user-select:none}
+.reqmap .rm-cats .rm-catf input{margin:0;cursor:pointer}
+.reqmap .rm-cats .rm-catf+.rm-catf{margin-left:14px}
+.reqmap .rm-cats .rm-catf:has(input:not(:checked)){opacity:.5}
+.reqmap .rm-t[data-catoff=yes]{display:none}
 /* Stacked, the grid is one column: title, ticket, card. The gutter the two columns shared
    becomes the gap between them, which `row-gap:0` above gave up for the title's sake. */
 @media (max-width:900px){
   .reqmap .rm-body{grid-template-columns:1fr}
-  .reqmap .rm-head,.reqmap .rm-text,.reqmap .rm-side{grid-column:1;grid-row:auto}
-  .reqmap .rm-side{margin-top:46px}
+  .reqmap .rm-head,.reqmap .rm-text,.reqmap .rm-cats,.reqmap .rm-side{grid-column:1;
+    grid-row:auto}
+  .reqmap .rm-cats{margin:46px 2px 10px}
 }
 </style>"""
 
@@ -1031,6 +1056,29 @@ REQMAP_SEMCOV_JS = """
     if (!map) return;
     if (box.checked) map.removeAttribute('data-semcov');
     else map.setAttribute('data-semcov', 'off');
+  });
+})();</script>"""
+
+#: The key's checkboxes: a row whose kind is unchecked wears `data-catoff`, and the
+#: stylesheet hides it. The rows are the fragment's own, drawn by its script, so they are
+#: marked rather than rebuilt; a resize is dispatched after so its wires are redrawn.
+REQMAP_CATS_JS = """
+<script>(function () {
+  document.addEventListener('change', function (ev) {
+    var box = ev.target;
+    if (!box || !box.matches || !box.matches('.rm-cats input')) return;
+    var map = box.closest('.reqmap');
+    if (!map) return;
+    var off = {};
+    map.querySelectorAll('.rm-cats input').forEach(function (b) {
+      if (!b.checked) off[b.dataset.cat] = 1;
+    });
+    map.querySelectorAll('.rm-code .rm-t').forEach(function (row) {
+      var c = row.querySelector('.rm-thead .rm-cat');
+      if (c && off[c.dataset.cat]) row.dataset.catoff = 'yes';
+      else delete row.dataset.catoff;
+    });
+    window.dispatchEvent(new Event('resize'));
   });
 })();</script>"""
 
@@ -1106,18 +1154,17 @@ def reqmap_layout(frag: str, spec: dict, out_dir: Path, root: Path | None = None
     text_col = re.sub(r'(<div class="rm-tkhead">.*?)(</div>)',
                       lambda h: h.group(1) + semcov_switch() + h.group(2),
                       text_col, count=1, flags=re.S)
-    side_col = _append_inside(side_col, cats)
     side_col = card_head(side_col)
     side_col = coverage_side(side_col, frag, spec, out_dir,
                              root if root is not None else out_dir.resolve().parent)
     body = (m.group(0) + ticket_head(ticket_ref(spec, out_dir))
-            + text_col + side_col + "</div>")
+            + text_col + cats_filter(cats) + side_col + "</div>")
     out = frag[:a] + body + frag[b:]
     doc = load_coverage(out_dir, spec)
     if doc is not None:
         out = coverage_tests(out, doc, _load_test_changes(spec, out_dir),
                              root if root is not None else out_dir.resolve().parent)
-    return out + REQMAP_CSS + REQMAP_TIP_JS + REQMAP_SEMCOV_JS
+    return out + REQMAP_CSS + REQMAP_TIP_JS + REQMAP_SEMCOV_JS + REQMAP_CATS_JS
 
 
 # --- the third run mode: run the tests, then re-derive ---------------------------------

@@ -71,7 +71,7 @@ from hrbuild.shared.commands import (
     drawio_open_html,
     regenerate_html, RERUN_AI_CHIP, RERUN_AI_CONFIRM, RERUN_CHIP, RERUN_DONE, RERUN_FAIL,
     PROGRESS_BUILD_SECONDS, PROGRESS_STEP_DEFAULT, rerun_progress_html, step_expectations,
-    rerun_html, rerun_tests_chip, RUN_TESTS_FACE, tab_rerun_html,
+    rerun_html, rerun_tests_chip, RUN_TESTS_FACE, tab_rerun_html, TAB_RERUN_TIP,
     reveal_html, runtime_html, STATIC_RUN_TIP, _app_anchor
 )
 from hrbuild.shared.snippets import (
@@ -149,6 +149,7 @@ from hrbuild.tabs.sequence import (
 from hrbuild.tabs.tests import (
     LEDGER_TAB, render_requirements, render_test_ledger, render_tests, render_traces,
     REQMAP_CSS, REQMAP_CUT, REQMAP_SEMCOV_JS, REQMAP_TIP_JS, reqmap_layout, resolve_tests,
+    REQMAP_CATS_JS, cats_filter,
     SEMCOV_LABEL, semcov_switch, SILENCED_LABEL,
     test_index, TEST_STATES,
     TICKET_CACHE, ticket_head, ticket_ref, tests_chip, _append_inside, _element, _find,

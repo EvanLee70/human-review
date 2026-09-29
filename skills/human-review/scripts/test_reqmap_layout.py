@@ -90,11 +90,13 @@ def test_the_colour_legend_moves_under_the_ticket_it_explains(tmp_path):
     assert 'class="rm-legend"' in col
 
 
-def test_the_surface_key_moves_under_the_card_it_explains(tmp_path):
+def test_the_surface_key_moves_onto_the_title_row_as_a_filter(tmp_path):
+    """Over the card, level with the ticket's title, and each kind a checked checkbox."""
     out = _laid_out(tmp_path)
-    card, cats = _order(out, 'class="rm-code"', 'class="rm-cats"')
-    assert card < cats
-    assert 'class="rm-cats"' in out[out.index('class="rm-side"'):]
+    head, cats, side = _order(out, 'class="rm-head"', 'class="rm-cats"', 'class="rm-side"')
+    assert head < cats < side
+    assert '<label class="rm-catf"><input type="checkbox" checked data-cat="e2e">' in out
+    assert ".reqmap .rm-t[data-catoff=yes]{display:none}" in out
 
 
 def test_the_ticket_title_is_a_link_over_the_ticket(tmp_path):
@@ -103,7 +105,7 @@ def test_the_ticket_title_is_a_link_over_the_ticket(tmp_path):
     2026` with nothing saying what was opened."""
     out = _laid_out(tmp_path)
     assert ('<a class="rm-title" href="https://github.com/victorrentea/petclinic/issues/37">'
-            'Issue: Link Visit with Vet <span class="rm-num">#37</span></a>') in out
+            'Issue <span class="rm-num">#37</span>: Link Visit with Vet</a>') in out
     head, ticket = _order(out, 'class="rm-head"', 'class="rm-ticket"')
     assert head < ticket
 
