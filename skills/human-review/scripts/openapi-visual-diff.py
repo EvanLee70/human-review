@@ -419,7 +419,15 @@ def render(model, entries, global_changes, tags, old_label, new_label) -> str:
     n_changes = (sum(len(e["changes"]) for e in entries.values()) + len(global_changes))
     label = f"expand {n_changes} impacted" if n_changes else "expand impacted"
     return (TEMPLATE.replace("__EXPAND_LABEL__", label)
+            .replace("__TIP_JS__", _tip_js())
             .replace("__PAYLOAD__", payload))
+
+
+def _tip_js() -> str:
+    """The review page's tooltip component, so the frame's tooltips are the page's own.
+    The standalone copy of this script has no hrbuild next to it and goes without."""
+    tip = Path(__file__).resolve().parent / "hrbuild" / "assets" / "tip.js"
+    return tip.read_text(encoding="utf-8").replace("</", "<\\/") if tip.is_file() else ""
 
 
 TEMPLATE = r"""<!doctype html>
@@ -803,6 +811,23 @@ TEMPLATE = r"""<!doctype html>
       > .json-schema-2020-12-head .json-schema-2020-12__title:after {
     color: var(--dv-breaking);
   }
+  /* A field's description is Swagger UI's first row of its body, so every expanded node
+     grew an extra line of prose between its name and its children and the tree lost its
+     steady one-field-per-row pace. `layoutDescriptions()` lifts it onto the head row
+     instead, into the empty room right of the type chips: one line, cut with an ellipsis,
+     the whole text in a tooltip when it was cut. The script sets `left` (just past the
+     head's last chip) and the row height; a head too wide to leave room keeps the old row.
+     The schema box is an inline-block that shrink-wraps its widest row, which would cut
+     every description at the end of the longest type chip, so it takes the full column. */
+  .swagger-ui .model-box:has(> article.json-schema-2020-12) { display: block; }
+  .swagger-ui article.json-schema-2020-12 { position: relative; }
+  .swagger-ui .json-schema-2020-12-body > .json-schema-2020-12-keyword--description.dv-desc-inline {
+    position: absolute; top: 0; right: 8px; margin: 0; padding: 0;
+    left: var(--dv-desc-left); height: var(--dv-desc-h); line-height: var(--dv-desc-h);
+    text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .swagger-ui .dv-desc-inline * { display: inline; margin: 0; padding: 0; }
+  .swagger-ui .dv-desc-inline p + p::before { content: " "; }
   .swagger-ui .opblock.opblock-deprecated { opacity: .7; }
   .dv-count-hidden { font-size: 12px; opacity: .6; }
 </style>
@@ -816,10 +841,8 @@ TEMPLATE = r"""<!doctype html>
        only cost the chips their room. Standalone it is not lost: it is the tab title. -->
   <span id="dv-chips"></span>
   <span class="dv-spacer"></span>
-  <!-- No tooltip here on purpose. The report's one tooltip component (TIP_JS, driven by
-       data-tip) lives in the host page and cannot reach into this frame, and a native
-       title= is the thing the house rule exists to keep out. The checkbox demonstrates
-       itself the moment it is ticked. The count is the verdict line's count: that line
+  <!-- No tooltip here on purpose: the checkbox demonstrates itself the moment it is
+       ticked. The count is the verdict line's count: that line
        says "25 changes" right above this frame, and a toggle that opened 11 endpoints
        with no number on it read as a second, contradicting tally. -->
   <label class="dv-toggle"><input type="checkbox" id="dv-expand"> __EXPAND_LABEL__</label>
@@ -828,6 +851,12 @@ TEMPLATE = r"""<!doctype html>
 <div id="swagger-ui"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui-bundle.min.js"></script>
+<script>
+// The report's one tooltip component (hrbuild/assets/tip.js, driven by data-tip), inlined:
+// the host page's copy cannot reach into this frame, and a native title= is the thing the
+// house rule exists to keep out.
+__TIP_JS__
+</script>
 <script>
 // ?theme=dark|light pins the theme; with no parameter the system decides.
 const THEME = new URLSearchParams(location.search).get('theme');
@@ -893,6 +922,38 @@ function keyOf(op) {
   return m.textContent.trim().toUpperCase() + ' ' + path;
 }
 
+// Lift each field's description onto its head row, right of the type chips (see the CSS).
+// Measured, not guessed: the head's last chip ends wherever its name, flags and
+// constraints happen to end, and the field-change chip lands there too. Re-run with
+// decorate(), so a node opened by hand or by the walk is laid out once it renders.
+function layoutDescriptions() {
+  document.querySelectorAll(
+    '.swagger-ui .json-schema-2020-12-body > .json-schema-2020-12-keyword--description'
+  ).forEach(d => {
+    const art = d.parentElement.parentElement;
+    const head = art.querySelector(':scope > .json-schema-2020-12-head');
+    const last = head?.lastElementChild;
+    if (!last) return;
+    const a = art.getBoundingClientRect();
+    const left = Math.ceil(last.getBoundingClientRect().right - a.left + 24);
+    const fits = a.width - 8 - left >= 80;
+    d.classList.toggle('dv-desc-inline', fits);
+    if (!fits) { d.removeAttribute('data-tip'); return; }
+    const h = Math.round(head.getBoundingClientRect().height);
+    if (d.style.getPropertyValue('--dv-desc-left') !== left + 'px') {
+      d.style.setProperty('--dv-desc-left', left + 'px');
+    }
+    if (d.style.getPropertyValue('--dv-desc-h') !== h + 'px') {
+      d.style.setProperty('--dv-desc-h', h + 'px');
+    }
+    const cut = d.scrollWidth > d.clientWidth + 1;
+    const text = d.textContent.trim();
+    if (!cut) d.removeAttribute('data-tip');
+    else if (d.getAttribute('data-tip') !== text) d.setAttribute('data-tip', text);
+  });
+}
+window.addEventListener('resize', layoutDescriptions);
+
 // Swagger UI re-renders on expand/collapse, so decorating is idempotent and re-run.
 function decorate() {
   document.querySelectorAll('.swagger-ui .opblock').forEach(op => {
@@ -923,6 +984,7 @@ function decorate() {
   });
   apply();
   autoCollapse();
+  layoutDescriptions();
 }
 
 // A controller nobody touched is folded away on arrival — once, so that
