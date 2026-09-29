@@ -70,6 +70,10 @@
     for (var i = 0; i < diagrams.length && !pick; i++) {
       var svg = diagrams[i], r = svg.getBoundingClientRect();
       if (!r.height || r.bottom < top || r.top > top) continue;
+      // A folded test pair still has a full-height rect: Chrome keeps a closed <details>'
+      // content laid out, only hidden. Without this, the fold above the one being read
+      // spans the same line and its heads get pinned over someone else's lifelines.
+      if (svg.closest('details:not([open])') || (svg.checkVisibility && !svg.checkVisibility())) continue;
       var b = band(svg), vb = svg.viewBox.baseVal;
       if (!b || !vb.width) continue;
       var scale = r.width / vb.width;
