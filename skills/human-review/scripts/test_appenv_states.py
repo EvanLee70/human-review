@@ -62,25 +62,30 @@ PROBE = """() => {
 }"""
 
 
-def _page(served: bool, live: bool, hang: bool = False, slow_probe: bool = False) -> str:
+def _page(served: bool, live: bool, hang: bool = False, slow_probe: bool = False,
+          fail: bool = False) -> str:
     """`hang` is a command that never finishes — which is the state worth looking at, and
     the only one the settled-state tests below can never catch: `docker compose up` on a
     cold cache is minutes of the row saying "Starting…" and nothing else. `slow_probe`
-    is the health check hanging, which holds the row in `checking…` to be looked at."""
+    is the health check hanging, which holds the row in `checking…` to be looked at.
+    `fail` is a command that exits non-zero, printing one last line."""
     # On `window` and not `const`: `set_content` writes into the same global scope every
     # time, and a second `const SERVED` there is a SyntaxError that kills the whole script
     # — leaving the page showing the *previous* case's row, which reads as a bug in the bar.
     stub = """<script>
 window.SERVED = %s; window.LIVE = %s; window.HANG = %s; window.SLOW = %s;
+window.FAIL = %s;
 window.HR = {onready: fn => setTimeout(fn, 0), can: () => window.SERVED,
              run: () => window.HANG ? new Promise(() => {})
+                      : window.FAIL ? Promise.resolve({state: 'failed', exit: 1, result: {},
+                                                       output: 'context not found\\n'})
                                     : Promise.resolve({state: 'done', result: {}}),
-             tail: () => ''};
+             tail: snap => (snap && snap.output || '').trim()};
 window.fetch = () => window.SLOW ? new Promise(() => {})
                                  : window.LIVE ? Promise.resolve({ok: true})
                                                : Promise.reject(new Error('down'));
 </script>""" % (json.dumps(served), json.dumps(live), json.dumps(hang),
-                json.dumps(slow_probe))
+                json.dumps(slow_probe), json.dumps(fail))
     return ("<!doctype html><meta charset=utf-8><style>" + build.CSS + "</style>"
             + stub + build.runtime_html(RUNTIME) + build.APP_ENV_JS)
 
@@ -222,6 +227,27 @@ def test_a_command_in_flight_spins_beside_the_word(row):
     was = seen["turn"]
     page.wait_for_timeout(150)
     assert page.evaluate(SPINNER)["turn"] != was, "and it actually turns"
+
+
+def test_a_start_that_fails_says_so_and_keeps_saying_it(row):
+    """A `start-docker.sh` that dies in two seconds used to leave no trace: the failure was
+    written into the pill, and the health check fired right after it answered `Offline`
+    a moment later, over the top of it. What the reader saw was a button that did nothing.
+    The failure has to outlive that probe, and carry the line the command died on."""
+    page = row.page
+    page.set_content(row.html(served=True, live=False, fail=True))
+    page.wait_for_function("() => document.querySelector('.appenv-start').hidden === false")
+    page.evaluate("() => { document.querySelector('.appenv-start .cmd-run').hidden = false;"
+                  " document.querySelector('.appenv-start .cmd-copy').hidden = true; }")
+    page.click(".appenv-start .cmd-run")
+    page.wait_for_function("() => document.querySelector('.appenv-state')"
+                           ".textContent === 'start failed'")
+    page.wait_for_timeout(200)                   # the probe's own answer has landed by now
+    state = page.evaluate("() => { const s = document.querySelector('.appenv-state');"
+                          " return [s.textContent, s.dataset.tip, s.hidden]; }")
+    assert state == ["start failed", "context not found", False]
+    assert page.evaluate(PROBE)["start"]["word"] == "Start App in Docker", \
+        "and Start is still there to be pressed again"
 
 
 def test_the_ring_is_invisible_for_its_first_300ms(row):

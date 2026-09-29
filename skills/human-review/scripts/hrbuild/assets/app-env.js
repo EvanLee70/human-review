@@ -115,13 +115,20 @@
     state.hidden = !text;
   }
 
-  function probe() {
+  // `failed` is a command that just died: what to say, and the line it died on, in place
+  // of a bare `Offline` if nothing answers. It has to ride *through* the probe rather than
+  // be written after it — the health check answers asynchronously, and writing the failure
+  // first meant `Offline` landed on top of it a moment later. A start that dies in two
+  // seconds then looked like a button that did nothing at all.
+  function probe(failed) {
     var b = base();
-    if (!b) {
-      say('down', 'Offline');
-      setLive(false, 'Nothing is running yet');
-      return;
+    function down(tip) {
+      say('down', failed ? failed.word : 'Offline');
+      if (failed) state.dataset.tip = failed.tip;
+      else state.removeAttribute('data-tip');
+      setLive(false, failed ? failed.tip : tip);
     }
+    if (!b) { down('Nothing is running yet'); return; }
     say('unknown', 'checking\u2026');
     setLive(false, 'Checking whether anything is listening\u2026');
     // /healthz answers with CORS open, so this works from a file:// page too. A failure
@@ -131,9 +138,14 @@
       say('live', '');
       setLive(true);
     }).catch(function () {
-      say('down', 'Offline');
-      setLive(false, 'Nothing is answering at ' + b + ' \u2014 start it first');
+      down('Nothing is answering at ' + b + ' \u2014 start it first');
     });
+  }
+
+  // What a verb that exited non-zero leaves in the row: its own word, and the last line it
+  // printed as the tip, which is where the reason is.
+  function failure(word, done, otherwise) {
+    return {word: word, tip: window.HR.tail(done) || otherwise};
   }
 
   apply(); probe();
@@ -206,11 +218,8 @@
       // It ran and printed no URL we recognised, or it failed. Either way the reader is
       // back where they started rather than stuck: `probe` re-reads whatever base we
       // have, and the command below is still there to be run by hand.
-      probe();
-      if (done.state !== 'done') {
-        say('down', 'start failed');
-        state.dataset.tip = window.HR.tail(done) || 'the command exited ' + done.exit;
-      }
+      probe(done.state === 'done' ? null
+            : failure('start failed', done, 'the command exited ' + done.exit));
     });
   });
 
@@ -220,11 +229,8 @@
   onrun(acts.stop, function () {
     drive('demo-env-stop', 'Stopping', function (done) {
       if (done.state === 'done') { current = ''; remember(''); apply(); }
-      probe();
-      if (done.state !== 'done') {
-        say('down', 'stop failed');
-        state.dataset.tip = window.HR.tail(done) || 'the command exited ' + done.exit;
-      }
+      probe(done.state === 'done' ? null
+            : failure('stop failed', done, 'the command exited ' + done.exit));
     });
   });
 
@@ -245,11 +251,8 @@
         if (u) window.open(u, '_blank', 'noopener');
         return;
       }
-      probe();
-      if (done.state !== 'done') {
-        say('down', 'nothing is up');
-        state.dataset.tip = window.HR.tail(done) || 'the host knows of no instance';
-      }
+      probe(done.state === 'done' ? null
+            : failure('nothing is up', done, 'the host knows of no instance'));
     });
   });
 
