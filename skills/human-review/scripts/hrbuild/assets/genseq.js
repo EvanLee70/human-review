@@ -97,6 +97,55 @@
     panel.style.top = (box.bottom + window.scrollY + 8) + 'px';
   }
 
+  // Where each bound value sits in the statement with its values put back, found by laying
+  // it over the statement as sent: the text between two `?` is the same in both, so a value
+  // runs from where one piece of it ends to where the next one starts. A quoted value is
+  // read to its closing quote first, since it may itself contain that next piece. Null when
+  // the two do not line up — the text is then shown plain, as it always was.
+  function valueSpans(sent, bound) {
+    var pieces = sent.split('?');
+    if (pieces.length < 2 || bound.indexOf(pieces[0]) !== 0) return null;
+    var spans = [], pos = pieces[0].length;
+    for (var i = 1; i < pieces.length; i++) {
+      var next = pieces[i], from = pos, end;
+      if (bound.charAt(pos) === "'") {
+        from = pos + 1;
+        while (from < bound.length && !(bound.charAt(from) === "'" && bound.charAt(from + 1) !== "'")) {
+          from += bound.charAt(from) === "'" ? 2 : 1;
+        }
+        from++;
+      }
+      if (i === pieces.length - 1) {
+        end = bound.length - next.length;
+        if (end < from || bound.slice(end) !== next) return null;
+      } else {
+        end = next ? bound.indexOf(next, from) : from;
+        if (end < 0) return null;
+      }
+      spans.push([pos, end]);
+      pos = end + next.length;
+    }
+    return spans;
+  }
+
+  // The values are what the reader switched on to see, so each one is marked where it
+  // landed in the statement — otherwise `=1` reads as a literal the query always had.
+  function renderBody(text, sent) {
+    var spans = sent != null ? valueSpans(sent, text) : null;
+    if (!spans) { els.body.textContent = text; return; }
+    els.body.textContent = '';
+    var at = 0;
+    spans.forEach(function (span) {
+      els.body.appendChild(document.createTextNode(text.slice(at, span[0])));
+      var mark = document.createElement('mark');
+      mark.className = 'genseq-value';
+      mark.textContent = text.slice(span[0], span[1]);
+      els.body.appendChild(mark);
+      at = span[1];
+    });
+    els.body.appendChild(document.createTextNode(text.slice(at)));
+  }
+
   // The button always names the *other* rendering, so it reads as what a click will get
   // you. A step with no alternate — a JSON payload — simply has no button.
   function render() {
@@ -104,7 +153,7 @@
     var view = on ? step.alternate : step;
     els.label.textContent = view.label || '';
     els.label.hidden = !view.label;
-    els.body.textContent = view.text;
+    renderBody(view.text, on ? step.text : null);
     els.toggle.hidden = !step.alternate;
     if (step.alternate) {
       // One word, because it sits against the end of the title and the sentence it
