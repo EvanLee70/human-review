@@ -667,8 +667,9 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
     # names its own scenarios and carries its own source path, so a heading over them can
     # only restate what the tab label said — and it does it above the fold, where the
     # first picture should be. An absent title still gets the default; only an author who
-    # typed an empty one is asking for the space back.
-    title = block.get("title", "Sequence deltas")
+    # typed an empty one is asking for the space back. The default names what the tab is —
+    # the label says *Sequence*, and the heading says of what: the tests' own runs.
+    title = block.get("title", "Sequence diagrams of tests")
     head = ((f'<h3 id="{html.escape(block.get("id", "sequences"))}">'
              f'{html.escape(title)}</h3>') if title else "")
     head += f'<p>{block["body"]}</p>' if block.get("body") else ""

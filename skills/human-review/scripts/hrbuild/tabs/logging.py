@@ -341,7 +341,7 @@ def logging_fragment(block, root: Path):
     # does not actually search for.
     #
     # And it is the tab's heading, not a boxed lede: the same bare `<h2>` the Code City tab
-    # opens on ("PR impact on code size, …"). A lede card reads as a finding; this line is
+    # opens on ("Impact on code size, …"). A lede card reads as a finding; this line is
     # not one, it names what the snippets below are — which is what a heading is for. It is
     # not the tab's label repeated either: the pill says "Logging", this says *which* uses.
     # Under it, how the uses were found — Victor's wording — and no rule between the two:

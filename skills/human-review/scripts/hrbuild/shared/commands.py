@@ -33,10 +33,10 @@ CMD_COPY = "\U0001F4CB"   # 📋
 #: the same regenerate, with the wait it costs drawn beside it.
 CMD_RUN = "\u21BA"        # ↺
 
-#: The three marks the Demo row wears instead of `↻`, because none of its verbs is a
-#: rerun. Start begins something that then keeps running, Stop ends it, Where goes to it —
-#: and the circular arrow, which this page teaches everywhere else as "the thing that comes
-#: round again", would say the opposite of all three. It is the one place a different glyph
+#: The two marks the Demo row wears instead of `↻`, because neither of its verbs is a
+#: rerun. Start begins something that then keeps running, Stop ends it — and the circular
+#: arrow, which this page teaches everywhere else as "the thing that comes round again",
+#: would say the opposite of both. It is the one place a different glyph
 #: is earned: every other command here re-derives something the page is already showing.
 #:
 #: Text presentation (`\uFE0E`) on the triangle for the same reason `↻` is not the 🔃
@@ -46,7 +46,6 @@ CMD_RUN = "\u21BA"        # ↺
 #: it is drawn in here is the half of "stop" the shape alone does not carry.
 CMD_PLAY = "\u25B6\uFE0E"  # ▶
 CMD_STOP = "\u25A0"         # ■
-CMD_OPEN = "\u2197"         # ↗
 
 # The masthead's Rerun — which is also the served badge, because they are one fact.
 #
@@ -318,7 +317,7 @@ def drawio_open_html(app_url: str, web_url: str = "") -> str:
     reader looks at the boxes. In HTML it is just a link, and it can afford to be two.
 
     They are not the same offer, which is why both are named rather than one being "the"
-    link. The **App** opens the file on disk, so an edit lands where the rerun command
+    link. The **Desktop App** opens the file on disk, so an edit lands where the rerun command
     can pick it up. The **Web** editor opens a copy carried in the URL — nothing is
     uploaded, and nothing it saves reaches the repository either. It is the answer when
     draw.io is not installed on this machine, and the reader can tell which is which
@@ -326,13 +325,14 @@ def drawio_open_html(app_url: str, web_url: str = "") -> str:
     """
     links = []
     if app_url:
-        links.append(f'<a href="{html.escape(app_url, quote=True)}">App ↗</a>')
+        links.append(f'<a href="{html.escape(app_url, quote=True)}">Desktop App ↗</a>')
     if web_url:
         links.append(f'<a href="{html.escape(web_url, quote=True)}" '
                      'target="_blank" rel="noopener">Web ↗</a>')
     # The product is named once and the two editors are named after it — `draw.io App or
     # draw.io Web` said the brand twice in six words, which is the half of the phrase that
-    # carries no information: the choice the reader is making is App or Web.
+    # carries no information: the choice the reader is making is App or Web. *Desktop* App,
+    # because a bare "App" beside "Web" did not say which one was installed on this machine.
     return "draw.io " + " or ".join(links) if links else ""
 
 
@@ -421,10 +421,9 @@ def command_html(cmd: str, action_id: str | None = None, *, tip: str = "",
     for two offers. The words and the mark are one target now, which is also the answer to
     "what does this glyph belong to" without a hover.
 
-    `run_face` replaces the play on the run half, for the three verbs in the Demo tab's
+    `run_face` replaces the play on the run half, for the verbs in the Demo tab's
     **Deployed app** row: Start begins something that then keeps running, Stop ends it,
-    Where goes to it, and a play triangle on all three would say the same thing about
-    three different things. Everywhere else the mark is the play, because everywhere else
+    and a play triangle on both would say the same thing about two different things. Everywhere else the mark is the play, because everywhere else
     the offer is *do this here*.
 
     Not `↻`. The circular arrow is the masthead's badge, where it means "this page can
@@ -590,15 +589,15 @@ def rerun_html(rerun: dict | None, rebuild: str, name: str = "",
     """
     edit = drawio_open_html(app_url, web_url)
     # With a guardrail named (`tested_against`), the sentence leads with it — "This diagram
-    # is unit-tested against the Java Domain Model. Relayout it in draw.io App ↗ or Web ↗."
-    # — so the reader learns the drawing is checked before being told what is left to
+    # is unit-tested against the Java Domain Model.⏎Relayout it in draw.io Desktop App ↗ or
+    # Web ↗." — on two lines, the fact and then the offer, so the reader learns the drawing is checked before being told what is left to
     # them. *Relayout*, not *update*: with a test holding the boxes and lines to the code,
     # what a reader does in draw.io is move them around; what they mean is the test's.
     # Without one, the plain offer.
     if tested_against:
         it = reveal_html(reveal, name, capital=True)
         lead = f'{it} is unit-tested against the {html.escape(tested_against)}.'
-        sentence = (f'{lead} Relayout it in {edit}.' if edit else lead)
+        sentence = (f'{lead}<br>Relayout it in {edit}.' if edit else lead)
     else:
         it = reveal_html(reveal, name)
         sentence = (f'Update {it} in {edit}.' if edit
@@ -680,17 +679,17 @@ def runtime_html(rt) -> str:
     control the page's whole command vocabulary is built on:
 
       * **served**, it wears its own mark \u2014 a green `\u25b6` on Start, a red `\u25a0` on Stop,
-        an `\u2197` on Where \u2014 and a click runs the command through the review server;
-      * **off disk**, all three wear the clipboard, hover `Copy command to paste in
+        \u2014 and a click runs the command through the review server;
+      * **off disk**, both wear the clipboard, hover `Copy command to paste in
         terminal` with the line under it, and a click copies. No play glyph anywhere,
         because nothing here can play.
 
-    None of the three is `\u21bb`: the marks this page teaches everywhere else mean *this
+    Neither is `\u21bb`: the marks this page teaches everywhere else mean *this
     comes round again*, and starting an app is not a rerun of anything.
 
     Which verbs are on screen is the row's own state and lives in APP_ENV_JS: served, it
-    shows Start while nothing answers, and Stop with Where once something does. Off disk
-    it shows all three, because the reader is going to paste one of them into a terminal
+    shows Start while nothing answers, and Stop once something does. Off disk it shows
+    both, because the reader is going to paste one of them into a terminal
     and which one they need is their business.
 
     The state leads the row \u2014 `Offline`, or the address as a link, port and all \u2014
@@ -720,7 +719,7 @@ def runtime_html(rt) -> str:
     if rt.get("stop"):
         declare_action("demo-env-stop", rt["stop"],
                        label="Stop the environment the walkthrough was filmed against")
-    # Optional and never guessed. Turning `\u2026 up --ref abc` into `\u2026 url --ref abc` by
+    # Optional and never guessed — run by APP_ENV_JS, never offered as a button. Turning `\u2026 up --ref abc` into `\u2026 url --ref abc` by
     # string surgery would work for the one host this was written against and fail
     # silently on the next, at probe time, where nobody would see it fail.
     if rt.get("urlCommand"):
@@ -750,11 +749,9 @@ def runtime_html(rt) -> str:
         verbs.append(("stop", command_html(
             rt["stop"], "demo-env-stop", label="Stop", run_face=CMD_STOP,
             tip="Stops the app and frees its port", running="Stopping\u2026")))
-    if rt.get("urlCommand"):
-        verbs.append(("where", command_html(
-            rt["urlCommand"], "demo-env-url", label="Where", run_face=CMD_OPEN,
-            tip="Asks the host where the app is answering, and opens it",
-            running="Asking the host\u2026")))
+    # `urlCommand` has no control of its own. It was a Where button, and a reader could not
+    # tell what it would do; served, APP_ENV_JS now runs it by itself when nothing answers
+    # at the remembered address, and off disk nobody needs a line to paste to find out.
     controls = "".join(f'<span class="appenv-act appenv-{verb}" hidden>{box}</span>'
                        for verb, box in verbs)
 

@@ -467,7 +467,7 @@ environment first and the verbs that act on it after:
 
 ```
 served    Deployed app   http://localhost:53421     Stop ■   [Reset DB] [green]  DB: green
-off disk  Deployed app   Offline    Start App in Docker 📋   Stop 📋   Where 📋
+off disk  Deployed app   Offline    Start App in Docker 📋   Stop 📋
 ```
 
 It was two lines: word buttons that only did anything on a served page, and under them
@@ -476,10 +476,9 @@ for three offers — and the lower row wore the *rerun* mark, so a page that was
 still looked like it was handing out lines to paste somewhere else.
 
 One control per verb now, and **the click is what differs**, not the words. Served, each
-wears its own mark — a green `▶` on Start, a red `■` on Stop, an `↗` on Where — and a
-click runs the command through the review server. Off disk all three wear the clipboard,
-hover *Copy command to paste in terminal* with the line under it, and a click copies. None
-of the three wears `↻`: that mark means *this comes round again* everywhere else on the
+wears its own mark — a green `▶` on Start, a red `■` on Stop — and a click runs the
+command through the review server. Off disk both wear the clipboard, hover *Copy command
+to paste in terminal* with the line under it, and a click copies. Neither wears `↻`: that mark means *this comes round again* everywhere else on the
 page, and starting an app is not a rerun of anything.
 
 The address at the end of the row is where every relative `appLinks` href resolves against;
@@ -497,11 +496,10 @@ while its precondition is missing is one that lies:
 |---|---|---|
 | `Start` | `command` | off disk always; served, while nothing is up |
 | `Stop` | `stop` | off disk always; served, while something is up |
-| `Where` | `urlCommand` | while nothing is up — with the app up, the address is already the link |
 | `Reset DB` | `reset` | served, and something answers at the address |
 | one per fixture | `reset`, and `GET <reset>` lists it | as `Reset DB` |
 
-Off disk all three are on screen whatever the health check says. None of them can *run*
+Off disk both are on screen whatever the health check says. Neither can *run*
 there — they are clipboards — and a clipboard for `stop` is exactly as useful with the app
 down as up: the reader is pasting it into a terminal, where the state of things is their
 business and not this page's. `Reset DB` is the exception and the reason is that it is not a
@@ -538,10 +536,12 @@ Off disk none of that exists, and the row says so by wearing the clipboard rathe
 disappearing. `drive` falls back to the clipboard the same way.
 
 `urlCommand` is **optional** and is the same host asked where the environment already
-*is* — `url` rather than `up`. It is what the **Where** verb runs — on screen only while
-nothing answers, which covers the reader who opens a guide somebody else already started
-the environment for, and the browser with site data blocked where the remembered base was
-never there. It is never run merely because the page opened. It is never derived from `command`: turning `up` into `url` by string surgery works for one
+*is* — `url` rather than `up`. It is not a button (it was, as **Where ↗**, and nobody
+could guess what it did): on a served page the row runs it by itself, once, when nothing
+answers at the remembered address, and adopts the address it prints. That covers the
+reader who started the stack from a terminal or another tab, and the browser with site
+data blocked where the remembered base was never there. It is a read — nothing is
+started — which is why it may run merely because the page opened. It is never derived from `command`: turning `up` into `url` by string surgery works for one
 host and fails silently on the next, at load time, where nobody sees it fail.
 
 Keep the film's section id `video` (it has outlived two tab reshuffles, so `#video` still

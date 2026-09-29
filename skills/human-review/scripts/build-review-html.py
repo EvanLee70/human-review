@@ -67,7 +67,7 @@ from hrbuild.shared.assets import (
     SEQLINK_JS, SERVER_JS, TABS_JS, TIP_JS, TRACE_JS, XREF_CSS, XREF_JS
 )
 from hrbuild.shared.commands import (
-    CMD_COPY, CMD_OPEN, CMD_PLAY, CMD_RUN, CMD_STOP, command_html, COPY_TIP,
+    CMD_COPY, CMD_PLAY, CMD_RUN, CMD_STOP, command_html, COPY_TIP,
     drawio_open_html,
     regenerate_html, RERUN_AI_CHIP, RERUN_AI_CONFIRM, RERUN_CHIP, RERUN_DONE, RERUN_FAIL,
     PROGRESS_BUILD_SECONDS, PROGRESS_STEP_DEFAULT, rerun_progress_html, step_expectations,

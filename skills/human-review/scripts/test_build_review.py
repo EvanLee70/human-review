@@ -192,7 +192,7 @@ def test_every_verb_starts_hidden_and_is_raised_by_the_script(tmp_path):
     s["runtime"] = {"command": "up", "stop": "down", "urlCommand": "where",
                     "reset": "/__reset"}
     out = build.video_html(s, tmp_path)
-    for verb in ("start", "stop", "where"):
+    for verb in ("start", "stop"):
         assert f'<span class="appenv-act appenv-{verb}" hidden>' in out
     at = out.index('class="appenv-reset"')
     tag = out[out.rindex("<button", 0, at):out.index(">", at) + 1]
@@ -216,7 +216,7 @@ def test_off_disk_every_verb_is_the_clipboard_for_its_own_command(tmp_path):
     # Nothing hides a verb off disk any more. Reset keeps its rule and is the one
     # exception: it is a POST the application answers, not a line anybody can paste, so
     # there is nothing for a clipboard there to be the honest form of.
-    for verb in ("start", "stop", "where"):
+    for verb in ("start", "stop"):
         assert f".appenv:not(.appenv-served) .appenv-{verb}" not in build.CSS
     assert ".appenv:not(.appenv-served) .appenv-resets { display:none; }" in build.CSS
     # The second row is gone, name and all.
@@ -224,35 +224,36 @@ def test_off_disk_every_verb_is_the_clipboard_for_its_own_command(tmp_path):
         assert dead not in out and f".{dead}" not in build.CSS
 
 
-def test_the_three_verbs_are_one_row_of_one_control_each(tmp_path):
+def test_the_verbs_are_one_row_of_one_control_each(tmp_path):
     s = _video_dir(tmp_path, filmed=True)
     s["runtime"] = {"command": "up", "stop": "down", "urlCommand": "where"}
     out = build.video_html(s, tmp_path)
-    # All three, not just `up`. `stop` and `where` were declared for the buttons and never
-    # offered to anybody, so the one reader who needed to know how the host is asked where
-    # the stack is answering had to go and read the manifest.
-    for verb, word in (("start", "Start App in Docker"), ("stop", "Stop"), ("where", "Where")):
+    for verb, word in (("start", "Start App in Docker"), ("stop", "Stop")):
         assert f'<span class="appenv-act appenv-{verb}"' in out
         assert f'<span class="cmd-word">{word}</span>' in out
+    # `urlCommand` is declared for the row to run on its own, and is not a button: as
+    # "Where ↗" nobody could tell what it would do.
+    assert "appenv-where" not in out and '<span class="cmd-word">Where</span>' not in out
+    assert build.ACTIONS["demo-env-url"]["command"] == "where"
     # Each is the page's one command renderer with a word on it — not a fourth kind of
     # button with its own clipboard and its own idea of what a glyph means.
-    assert out.count('class="copycmd cmd-copy has-word"') == 3
-    assert out.count('class="runhere cmd-run has-word" hidden') == 3
+    assert out.count('class="copycmd cmd-copy has-word"') == 2
+    assert out.count('class="runhere cmd-run has-word" hidden') == 2
     # One row. The verbs are inside it, after the state they act on.
     assert out.count('class="appenv-run"') == 1
-    for verb in ("start", "stop", "where"):
+    for verb in ("start", "stop"):
         assert out.index("appenv-state") < out.index(f"appenv-{verb}")
 
 
-def test_none_of_the_three_verbs_wears_the_rerun_mark(tmp_path):
+def test_neither_verb_wears_the_rerun_mark(tmp_path):
     """`↻` means *this one comes round again* everywhere else on the page, which is the
-    opposite of what all three of these do: Start begins something that then keeps running,
-    Stop ends it, Where goes to it. The old second row wore it on all three."""
+    opposite of what these do: Start begins something that then keeps running, Stop ends
+    it. The old second row wore it on every verb."""
     s = _video_dir(tmp_path, filmed=True)
     s["runtime"] = {"command": "up", "stop": "down", "urlCommand": "where"}
     out = build.video_html(s, tmp_path)
     assert build.CMD_RUN not in out
-    for glyph in (build.CMD_PLAY, build.CMD_STOP, build.CMD_OPEN):
+    for glyph in (build.CMD_PLAY, build.CMD_STOP):
         assert f'<span class="cmd-ico">{glyph}</span>' in out
     # Red, because Stop is the only verb in the row that takes something away — and only
     # on the play half, since copying a line destroys nothing.
@@ -1045,7 +1046,7 @@ def test_the_pr_number_says_on_hover_that_it_leaves_for_github(tmp_path):
     goes before it is clicked."""
     page, _ = _build(tmp_path, PR)
     head = page[page.index("<h1>"):page.index("</h1>")]
-    assert 'data-tip="Open #37 on GitHub"' in head
+    assert 'data-tip="Open on GitHub"' in head
 
 
 def test_the_score_opens_the_tab_that_holds_the_findings_behind_it(tmp_path):
@@ -4217,7 +4218,7 @@ def test_the_shot_is_headed_by_what_it_is_for(tmp_path):
     deliberate: the three named axes are the ones the panel inside the shot switches
     between, and they are not all of them."""
     page, _ = _build(tmp_path, _city(tmp_path))
-    assert ('<h2 id="codecity">PR impact on code size, complexity, coupling, …</h2>'
+    assert ('<h2 id="codecity">Impact on code size, complexity, coupling, …</h2>'
             in page)
     assert build.CITY_HEADING.endswith("…")
     # The anchor is on the heading, so `#codecity` still lands at the top of the picture.

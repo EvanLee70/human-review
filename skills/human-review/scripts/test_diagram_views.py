@@ -206,7 +206,7 @@ def test_an_empty_title_drops_the_heading_instead_of_printing_a_blank_one(tmp_pa
                                          "kind": "sequence"},
                                         {"manifest": "MANIFEST.tsv"}, rows,
                                         tmp_path, tmp_path)
-    assert "<h3" in kept and "Sequence deltas" in kept
+    assert "<h3" in kept and "Sequence diagrams of tests" in kept
 
 
 # ── the frame that says which picture you are on ──────────────────────────────────
@@ -966,7 +966,7 @@ def test_both_editors_are_offered_and_named(tmp_path):
         "drawio_web_url": "https://app.diagrams.net/?splash=0&title=C#R%3Cmx%3E"}))
     out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
     assert "in draw.io " in out
-    assert ">App ↗</a>" in out and ">Web ↗</a>" in out
+    assert ">Desktop App ↗</a>" in out and ">Web ↗</a>" in out
     assert out.count("draw.io ") == 1, "the brand is named once, the two editors after it"
     assert "drawio:///repo/C.drawio.png" in out and "app.diagrams.net" in out
 
@@ -1016,10 +1016,10 @@ def test_a_named_guardrail_leads_the_sentence(tmp_path):
                        tested_against="Java Domain Model")
     line = re.search(r'<p class="dgm-open">(.*?)</p>', out, re.S).group(1)
     assert '>This diagram</button>' in line
-    assert " is unit-tested against the Java Domain Model. Relayout it in draw.io" in line
+    assert " is unit-tested against the Java Domain Model.<br>Relayout it in draw.io" in line
     plain = _widget_with(tmp_path, rerun=RERUN, drawio_url="drawio:///repo/docs/C.drawio.png",
                          tested_against="Java Domain Model")
-    assert ("This diagram is unit-tested against the Java Domain Model. Relayout it in "
+    assert ("This diagram is unit-tested against the Java Domain Model.<br>Relayout it in "
             "draw.io" in plain)
 
 
@@ -1031,7 +1031,7 @@ def test_the_web_link_is_dropped_when_the_verdict_has_none(tmp_path):
         "added": [], "removed": [], "changed": [], "moved": [], "red": [],
         "drawio_url": "drawio:///repo/C.drawio.png"}))
     out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
-    assert ">App ↗</a>" in out
+    assert ">Desktop App ↗</a>" in out
     assert ">Web ↗</a>" not in out and " or " not in out
 
 

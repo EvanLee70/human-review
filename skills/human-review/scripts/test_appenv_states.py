@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The deployed-app row has four states and none of them is in the markup.
 
-Everything the reader sees in that row — "Offline" or an address, which of `Start`, `Stop`
-and `Where` are on screen, `Reset DB`, and whether each verb wears a clipboard or its own
+Everything the reader sees in that row — "Offline" or an address, which of `Start` and `Stop`
+are on screen, `Reset DB`, and whether each verb wears a clipboard or its own
 mark — is decided at runtime by APP_ENV_JS and SERVER_JS out of two facts neither can know
 at build time: whether this copy of the report is being served, and whether anything is
 answering at the base. So the markup tests in `test_build_review.py` can only pin what is
@@ -56,7 +56,7 @@ PROBE = """() => {
   return {
     state: vis(state) ? state.textContent : null,
     url: vis(url) ? [url.textContent, url.getAttribute('href'), url.target] : null,
-    start: verb('start'), stop: verb('stop'), where: verb('where'),
+    start: verb('start'), stop: verb('stop'), where: q('.appenv-where'),
     reset: vis(q('.appenv-reset')) ? q('.appenv-reset').textContent : null,
     // The fixture buttons the environment reported, after Reset DB, and the note saying
     // which state it was last reset to.
@@ -68,33 +68,39 @@ PROBE = """() => {
 
 
 def _page(served: bool, live: bool, hang: bool = False, slow_probe: bool = False,
-          fail: bool = False, fixtures: dict | None = None) -> str:
+          fail: bool = False, fixtures: dict | None = None, found: str = "") -> str:
     """`hang` is a command that never finishes — which is the state worth looking at, and
     the only one the settled-state tests below can never catch: `docker compose up` on a
     cold cache is minutes of the row saying "Starting…" and nothing else. `slow_probe`
     is the health check hanging, which holds the row in `checking…` to be looked at.
-    `fail` is a command that exits non-zero, printing one last line."""
+    `fail` is a command that exits non-zero, printing one last line. `found` is the host
+    knowing of an instance at that address, the only one that answers."""
     # On `window` and not `const`: `set_content` writes into the same global scope every
     # time, and a second `const SERVED` there is a SyntaxError that kills the whole script
     # — leaving the page showing the *previous* case's row, which reads as a bug in the bar.
     stub = """<script>
 window.SERVED = %s; window.LIVE = %s; window.HANG = %s; window.SLOW = %s;
-window.FAIL = %s; window.FIXTURES = %s;
+window.FAIL = %s; window.FIXTURES = %s; window.FOUND = %s; window.ASKED = [];
 window.HR = {onready: fn => setTimeout(fn, 0), can: () => window.SERVED,
-             run: () => window.HANG ? new Promise(() => {})
+             run: id => (window.ASKED.push(id), window.HANG) ? new Promise(() => {})
                       : window.FAIL ? Promise.resolve({state: 'failed', exit: 1, result: {},
                                                        output: 'context not found\\n'})
-                                    : Promise.resolve({state: 'done', result: {}}),
+                                    : Promise.resolve({state: 'done',
+                                                       result: {base: window.FOUND}}),
              tail: snap => (snap && snap.output || '').trim()};
 // `GET <reset>` is the environment listing its fixtures; `null` is an environment from
 // before fixtures, whose answer has no list in it.
 window.fetch = url => window.SLOW ? new Promise(() => {})
+  : window.FOUND ? (url.startsWith(window.FOUND)
+                    ? Promise.resolve({ok: true, json: () => Promise.resolve({ok: true})})
+                    : Promise.reject(new Error('down')))
   : !window.LIVE ? Promise.reject(new Error('down'))
   : /__reset$/.test(url) && window.FIXTURES
     ? Promise.resolve({ok: true, json: () => Promise.resolve(window.FIXTURES)})
   : Promise.resolve({ok: true, json: () => Promise.resolve({ok: true})});
 </script>""" % (json.dumps(served), json.dumps(live), json.dumps(hang),
-                json.dumps(slow_probe), json.dumps(fail), json.dumps(fixtures))
+                json.dumps(slow_probe), json.dumps(fail), json.dumps(fixtures),
+                json.dumps(found))
     return ("<!doctype html><meta charset=utf-8><style>" + build.CSS + "</style>"
             + stub + build.runtime_html(RUNTIME) + build.APP_ENV_JS)
 
@@ -116,8 +122,8 @@ def row():
         settled = ("() => document.querySelector('.appenv-state').dataset.state"
                    " !== 'unknown'")
 
-        def read(served, live, fixtures=None):
-            page.set_content(_page(served, live, fixtures=fixtures))
+        def read(served, live, fixtures=None, found=""):
+            page.set_content(_page(served, live, fixtures=fixtures, found=found))
             page.wait_for_function(settled)
             page.wait_for_timeout(60)
             page.wait_for_function(settled)
@@ -135,17 +141,34 @@ def test_offline_says_offline_and_shows_no_address(row):
     seen = row(served=True, live=False)
     assert seen["state"] == "Offline"
     assert seen["url"] is None
-    # The verb that changes what the row just said, and the one that finds an instance
-    # this browser does not remember. Stop with nothing to stop can only fail.
+    # The verb that changes what the row just said. Stop with nothing to stop can only
+    # fail, and there is no Where: the row asked the host itself before saying Offline.
     assert seen["start"]["word"] == "Start App in Docker"
-    assert seen["where"]["word"] == "Where"
-    assert seen["stop"] is None
+    assert seen["stop"] is None and seen["where"] is None
     assert seen["reset"] is None
     # Which face that verb wears is SERVER_JS's answer, per action, and this page stubs
     # SERVER_JS out on purpose — see test_command_html.py for the raising, and the real
     # served page for the effect. Here it is still the clipboard.
     assert seen["start"]["copies"] == RUNTIME["command"]
     assert seen["start"]["runs"] is None
+
+
+def test_served_it_finds_an_app_already_running_elsewhere(row):
+    """Nothing answers at the address this browser remembers, but the stack is up — started
+    from a terminal, or from another tab. Served, the row asks the host itself and lands on
+    the link; there is no Where button to press any more."""
+    seen = row(served=True, live=False, found="http://localhost:53421")
+    assert seen["state"] is None
+    assert seen["url"] == ["http://localhost:53421", "http://localhost:53421", "_blank"]
+    assert seen["stop"]["word"] == "Stop" and seen["start"] is None
+    assert row.page.evaluate("window.ASKED") == ["demo-env-url"], "asked once, and only that"
+
+
+def test_off_disk_the_host_is_never_asked(row):
+    """A file cannot run the host's `url` command, and must not pretend to."""
+    seen = row(served=False, live=False, found="http://localhost:53421")
+    assert seen["state"] == "Offline" and seen["url"] is None
+    assert row.page.evaluate("window.ASKED") == []
 
 
 def test_live_shows_the_address_as_a_link_into_a_new_tab(row):
@@ -155,8 +178,7 @@ def test_live_shows_the_address_as_a_link_into_a_new_tab(row):
     seen = row(served=True, live=True)
     assert seen["state"] is None
     assert seen["url"] == ["http://localhost:4200", "http://localhost:4200", "_blank"]
-    # Start is gone and Stop takes its place. Where goes too: with the address already in
-    # the row as a link, it was the same link again with an arrow on it.
+    # Start is gone and Stop takes its place.
     assert seen["start"] is None
     assert seen["stop"]["word"] == "Stop" and seen["where"] is None
     assert seen["reset"] == "Reset DB"
@@ -187,18 +209,17 @@ def test_off_disk_every_verb_is_on_screen_as_its_own_clipboard(row):
     What is left is one control per command, wearing the clipboard — which is the honest
     statement that this copy of the report cannot run it, made once instead of twice.
 
-    All three, and not only the ones that apply to the current state: the reader is pasting
+    Both, and not only the one that applies to the current state: the reader is pasting
     one of these into a terminal, where what is up and what is not is their business and not
     this page's. The row used to hide two thirds of them behind a health check, in a second
     row underneath, labelled `START` `STOP` `WHERE` and wearing the *rerun* mark."""
     seen = row(served=False, live=False)
     assert seen["state"] == "Offline"
     assert seen["reset"] is None
-    assert [seen[v]["word"] for v in ("start", "stop", "where")] == \
-        ["Start App in Docker", "Stop", "Where"]
-    assert [seen[v]["copies"] for v in ("start", "stop", "where")] == \
-        [RUNTIME["command"], RUNTIME["stop"], RUNTIME["urlCommand"]]
-    assert all(seen[v]["runs"] is None for v in ("start", "stop", "where")), \
+    assert [seen[v]["word"] for v in ("start", "stop")] == ["Start App in Docker", "Stop"]
+    assert [seen[v]["copies"] for v in ("start", "stop")] == [RUNTIME["command"], RUNTIME["stop"]]
+    assert seen["where"] is None, "the host's `url` command is never a button"
+    assert all(seen[v]["runs"] is None for v in ("start", "stop")), \
         "nothing here can run, so no verb may wear a mark that says it can"
 
 

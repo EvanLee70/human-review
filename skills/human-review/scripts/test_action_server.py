@@ -1377,18 +1377,17 @@ def test_pressing_one_rerun_disables_the_other():
 # opening the report is not a click
 # --------------------------------------------------------------------------- #
 
-def test_opening_the_served_page_runs_nothing_on_its_own(server, tmp_path):
-    """The deployed-app row used to ask the host for its address the moment the page
-    settled: `!current && window.HR.can('demo-env-url')` was true on every fresh browser
-    and every browser with site data blocked, so `POST /__run__ {"id": "demo-env-url"}`
-    — `./start-docker.sh url …`, a shell command of the project — ran merely because the
-    tab existed. `location.reload()` on a rebuild notification re-ran it every time too.
+def test_opening_the_served_page_only_asks_where_and_only_once(server, tmp_path):
+    """Opening the page may *ask* the host where the app is — `demo-env-url`, a read — and
+    nothing else. It went back and forth: the row once asked on every settle, then only on
+    a Where button, which nobody could guess the meaning of; since 29 Sep 2026 it asks by
+    itself again, once per page, when nothing answers at the remembered address. What must
+    never happen on open is a Start or a Stop, which change what is running.
 
-    APP_ENV_JS no longer asks on its own. It is exercised here for real: the actual asset
-    file, served by the actual action server, opened in an actual browser, with a manifest
-    that declares `demo-env-url` and would happily run it if asked. After the row has
-    settled and had three seconds to think about it, `RUNS` must hold no `demo-env-url`
-    run and the global run status must still be idle."""
+    Exercised for real: the actual asset file, served by the actual action server, opened
+    in an actual browser, with a manifest that declares all three commands and would
+    happily run any of them. After the row has settled and had three seconds to think
+    about it, `RUNS` holds exactly one run, `demo-env-url`, and nothing is still going."""
     pw = pytest.importorskip("playwright.sync_api")
     _fresh(tmp_path, {"version": 1, "actions": {
         "demo-env": {"command": "printf 'listening\\nhttp://localhost:49521\\n'",
@@ -1426,8 +1425,8 @@ def test_opening_the_served_page_runs_nothing_on_its_own(server, tmp_path):
         finally:
             browser.close()
 
-    assert not any(r.action == "demo-env-url" for r in srv.RUNS.values()), \
-        "opening the page ran demo-env-url without a click on Where, Start or Stop"
+    ran = sorted(r.action for r in srv.RUNS.values())
+    assert ran == ["demo-env-url"], f"opening the page ran {ran}"
     status, payload = _call(server, "GET", srv.RUN_STATUS)
     assert status == 200
     assert json.loads(payload)["active"] is None

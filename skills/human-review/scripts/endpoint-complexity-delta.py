@@ -530,8 +530,8 @@ def render(rows, base="main") -> str:
         # reading the bars, not this line.
         # A heading naming the measure, then how it is taken — Victor's wording. The
         # measure's name is the link to what it means.
-        f'<h3 class="cx-title">Cumulated Entry-Point <a href="{SONAR_COGNITIVE}" '
-        'target="_blank" rel="noopener">Cognitive Complexity</a></h3>'
+        f'<h3 class="cx-title"><a href="{SONAR_COGNITIVE}" target="_blank" '
+        'rel="noopener">Cognitive Complexity</a> per Entry Point</h3>'
         '<p class="cx-lede">Computed by traversing the syntax of the Java source files.</p>',
     ]
     known = {kind for kind, _ in KIND_TITLES}
@@ -665,14 +665,13 @@ summary.cx-head:focus-visible { outline:2px solid var(--link); outline-offset:-2
 .cx-row[open] > .cx-head { background:var(--code-bg); }
 /* A row you can open has to look like one before you try: under the pointer its head
     lights up, a bar in the link colour marks its left edge, the caret takes the same
-    colour and nudges, and a dimmed row comes back to full strength — together they say
-    "click me", where a faint tint alone read as nothing at all. */
+    colour, and a dimmed row comes back to full strength — together they say "click me",
+    where a faint tint alone read as nothing at all. The caret does not move: nudged 2px
+    right on hover, a column of them jittered as the pointer ran down the list. */
 details.cx-row > summary.cx-head { cursor:pointer; transition:background .12s, box-shadow .12s; }
 details.cx-row > summary.cx-head:hover { background:var(--code-bg);
     box-shadow:inset 3px 0 0 var(--link); }
 details.cx-row > summary.cx-head:hover .cx-caret { color:var(--link); }
-details.cx-row:not([open]) > summary.cx-head:hover .cx-caret::before { display:inline-block;
-    transform:translateX(2px); }
 details.cx-row.cx-same:hover { opacity:.9; }
 .cx-verb { font:700 10.5px/1 ui-monospace,Menlo,monospace; letter-spacing:.03em; }
 /* Amber is the one hue that never read on white either: #e08a00 is 2.7:1 there, well
@@ -749,13 +748,13 @@ a.cx-why-line:hover code { text-decoration:underline; }
     subtree is, and one wide branch then opens a screen of empty space above and below
     every sibling. Aligned to the top, a node sits level with its first callee and the
     elbows are drawn at a fixed height — half a node — from the top of each row. */
-.cg-t { --cg-mid:15px; display:flex; flex-direction:column; align-items:flex-start;
+.cg-t { display:flex; flex-direction:column; align-items:flex-start;
         position:relative; }
 /* A node and the callees in other classes, to its right. The stem is the node's column,
     stretched to the row's height so the rail down to its same-class callees can start
     under the node however tall the branch beside it grows. */
 .cg-row { display:flex; align-items:flex-start; }
-.cg-stem { align-self:stretch; position:relative; }
+.cg-stem { align-self:stretch; position:relative; display:flex; align-items:flex-start; }
 .cg-kids { display:flex; flex-direction:column; gap:3px; margin-left:12px; position:relative; }
 .cg-kids::before { content:""; position:absolute; left:-12px; top:var(--cg-mid); width:12px;
                    border-top:1px solid var(--cg-line); }
@@ -770,8 +769,9 @@ a.cx-why-line:hover code { text-decoration:underline; }
 /* The arrowhead: a border triangle hung off the callee's left edge, tip on its frame, so
     every edge reads caller → callee without an SVG. */
 .cg-kids > .cg-t > .cg-row > .cg-stem > .cg-n::before, .cg-kids > .cg-t > .cg-more::before {
-    content:""; position:absolute; left:-7px; top:calc(var(--cg-mid) - 5px);
+    content:""; position:absolute; left:-7px; top:calc(var(--cg-mid) - 4.5px);
     border:4px solid transparent; border-left:6px solid var(--cg-arrow); border-right:0; }
+.cg-kids > .cg-t > .cg-more::before { top:calc(50% - 4px); }
 .cg-more { position:relative; }
 /* Calls that stay in the class hang below the caller, flush with its left edge: the rail
     down from under the caller runs straight into an arrowhead on the callee's top — down
@@ -783,8 +783,7 @@ a.cx-why-line:hover code { text-decoration:underline; }
            padding-top:10px; position:relative; }
 /* The rail starts at the caller's bottom edge, not its middle: a dimmed caller is
     translucent, and a line from its middle showed through it. */
-.cg-v > .cg-row > .cg-stem::after { content:""; position:absolute; left:8px;
-                                    top:calc(2 * var(--cg-mid) + 6px);
+.cg-v > .cg-row > .cg-stem::after { content:""; position:absolute; left:8px; top:var(--cg-h);
                                     bottom:0; border-left:1px solid var(--cg-line); }
 .cg-down::after { content:""; position:absolute; left:8px; top:0; height:3px;
                   border-left:1px solid var(--cg-line); }
@@ -798,13 +797,20 @@ a.cx-why-line:hover code { text-decoration:underline; }
 .cg-down > .cg-t > .cg-row > .cg-stem > .cg-n::before {
     content:""; position:absolute; left:3px; top:-7px;
     border:4px solid transparent; border-top:6px solid var(--cg-arrow); border-bottom:0; }
-.cg { --cg-line:color-mix(in srgb, var(--muted) 55%, transparent); --cg-arrow:var(--muted); }
-/* A node: the class badge, its ↗ inside it after the name, over the `method()` badge
-    with the score to its right — the score is the method's, so it sits on its row. The names are set in the UI face, not monospace: the
-    graph is as wide as its deepest chain times its widest names, and a proportional face
-    buys back a fifth of that. */
-.cg-n { display:inline-grid; grid-template-columns:auto auto; column-gap:5px; row-gap:1px;
-        align-items:center; padding:2px 4px; border:1px solid var(--line); border-radius:6px;
+/* The edges are drawn to measurements, not to the boxes, so the box's rows have fixed
+    heights: a 1px frame, an 18px class row whose last pixel is the divider, a 20px method row. Every
+    arrow from the left lands on the divider (--cg-mid, its top pixel), and a rail down
+    starts at the bottom edge (--cg-h). */
+.cg { --cg-line:color-mix(in srgb, var(--muted) 55%, transparent); --cg-arrow:var(--muted);
+      --cg-mid:18px; --cg-h:40px; }
+/* A node is one frame cut in two by a rule across its whole width: the class on top,
+    its ↗ right after the name, and the method below with its score hard right — the
+    score is the method's, so it sits on its row. No badge inside the badge: the class
+    used to be a pill of its own and the method a black lozenge, three frames per box.
+    The names are set in the UI face, not monospace: the graph is as wide as its deepest
+    chain times its widest names, and a proportional face buys back a fifth of that. */
+.cg-n { display:inline-grid; grid-template-columns:auto auto; column-gap:6px;
+        align-items:center; padding:0; border:1px solid var(--line); border-radius:6px;
         background:var(--card); color:inherit; white-space:nowrap; cursor:pointer;
         position:relative; z-index:1; transition:border-color .12s, background .12s; }
 .cg-n:hover { border-color:var(--link); }
@@ -813,12 +819,12 @@ a.cx-why-line:hover code { text-decoration:underline; }
     stands out of the graph around it. */
 .cg-n.cg-open { border-color:var(--link); box-shadow:0 0 0 1px var(--link) inset;
                 background:color-mix(in srgb, var(--link) 12%, var(--card)); opacity:1; }
-.cg-c, .cg-m { font:600 10.5px/1.3 system-ui,sans-serif; padding:0 4px; border-radius:4px;
-               grid-column:1; justify-self:start; }
-.cg-c { grid-column:1 / 3; }
-.cg-c { color:var(--muted); border:1px solid var(--line); font-weight:500; }
-.cg-m { background:var(--code-bg); border:1px solid transparent; }
-.cg-cog { grid-column:2; grid-row:2; font:700 9.5px/1.3 ui-monospace,Menlo,monospace;
+.cg-c { grid-column:1 / 3; display:flex; align-items:center; gap:3px; height:18px;
+        box-sizing:border-box; padding:0 6px; border-bottom:1px solid var(--line);
+        font:500 10.5px/14px system-ui,sans-serif; color:var(--muted); }
+.cg-m { grid-column:1; display:flex; align-items:center; height:20px; padding-left:6px;
+        font:600 10.5px/14px system-ui,sans-serif; }
+.cg-cog { grid-column:2; grid-row:2; padding-right:6px; font:700 9.5px/1.3 ui-monospace,Menlo,monospace;
           text-align:right; font-variant-numeric:tabular-nums; }
 /* ↗ is the only way into the editor from the graph, so it is a real target, not a glyph:
     a small square that fills blue under the pointer. */
@@ -826,20 +832,24 @@ a.cg-go { display:inline-block; min-width:14px; text-align:center; border-radius
           font:700 11px/14px system-ui,sans-serif; color:var(--link); text-decoration:none; }
 a.cg-go:hover { background:var(--link); color:var(--card); }
 .cg-c a.cg-go { min-width:12px; font-size:10.5px; line-height:1; }
-/* The fold's caret sits in front of the method name, the word a reader clicks on. */
-.cg-tog::before { content:"\\25B8"; display:inline-block; width:.8em; color:var(--muted);
+/* The fold's caret sits in front of the method name, the word a reader clicks on — the
+    full-size ▶, not ▸: at the name's own size ▸ was a speck, and a speck does not say
+    "this opens". */
+.cg-tog { display:inline-flex; margin-right:5px; }
+.cg-tog::before { content:"\\25B6\\FE0E"; font-size:9px; line-height:1; color:var(--muted);
                   transition:transform .12s; }
 .cg-n:hover .cg-tog::before { color:var(--link); }
 .cg-open .cg-tog::before { transform:rotate(90deg); color:var(--link); }
-.cg-lines { display:none; grid-column:1 / 3; margin:3px 0 1px; padding:3px 2px 0;
+.cg-lines { display:none; grid-column:1 / 3; margin:0 0 1px; padding:3px 6px 0;
             border-top:1px dashed var(--line); cursor:auto; }
 .cg-open > .cg-lines { display:block; }
 .cg-lines a.cx-why-line code { font-size:11px; }
 .cg-d { font:700 9.5px/1 ui-monospace,Menlo,monospace; position:absolute; top:-6px; right:-6px;
         padding:1px 3px; border-radius:6px; background:var(--card); }
 .cg-zero { opacity:.55; }
-.cg-more { font:700 10px/1 ui-monospace,Menlo,monospace; color:var(--muted); padding:3px 6px;
-           border:1px dashed var(--line); border-radius:6px; cursor:help; }
+.cg-more { font:700 10px/18px ui-monospace,Menlo,monospace; color:var(--muted); padding:0 6px;
+           margin-top:calc(var(--cg-mid) - 9.5px); border:1px dashed var(--line);
+           border-radius:6px; cursor:help; }
 /* A method whose score this branch raised wears the added colour on its frame and its
     number; one it lowered, the removed colour. */
 .cg-add { border-color:var(--cx-added); box-shadow:0 0 0 1px var(--cx-added) inset; }

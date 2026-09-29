@@ -236,7 +236,7 @@ button.chip-rerun-ai .rr-ico { font-size:1em; vertical-align:-.05em; }
    and "Running…" in it would reflow the line it sits in. */
 .cmd .cmd-run.running { animation:hrspin .9s linear infinite; }
 @media (prefers-reduced-motion:reduce) { .cmd .cmd-run.running { animation:none; } }
-/* The pair with a word on it — the Demo row's Start, Stop and Where. The glyph alone is
+/* The pair with a word on it — the Demo row's Start and Stop. The glyph alone is
    sized up to read as a mark; beside a word it is a letter among letters, so the button
    goes back to the page's size and only the mark keeps its lift. And the spin moves to the
    mark: turning the whole pill would turn the word with it. */

@@ -34,7 +34,8 @@ def page_title(spec: dict) -> str:
 
     `PR#37` is the only link on this page a reader cannot recognise as one by where it
     sits: it is the first word of the `<h1>`, so it wears the page's heading weight, not
-    a link's. The hover says where it goes — the one thing a reader wants before clicking
+    a link's. The hover says where it goes, and only that — the number is already the word
+    the pointer is on — the one thing a reader wants before clicking
     away from the review they just opened.
     """
     pr = spec.get("pr") or {}
@@ -42,8 +43,8 @@ def page_title(spec: dict) -> str:
         num = f'PR#{html.escape(str(pr["number"]))}'
         if pr.get("url"):
             num = (f'<a class="prref" href="{html.escape(pr["url"])}" '
-                   f'data-tip="Open #{html.escape(str(pr["number"]), quote=True)} '
-                   f'on GitHub">{num}</a>')
+                   'data-tip="Open on GitHub">'
+                   f'{num}</a>')
         return f'{num} {html.escape(pr["title"])}'
     return html.escape(spec.get("title", "Review guide"))
 

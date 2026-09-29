@@ -3,9 +3,13 @@
 // Two copies of this report exist and the row has to be honest in both, and it is now the
 // *same row* in both — one line of verbs, and only the click differs. Served, a verb runs
 // its command through the review server and the row keeps its own state: nothing
-// answering, so Start and Where; something answering, so the address as a link, then Stop.
-// Off disk nothing here can run, so every verb is a clipboard for its command and all
-// three are on screen, because which line the reader wants to paste is their business.
+// answering, so Start; something answering, so the address as a link, then Stop. Off disk
+// nothing here can run, so every verb is a clipboard for its command and both are on
+// screen, because which line the reader wants to paste is their business.
+//
+// There is no Where any more. Served, the row asks the host itself, once, when the address
+// it remembers does not answer — a reader who started the stack in another tab gets the
+// link without having to know there was a question to ask.
 //
 // What this file decides is *which verbs apply*. Which face each one wears — clipboard or
 // play — is SERVER_JS's answer, per action, and it is why the wrapper span is what gets
@@ -26,8 +30,7 @@
   // The wrapper per verb, not the button: each wrapper holds the clipboard/play pair that
   // `command_html` emitted, and SERVER_JS owns which of the two is up.
   var acts = {start: bar.querySelector('.appenv-start'),
-              stop: bar.querySelector('.appenv-stop'),
-              where: bar.querySelector('.appenv-where')};
+              stop: bar.querySelector('.appenv-stop')};
   // The seed's button, which the build draws, and after it one per fixture the running
   // environment reports — those are drawn here, because only the environment knows them.
   var resets = bar.querySelector('.appenv-resets');
@@ -40,6 +43,9 @@
   // Raised by the probe in SERVER_JS, never assumed: a page on GitHub Pages is https and
   // is not served by us, and the buttons here must not believe otherwise.
   var served = false;
+  // Whether the host has been asked where the app is. Once per page: the answer is either
+  // an address, which is then remembered, or nothing, and asking again would say nothing.
+  var looked = false;
   var links = Array.prototype.slice.call(document.querySelectorAll('a[data-app]'));
   // Per page, not per machine: two review pages describe two branches, and each branch
   // gets its own instance on its own port.
@@ -88,7 +94,7 @@
   // — because a control that can be pressed while its precondition is missing is a
   // control that lies: Reset would fail, and \u25b8 would drive an app that is not there.
   //
-  // Off disk the gate is open on all three. None of them can *run* there — they are
+  // Off disk the gate is open on both. Neither can *run* there — they are
   // clipboards — and a clipboard for `stop` is exactly as useful with the app down as up:
   // the reader is pasting it into a terminal, where the state of things is their business
   // and not this page's. Hiding two thirds of the commands behind a health check was the
@@ -96,10 +102,6 @@
   function setLive(live, why) {
     show(acts.start, !served || !live);
     show(acts.stop, !served || live);
-    // Only while nothing answers. With the app up, the address is already in the row as a
-    // link and Where was the same link again with an arrow on it; with the app down, Where
-    // is the one control that can find an instance this browser does not remember.
-    show(acts.where, !live);
     resetButtons().forEach(function (el) { gate(el, live, resetTip(el.dataset.fixture)); });
     if (dbNote && !live) dbNote.hidden = true;
     [].forEach.call(document.querySelectorAll('.cue-drive'), function (el) {
@@ -136,7 +138,7 @@
       else state.removeAttribute('data-tip');
       setLive(false, failed ? failed.tip : tip);
     }
-    if (!b) { down('Nothing is running yet'); return; }
+    if (!b) { if (!look(failed)) down('Nothing is running yet'); return; }
     say('unknown', 'checking\u2026');
     setLive(false, 'Checking whether anything is listening\u2026');
     // /healthz answers with CORS open, so this works from a file:// page too. A failure
@@ -147,8 +149,33 @@
       setLive(true);
       listFixtures(b);
     }).catch(function () {
-      down('Nothing is answering at ' + b + ' \u2014 start it first');
+      if (!look(failed)) down('Nothing is answering at ' + b + ' \u2014 start it first');
     });
+  }
+
+  // Nothing answers at the address this browser remembers — or it remembers none — so ask
+  // the host whether an instance is up somewhere else, and take its address if one is.
+  // Served only, since only a served page can run the host's `url` command, and once: the
+  // reader who started the stack from a terminal, in another tab, or before clearing their
+  // site data lands on the row with the link already in it. It is a read — the host is
+  // asked where, nothing is started — which is why it may run merely because the page
+  // opened. It replaced the Where button, which asked the same question on a press, and
+  // was a button nobody could guess the meaning of.
+  //
+  // Not after a failure: a start that just died has something to say, and the question has
+  // been asked already by then anyway. And not over a Start or Stop pressed meanwhile —
+  // those own the row until they finish.
+  function look(failed) {
+    if (failed || looked || !served || busy || !window.HR.can('demo-env-url')) return false;
+    looked = true;
+    say('unknown', 'looking\u2026');
+    setLive(false, 'Asking the host whether the app is already up\u2026');
+    window.HR.run('demo-env-url', {}).then(function (done) {
+      if (busy) return;
+      if (done.state === 'done' && adopt(done.result && done.result.base)) return;
+      probe();
+    }).catch(function () { if (!busy) probe(); });
+    return true;
   }
 
   function resetButtons() {
@@ -290,26 +317,6 @@
     });
   });
 
-  // Where: ask the host which instance is up, and open it.
-  //
-  // It is the one verb of the three that is not a state change, and it is on screen only
-  // while the row says Offline: the address the row knows is the one *this browser*
-  // remembers, and Where is the host being asked. A reader who started the stack in
-  // another tab, or cleared their site data, or is looking at a page somebody else served
-  // has nothing remembered — and this is the button that fixes that without a terminal.
-  // Always the round trip: whatever base is remembered is, by now, not answering.
-  onrun(acts.where, function () {
-    drive('demo-env-url', 'Asking', function (done) {
-      if (done.state === 'done' && adopt(done.result && done.result.base)) {
-        var u = base();
-        if (u) window.open(u, '_blank', 'noopener');
-        return;
-      }
-      probe(done.state === 'done' ? null
-            : failure('nothing is up', done, 'the host knows of no instance'));
-    });
-  });
-
   // One command per caption. Off disk it is copied, because a file cannot drive a browser
   // on your machine; served, it is run, and what the reader gets back is the app already
   // sitting on the screen the caption describes. Same template either way — the one in
@@ -355,15 +362,9 @@
       // of the three verbs.
       probe();
     }
-    // Asking the host used to happen right here, the instant nothing was remembered —
-    // which is every first visit, every browser with site data blocked, and every reload
-    // a rebuild notification triggers, `location.reload()` in SERVER_JS included. That
-    // made *opening the page* run `demo-env-url` — a shell command of the project,
-    // `./start-docker.sh url …` — merely because the tab existed, before anyone had
-    // touched anything. The row now shows only what it already knows (nothing remembered
-    // renders as Offline, same as any other base it cannot reach) and asks the host for
-    // real only from a press that already means it: Where, when nothing is remembered
-    // yet, falls through to exactly this command below.
+    // The `probe` above is also what asks the host where the app is, when the remembered
+    // address does not answer — see `look`. It waits for this point because `served` is
+    // what says the host can be asked at all.
   });
 
   // Explicit, never automatic. Resetting on every link click would throw away work the
