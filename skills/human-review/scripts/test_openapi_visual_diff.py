@@ -316,13 +316,17 @@ def test_the_leaf_mark_reuses_the_differs_own_severity_scale():
     tpl = ovd.TEMPLATE
     assert "'dv-hit', 'l' + c.level" in tpl
     assert "dv-fieldmark l' + c.level" in tpl
+    # Each level names its colour once, as --dv-lvl; the leaf, its chip and the road
+    # all paint in that, so the three cannot disagree about what "l2" looks like.
     for level, var in ((1, "--dv-added"), (2, "--dv-modified"), (3, "--dv-breaking")):
-        assert f".dv-fieldmark.l{level} {{" in tpl
-        assert f".dv-hit.l{level} {{" in tpl
-        assert f"var({var})" in tpl
+        assert f".l{level} {{ --dv-lvl: var({var}); }}" in tpl
+        assert f".swagger-ui .dv-hit.l{level}" in tpl
+    assert "background: var(--dv-lvl); color: var(--dv-bg);" in tpl   # the chip
+    assert ".dv-roads path { fill: none; stroke: var(--dv-lvl);" in tpl
+    assert "road.g.setAttribute('class', 'l' + road.level)" in tpl
     # The 3.0 leaf is a table row: the article rules cannot reach it, and a row that
     # highlights nothing looks exactly like a walk that failed.
-    assert "tr.dv-hit.l1 > td" in tpl
+    assert "tr.dv-hit > td {" in tpl
     assert "tr.property-row.dv-hit > td:first-child" in tpl
 
 
