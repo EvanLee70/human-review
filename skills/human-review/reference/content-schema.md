@@ -466,7 +466,7 @@ over. Nothing describes the journey twice, so nothing can drift.
 environment first and the verbs that act on it after:
 
 ```
-served    Deployed app   http://localhost:53421     Stop ■   [Reset DB] [green]  DB: green
+served    Deployed app   http://localhost:53421     Stop ■   Reset DB to: [default] [green]
 off disk  Deployed app   Offline    Start App in Docker 📋   Stop 📋
 ```
 
@@ -513,11 +513,10 @@ environment answers on `POST` to put the data back to its starting point. Omit e
 no button is drawn.
 
 The environment may also offer **fixtures**: named datasets it restores *on top of* the
-seed. The row asks `GET <base><reset>` for them each time it finds the app up, and draws
-one button per name after `Reset DB`; a click is `POST <reset>/<name>`. The expected answer
-is `{"fixtures": ["green", …], "current": "green"}` — `current` being what the database was
-last reset to, shown as `DB: green` whenever there is more than one state to be in. Nothing
-in the content file lists them: a fixture added to the project is a button on the next
+seed. The row asks `GET <base><reset>` for them each time it finds the app up, and with
+any listed it reads `Reset DB to: [default] [green] …` — `default` is the seed, and each
+fixture's click is `POST <reset>/<name>`. The expected answer is
+`{"fixtures": ["green", …]}`. Nothing in the content file lists them: a fixture added to the project is a button on the next
 probe, and an environment that answers with no list keeps the lone `Reset DB`.
 
 Resetting is never automatic — doing it on every link click would throw

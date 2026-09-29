@@ -378,10 +378,9 @@ button.chip-rerun-ai .rr-ico { font-size:1em; vertical-align:-.05em; }
     answers — so there is no line for anybody to paste and nothing for a clipboard to be
     the honest form of. A button that always fails is worse than an absent one. */
 .appenv:not(.appenv-served) .appenv-resets { display:none; }
-/* Reset DB, then one button per fixture the environment reported, then which of them the
-    database was last reset to. One group, because they are one verb with an argument. */
+/* "Reset DB to:", then default and one button per fixture the environment reported. One
+    group, because they are one verb with an argument. */
 .appenv .appenv-resets { display:inline-flex; flex-wrap:wrap; gap:.3rem; align-items:center; }
-.appenv .appenv-db { color:var(--muted); font-size:.9em; margin-left:.15rem; }
 /* Three states, and the page must never claim the third without having asked: unknown
     until the probe answers, then live — where the address speaks for it and the pill
     steps out of the way — or down, where "Offline" is the whole truth there is. */

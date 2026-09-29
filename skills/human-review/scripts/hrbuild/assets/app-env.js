@@ -35,7 +35,7 @@
   // environment reports — those are drawn here, because only the environment knows them.
   var resets = bar.querySelector('.appenv-resets');
   var reset = bar.querySelector('.appenv-reset');
-  var dbNote = bar.querySelector('.appenv-db');
+  var resetsTo = bar.querySelector('.appenv-resets-to');
   // One command at a time. `docker compose up` is minutes, the row stays readable
   // throughout, and a second press in the middle of it is a reader who could not tell the
   // first one had started — a Stop sent into a half-built stack is the worst of them.
@@ -103,7 +103,7 @@
     show(acts.start, !served || !live);
     show(acts.stop, !served || live);
     resetButtons().forEach(function (el) { gate(el, live, resetTip(el.dataset.fixture)); });
-    if (dbNote && !live) dbNote.hidden = true;
+    if (resetsTo && !live) resetsTo.hidden = true;
     [].forEach.call(document.querySelectorAll('.cue-drive'), function (el) {
       arm(el, live, live ? 'Drive the app to this point' : why);
     });
@@ -186,16 +186,11 @@
                   + '\u201d fixture on top of it'
                 : 'Put the demo data back to its seed';
   }
-  // Which state the database was last reset to — "last reset to" and not "is in", since a
-  // reviewer may have typed since. Only worth saying when there is more than one state to
-  // be in: next to a lone Reset DB, "DB: seed" is a word about nothing.
-  function noteDb(current) {
-    if (!dbNote) return;
-    var any = resetButtons().length > 1;
-    dbNote.hidden = !any || !current;
-    dbNote.textContent = current ? 'DB: ' + current : '';
-    dbNote.dataset.tip = 'The dataset this database was last reset to \u2014 anything '
-      + 'typed since sits on top of it';
+  // With fixtures the group is one verb and its arguments — "Reset DB to: [default]
+  // [green]" — and without, the seed's button says the whole thing on its own.
+  function nameResets(any) {
+    if (resetsTo) resetsTo.hidden = !any;
+    if (reset) reset.textContent = any ? 'default' : 'Reset DB';
   }
 
   // The fixtures are the environment's to name, and asked for every time it is found up:
@@ -219,9 +214,9 @@
         btn.dataset.fixture = name;
         btn.textContent = name;
         gate(btn, true, resetTip(name));
-        resets.insertBefore(btn, dbNote);
+        resets.appendChild(btn);
       });
-      noteDb(info.current);
+      nameResets(names.length > 0);
     }).catch(function () {});
   }
 
@@ -373,7 +368,7 @@
   // when they have made a mess.
   //
   // One listener for the whole group, since the fixture buttons come and go with the
-  // probe. The environment answers with the state it reset to, which is what the note says.
+  // probe.
   if (resets) resets.addEventListener('click', function (ev) {
     var btn = ev.target.closest('.appenv-reset');
     if (!btn || blocked(btn)) return;
@@ -385,9 +380,6 @@
     fetch(b + bar.dataset.reset + (name ? '/' + encodeURIComponent(name) : ''),
           {method: 'POST', cache: 'no-store'}).then(function (r) {
       btn.textContent = r.ok ? 'Reset' : 'Reset failed';
-      return r.ok ? r.json().then(function (j) { noteDb(j.current || name || 'seed'); },
-                                  function () { noteDb(name || 'seed'); })
-                  : null;
     }).catch(function () { btn.textContent = 'Reset failed'; }).then(function () {
       setTimeout(function () {
         btn.textContent = face;

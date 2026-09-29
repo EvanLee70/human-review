@@ -765,12 +765,13 @@ def runtime_html(rt) -> str:
         # which, when the probe asks `GET <reset>`. Nothing here lists them, so a fixture
         # added to the project is a button on the next probe, with no rebuild of this page
         # and no second list to fall out of step with the files. APP_ENV_JS appends one
-        # `.appenv-reset` per fixture after this one, and the `.appenv-db` note after them.
+        # `.appenv-reset` per fixture after this one; with any listed, the row reads
+        # "Reset DB to: [default] [green]", and with none it stays a lone "Reset DB".
         controls += ('<span class="appenv-resets">'
+                     '<span class="appenv-resets-to" hidden>Reset DB to:</span>'
                      '<button type="button" class="appenv-reset" data-fixture="" hidden'
                      ' aria-disabled="true" data-tip="Put the demo data back to its seed">'
-                     'Reset DB</button>'
-                     '<span class="appenv-db" hidden></span></span>')
+                     'Reset DB</button></span>')
 
     return (f'<div class="appenv" data-fallback="{html.escape(fallback)}"'
             f'{f' data-reset="{html.escape(rt["reset"])}"' if rt.get("reset") else ""}'

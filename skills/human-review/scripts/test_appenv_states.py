@@ -58,11 +58,11 @@ PROBE = """() => {
     url: vis(url) ? [url.textContent, url.getAttribute('href'), url.target] : null,
     start: verb('start'), stop: verb('stop'), where: q('.appenv-where'),
     reset: vis(q('.appenv-reset')) ? q('.appenv-reset').textContent : null,
-    // The fixture buttons the environment reported, after Reset DB, and the note saying
-    // which state it was last reset to.
+    // The fixture buttons the environment reported, after the seed's, and the words that
+    // lead the group once there is more than one state to reset to.
     fixtures: [...document.querySelectorAll('.appenv-reset')].slice(1).filter(vis)
                 .map(b => b.textContent),
-    db: vis(q('.appenv-db')) ? q('.appenv-db').textContent : null,
+    to: vis(q('.appenv-resets-to')) ? q('.appenv-resets-to').textContent : null,
   };
 }"""
 
@@ -182,8 +182,9 @@ def test_live_shows_the_address_as_a_link_into_a_new_tab(row):
     assert seen["start"] is None
     assert seen["stop"]["word"] == "Stop" and seen["where"] is None
     assert seen["reset"] == "Reset DB"
-    # An environment that lists no fixtures has one state to be in, so nothing says which.
-    assert seen["fixtures"] == [] and seen["db"] is None
+    # An environment that lists no fixtures has one state to reset to, and the button says
+    # the whole thing on its own.
+    assert seen["fixtures"] == [] and seen["to"] is None
 
 
 def test_live_draws_one_reset_button_per_fixture_the_environment_lists(row):
@@ -191,17 +192,18 @@ def test_live_draws_one_reset_button_per_fixture_the_environment_lists(row):
     so a SQL file added to the project is a button on the next probe, with no rebuild."""
     seen = row(served=True, live=True,
                fixtures={"ok": True, "fixtures": ["green", "busy-day"], "current": "green"})
-    assert seen["reset"] == "Reset DB"
+    # "Reset DB to: [default] [green] [busy-day]" — one verb, and its arguments.
+    assert seen["to"] == "Reset DB to:"
+    assert seen["reset"] == "default"
     assert seen["fixtures"] == ["green", "busy-day"]
-    assert seen["db"] == "DB: green"
 
 
 def test_fixture_buttons_leave_with_the_app(row):
-    """Down, there is nothing to reset: the fixtures go with Reset DB, and so does the note
-    saying which one the database is in."""
+    """Down, there is nothing to reset: the fixtures go with Reset DB, and so do the words
+    that lead them."""
     seen = row(served=True, live=False,
                fixtures={"ok": True, "fixtures": ["green"], "current": "green"})
-    assert seen["reset"] is None and seen["fixtures"] == [] and seen["db"] is None
+    assert seen["reset"] is None and seen["fixtures"] == [] and seen["to"] is None
 
 
 def test_off_disk_every_verb_is_on_screen_as_its_own_clipboard(row):
