@@ -1201,6 +1201,10 @@ def test_the_footer_offers_both_ways_to_reach_the_page_again(tmp_path):
     # runnable docker of this report` named two packagings, which answers a question the
     # reader has not asked yet.
     assert "Download here" not in foot and "Download zip" not in foot
+    # Last, the way back to the author: issues are open to anybody, and a page read on
+    # somebody else's screen is the widest audience the tool has.
+    assert 'href="https://github.com/victorrentea/human-review/issues/new/choose"' in foot
+    assert foot.index("Then adapt it to your liking.") < foot.index(">Open an issue</a>")
     # After the sentence and before the control, so the row still reads sentence-first.
     assert foot.index("takeaway") < foot.index("allbar")
 

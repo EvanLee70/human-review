@@ -1,0 +1,11 @@
+name: Idea or question
+description: Something you wished the review page showed, or did differently — or anything you want to ask.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+      description: The question you wanted the page to answer is more useful than the fix you have in mind.
+    validations:
+      required: true

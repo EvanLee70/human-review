@@ -1,0 +1,20 @@
+name: Something broke or looks wrong
+description: A tab that failed to build, a wrong number, a broken link, an ugly render.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: A screenshot of the page says more than a paragraph.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+  - type: input
+    id: stack
+    attributes:
+      label: Your project's stack
+      placeholder: e.g. Spring Boot 3 + Angular, Node + React, Python/FastAPI

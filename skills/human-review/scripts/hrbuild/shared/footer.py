@@ -45,6 +45,14 @@ DEMO_ZIP_URL = "https://github.com/victorrentea/human-review/releases/tag/demo"
 DEMO_DOCKER_URL = ("https://github.com/victorrentea/human-review/"
                    "pkgs/container/human-review")
 
+# Where a reader who hit a wall goes. The repository takes issues from anybody with a
+# GitHub account — no contributor list, no interaction limit — and the widest audience
+# the tool has is not its README but every page it builds, most of them read by people
+# who never installed it. So the address is on every page, after the offer: the chooser
+# rather than a blank form, because the templates there ask the three questions a stranger
+# would otherwise leave out.
+ISSUES_URL = f"{HOME_URL}/issues/new/choose"
+
 # The footer's own line is where the offer goes. A reader still reading has no use for it;
 # a reader who has reached the bottom is precisely the one who wants to keep a copy — and
 # the page they are looking at is usually on somebody else's screen, so "keep a copy" is
@@ -78,7 +86,10 @@ TAKEAWAY = (
     'data-tip="The same pages as a container: docker run --rm -p 8642:80 '
     'ghcr.io/victorrentea/human-review:&lt;snapshot&gt; — served rather than off disk, '
     'so the page behaves the way it does here.">run it locally</a>. '
-    'Then adapt it to your liking.'
+    'Then adapt it to your liking. Something missing or broken? '
+    f'<a href="{ISSUES_URL}" target="_blank" rel="noopener" '
+    'data-tip="Anyone with a GitHub account can open one — a bug, an idea, a question. '
+    'No need to have installed it.">Open an issue</a>.'
     '</span>'
 )
 

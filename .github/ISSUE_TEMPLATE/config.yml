@@ -1,0 +1,7 @@
+# Blank issues stay on: anybody may write anything, in any shape. The templates are a
+# shortcut for the common cases, never a gate.
+blank_issues_enabled: true
+contact_links:
+  - name: See the demo report first
+    url: https://victorrentea.github.io/human-review/demo/review.html
+    about: A page built on a real pull request, every tab clickable — nothing to install.

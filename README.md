@@ -16,6 +16,11 @@ snapshot at <https://victorrentea.github.io/human-review/>.
 It was extracted from a real project's review loop, where it was used on real branches
 before it was made portable.
 
+**Issues are open to everybody** — you do not need to have installed it, or to be sure it
+is a bug. Something you saw on the demo page, a tab that would not build on your stack, a
+question it left you with: [open an issue](https://github.com/victorrentea/human-review/issues/new/choose).
+Every page the skill builds carries the same link in its footer.
+
 ## Install
 
 Fork it first, and install from your own fork:
