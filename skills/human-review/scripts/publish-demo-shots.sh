@@ -15,7 +15,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_REPO="$HOME/workspace/human-review"
 DEFAULT_SRC="./.human-review/review.html"
-VENV="${HUMAN_REVIEW_SHOTS_VENV:-$HOME/.cache/human-review/shots-venv}"
 PAGES_BASE="https://victorrentea.github.io/human-review"
 
 usage() {
@@ -112,23 +111,8 @@ if [ -z "$SLUG" ]; then
 fi
 
 # ---------------------------------------------------------------------------- playwright
-# Python Playwright is not something a training laptop has lying around, and installing it
-# into the system interpreter is not ours to do. One throwaway venv, provisioned once and
-# reused on every later run.
-if [ ! -x "$VENV/bin/python" ]; then
-  echo "publish-demo-shots: provisioning Playwright in $VENV (first run only)…" >&2
-  mkdir -p "$(dirname "$VENV")"
-  python3 -m venv "$VENV"
-  "$VENV/bin/python" -m pip install --quiet --upgrade pip
-  "$VENV/bin/python" -m pip install --quiet playwright
-fi
-if ! "$VENV/bin/python" -c "import playwright" >/dev/null 2>&1; then
-  "$VENV/bin/python" -m pip install --quiet playwright
-fi
-# `install` is idempotent and returns in about a second when the browser is already in the
-# shared ms-playwright cache, so it is cheaper to always run it than to guess whether the
-# revision this playwright wants happens to be the one on disk.
-"$VENV/bin/python" -m playwright install chromium >&2
+# One venv, shared with publish-demo.sh's README tour; provisioned on first run.
+PY="$("$SCRIPT_DIR/playwright-python.sh")"
 
 # ---------------------------------------------------------------------------- the shots
 DEST="$REPO/demo/$SLUG"
@@ -136,7 +120,7 @@ MANIFEST="$(mktemp -t human-review-shots)"
 trap 'rm -f "$MANIFEST"' EXIT
 
 echo "publish-demo-shots: shooting $SRC_FILE -> $DEST" >&2
-"$VENV/bin/python" "$SCRIPT_DIR/shoot-review.py" "$SRC_FILE" \
+"$PY" "$SCRIPT_DIR/shoot-review.py" "$SRC_FILE" \
   --out "$DEST" --slug "$SLUG" ${TITLE:+--title "$TITLE"} \
   --manifest "$MANIFEST" >/dev/null
 

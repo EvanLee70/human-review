@@ -20,12 +20,17 @@ done
 
 - a slug — pass it as the first positional argument;
 - a source directory other than `.human-review` — pass `--src DIR`;
-- "don't push yet" / "let me look first" — drop `--push` and pass `--card` instead.
+- "don't push yet" / "let me look first" — drop `--push` and pass `--card` instead;
+- "make this the featured demo" / "put this one in the README" — add `--feature`;
+- "skip the screenshots" — add `--no-tour`.
 
 The script derives the slug from the project directory, copies the snapshot, leaves
 behind the run's own dot-prefixed bookkeeping and `*.raw.webm`, refuses any file over
 50 MB, rewrites that snapshot's card in `demo/index.html` from `review.html` and
-`content.json`, then commits and pushes.
+`content.json`, then commits and pushes. When the slug is the featured one (`demo`), it
+also screenshots every tab headlessly and rewrites the README's tour, the pages under
+`docs/tabs/` and the top of the Pages landing page around the new pictures, in the same
+commit — about twenty seconds more.
 
 Then print these three, substituting the slug the script reported, and say they take
 about a minute to appear because three workflows fire on the push:

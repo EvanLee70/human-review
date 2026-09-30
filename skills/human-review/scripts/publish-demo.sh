@@ -29,6 +29,15 @@ Options:
   --card        Write this snapshot's card into demo/index.html, rendered from the
                 snapshot itself. Implied by --push.
   --push        Commit the snapshot and the landing page, and push.
+  --feature     Make this snapshot the featured one: the one the README's tour, the
+                per-tab pages under docs/tabs/ and the top of the Pages landing page show.
+  --no-tour     Publish without retaking the tour's screenshots, even for the featured
+                snapshot.
+
+The featured snapshot (the README's `featured-demo` marker names it; `demo` today) is
+screenshotted tab by tab on every publish — with --card or --push — and the README, the
+docs/tabs/ pages and the landing page's top block are rewritten around the new pictures,
+so none of them can show an older page than the one just published.
 
 Environment:
   HUMAN_REVIEW_REPO   Checkout of victorrentea/human-review to copy into.
@@ -43,6 +52,8 @@ slug=""
 src=""
 card=""
 push=""
+feature=""
+tour=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -50,6 +61,8 @@ while [ $# -gt 0 ]; do
     --src) src="${2-}"; shift 2 ;;
     --card) card=1; shift ;;
     --push) push=1; card=1; shift ;;
+    --feature) feature=1; shift ;;
+    --no-tour) tour=""; shift ;;
     -*) echo "publish-demo: unknown option: $1" >&2; usage >&2; exit 2 ;;
     *)
       if [ -z "$slug" ]; then slug="$1"
@@ -271,12 +284,40 @@ print(f"Card {verb} in demo/index.html ({len(stats)} stats).")
 PY
 fi
 
+# ------------------------------------------------------------------- the README tour
+# The README's pictures are of the featured snapshot, and a picture of last month's page is
+# worse than none: it is the first thing a visitor sees, and it is wrong. So publishing the
+# featured snapshot retakes them — one viewport per tab, served the way Pages serves it — and
+# rewrites every place that shows them: the README (hero + tour table), each tab's page under
+# docs/tabs/, and the featured block at the top of the landing page. Any other slug is a
+# no-op there, said in one line. A failure stops the publish: a README left stale is exactly
+# what this is for, and --no-tour is the explicit way to publish anyway.
+toured=""
+if [ -n "$tour" ] && { [ -n "$card" ] || [ -n "$feature" ]; }; then
+  here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  featured="$(sed -n 's/.*<!-- featured-demo:begin slug=\([A-Za-z0-9_-]*\) -->.*/\1/p' "$repo/README.md" | head -1)"
+  if [ -n "$feature" ] || [ "$featured" = "$slug" ]; then
+    py="$("$here/playwright-python.sh")"
+    if [ -n "$feature" ]; then
+      "$py" "$here/readme-tour.py" --repo "$repo" --feature "$slug"
+    else
+      "$py" "$here/readme-tour.py" --repo "$repo" --slug "$slug"
+    fi
+    toured=1
+  else
+    echo "README tour: $slug is not the featured snapshot (${featured:-none}); pictures left alone."
+  fi
+fi
+
 if [ -n "$push" ]; then
   git -C "$repo" add "demo/$slug" demo/index.html
+  if [ -n "$toured" ]; then
+    git -C "$repo" add README.md docs/tabs
+  fi
   if git -C "$repo" diff --cached --quiet; then
     echo "publish-demo: nothing changed; no commit made"
   else
-    git -C "$repo" commit --quiet -m "demo: publish $slug snapshot"
+    git -C "$repo" commit --quiet -m "demo: publish $slug snapshot${toured:+, and retake the README tour}"
     git -C "$repo" push --quiet
     echo "publish-demo: committed and pushed"
   fi
@@ -284,7 +325,7 @@ else
   echo
   echo "Next steps:"
   echo "  cd $repo"
-  echo "  git add demo/$slug demo/index.html"
+  echo "  git add demo/$slug demo/index.html${toured:+ README.md docs/tabs}"
   echo "  git commit -m 'demo: publish $slug snapshot'"
   echo "  git push"
 fi
