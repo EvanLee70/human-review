@@ -96,9 +96,12 @@ from hrbuild.shared.genseq import (
 )
 from hrbuild.shared.diagrams import (
     CM_LEGEND_NEW, CM_LEGEND_TODO, DEFAULT_FOCUS, DGM_SRC_ANCHOR, dgm_views_html, DRAWIO_TOKEN,
-    drawio_widget_html, expand_drawio, read_manifest, render_diagrams, render_puml, select_rows,
-    shorten_dgm_src, VIEW_WORDS, _context_svg, _diagram_views, _focus_views, _provenance,
-    _source_link, _why_not_drawn
+    drawio_unchanged, drawio_unchanged_at, drawio_widget_html, expand_drawio,
+    find_diagram_source, read_manifest, render_diagrams, render_puml, schema_unseen_note,
+    select_rows, shorten_dgm_src, unchanged_row, UNCHANGED, UNCHANGED_BADGE, VIEW_WORDS,
+    _context_svg, _diagram_views, _drawio_unchanged_card, _focus_views, _provenance,
+    _source_link, _sql_shape, _SQL_COLLATE, _SQL_COLUMN, _SQL_INDEX, _SQL_TABLE,
+    _unchanged_body, _why_not_drawn
 )
 from hrbuild.shared.bands import (
     set_bands, _BANDS, _TOP_BANDS, _flush_bands, _flush_top_bands, _lede_above
@@ -420,6 +423,12 @@ def main(argv=None) -> int:
         body = shorten_dgm_src(
             expand_drawio(expand_snippets(s.get("body", ""), root), out_dir, root,
                           rebuild_cmd))
+        # A section that is nothing but a hand-drawn diagram the branch left alone (the
+        # built-in `conceptual`) is context, not a change: it must not keep the Data tab
+        # from being struck through when nothing on it moved.
+        token = DRAWIO_TOKEN.fullmatch((s.get("body") or "").strip())
+        if token and drawio_unchanged_at(token["name"], out_dir / "assets"):
+            unchanged_ids[s["id"]] = True
         collides = s["id"] in tab_ids
         if collides:
             print(f'[review] section {s["id"]!r} shares its id with a tab: the heading drops '
@@ -779,9 +788,39 @@ def main(argv=None) -> int:
             # orphans to warn about.
             own = block.get("manifest")
             source_rows = read_manifest(out_dir / own) if own else manifest_rows
-            rows = select_rows(source_rows, block)
+            rows = [dict(r) for r in select_rows(source_rows, block)]
             if not own:
                 placed.update(r["name"] for r in rows)
+            # A diagram the block names is shown whether or not this branch changed it:
+            # `puml-diff.sh` files only the ones whose text moved, and `only: ["DomainModel",
+            # "DB"]` on a branch whose migration added nothing but indexes used to come out
+            # as a Data tab with no DB on it. A name no row covers is drawn from its source
+            # with the UNCHANGED badge — unless it is the block's `context`, which keeps its
+            # own fallback below when nothing else in the block changed.
+            context = block.get("context")
+            have = {r["name"] for r in rows}
+            for name in block.get("only") or []:
+                if name in have:
+                    continue
+                if context and context.get("name") == name:
+                    if rows:
+                        rows.append(unchanged_row(name, context["src"]))
+                    continue
+                rel = find_diagram_source(name, root)
+                if rel:
+                    rows.append(unchanged_row(name, rel))
+                else:
+                    print(f"[review] diagrams block names {name!r}: no manifest row and no "
+                          f"{name}.puml in the repository — nothing to show", file=sys.stderr)
+            # What the picture cannot say. An ERD drawn from a schema dump is blind to an
+            # index or a collation, so a schema that changed only there reads UNCHANGED;
+            # the line under the card names it, and the card then counts as a change.
+            merge_base = (base_st or {}).get("mergeBase")
+            for r in rows:
+                if r.get("kind") == "structural":
+                    r["_unseen"] = schema_unseen_note(r["source"], root, merge_base,
+                                                      columns=r["status"] == UNCHANGED)
+            changed = sum(1 for r in rows if r["status"] != UNCHANGED or r.get("_unseen"))
             # Nothing of this family changed. A block that names a `context` diagram
             # (the Packages case: no delta, but the current package shape is still
             # worth showing) falls back to rendering it from source — exactly like a
@@ -791,7 +830,6 @@ def main(argv=None) -> int:
             # lives here, not in the discipline of remembering to pair it with a second
             # block that happens to always weigh 1.
             if not rows:
-                context = block.get("context")
                 if context:
                     return (heading(block, "diagrams", dspec.get("title", ""))
                             + render_puml(context, root, out_dir), 1, 0)
@@ -808,7 +846,7 @@ def main(argv=None) -> int:
             return (
                 heading(block, "diagrams", dspec.get("title", ""))
                 + render_diagrams(merged, root, out_dir, rows),
-                len(rows), len(rows),
+                len(rows), changed,
             )
         if kind == "testpairs":
             rows = [r for r in select_rows(manifest_rows, block) if r["kind"] == "sequence"]

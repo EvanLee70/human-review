@@ -4451,3 +4451,68 @@ def test_the_pr_button_says_publish_whether_or_not_it_was_pushed_before():
             "counts": {"fixed": 3, "ignored": 6, "assumption": 7}}})
         assert ">Publish comment on GitHub PR</button>" in face
         assert "Push to GitHub PR" not in face and "Update GitHub PR" not in face
+
+
+# --------------------------------------------------------------------------- #
+# the Data tab: every diagram the block names is on it, changed or not
+# --------------------------------------------------------------------------- #
+
+def test_the_data_tab_shows_every_named_diagram_and_says_what_the_erd_cannot(tmp_path):
+    """hr-try-4: `only: ["DomainModel", "DB"]`, the Domain Model's .puml moved only its
+    link line numbers (filed `unchanged` by `puml-diff.sh`), and DB.puml did not move at
+    all because the migration only added an index — so the tab showed an empty delta and
+    no DB. Both are on it now, as plain UNCHANGED cards, and the index is named under the
+    DB card, which is what keeps the tab from being struck through."""
+    import os
+    run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                                    capture_output=True)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    run("config", "user.email", "t@t.t")
+    run("config", "user.name", "t")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "DomainModel.puml").write_text("@startuml\nclass Owner {\n}\n@enduml\n")
+    (docs / "DB.puml").write_text("@startuml\nentity owners {\n}\n@enduml\n")
+    (docs / "DB.sql").write_text("CREATE TABLE public.owners (\n    id integer\n);\n")
+    run("add", "-A")
+    run("commit", "-qm", "base")
+    run("update-ref", "refs/remotes/origin/main", "HEAD")
+    (docs / "DB.sql").write_text("CREATE TABLE public.owners (\n    id integer\n);\n\n"
+                                 "CREATE INDEX owners_id_idx ON public.owners USING btree (id);\n")
+    review = tmp_path / ".human-review"
+    dg = review / "assets" / "diagrams"
+    dg.mkdir(parents=True)
+    svg = lambda p, t: p.write_text(
+        f'<svg xmlns="http://www.w3.org/2000/svg"><text>{t}</text></svg>')
+    svg(dg / "dm.new.svg", "domain picture")
+    svg(dg / "dm.diff.svg", "domain delta")
+    (dg / "MANIFEST.tsv").write_text(
+        "name\tsource\tkind\tstatus\tdiff_puml\tsvg\tfocus\tnew_svg\told_svg\n"
+        "DomainModel\tdocs/DomainModel.puml\tstructural\tunchanged\tdm.diff.puml\t"
+        "dm.diff.svg\t\tdm.new.svg\t\n")
+    # The render `_context_svg` would cache, so no PlantUML has to run here.
+    svg(review / "assets" / "DB.context.svg", "erd picture")
+    content = {"title": "t", "summary": "<p>x</p>",
+               "sections": [{"id": "s", "title": "S", "body": "<p>x</p>"}],
+               "tabs": [{"id": "data", "label": "Data", "blocks": [
+                            {"type": "diagrams", "only": ["DomainModel", "DB"]}]},
+                        {"id": "other", "label": "Other",
+                         "blocks": [{"type": "section", "id": "s"}]}]}
+    src = review / "content.json"
+    src.write_text(json.dumps(content))
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
+    env["HOME"] = str(home)
+    proc = subprocess.run([sys.executable, str(HERE / "build-review-html.py"), str(src),
+                           "--out", str(review / "review.html")],
+                          cwd=tmp_path, capture_output=True, text=True, env=env)
+    assert proc.returncode == 0, proc.stderr
+    page = (review / "review.html").read_text(encoding="utf-8")
+    panel = page.split('id="data"', 1)[1].split("</section>", 1)[0]
+    assert panel.index("<b>Domain Model</b>") < panel.index("<b>DB</b>"), "the asked order"
+    assert panel.count('<span class="badge sev-info">unchanged</span>') == 2
+    assert "domain picture" in panel and "erd picture" in panel
+    assert "domain delta" not in panel and "dgmviews" not in panel
+    assert "indexes added on owners (id)" in panel
+    assert '<button type="button" class="tab quiet" role="tab" id="tabbtn-data"' not in page

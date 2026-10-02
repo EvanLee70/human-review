@@ -754,13 +754,20 @@ def test_a_sequence_identical_to_the_base_is_still_pilled_unchanged(tmp_path):
 # and got back the drawing that was current when a model last wrote the section — the one
 # surface where "refresh" was guaranteed not to show the change just made.
 
+#: One box the re-layout moved: enough for `drawio-diff.py` to have found a change, so the
+#: widget under test is the delta one. A verdict with every list empty is an UNCHANGED
+#: drawing, which is a different card with none of these controls on it (see
+#: `test_an_unchanged_drawing_is_the_plain_card`).
+MOVED = [{"what": "Owner"}]
+
+
 def _drawio_set(assets: Path, name="conceptual", red=(), added=()):
     assets.mkdir(parents=True, exist_ok=True)
     for suffix, text in (("diff", "delta"), ("new", "after"), ("original", "before")):
         _svg(assets / f"{name}-{suffix}.svg", text)
     (assets / f"{name}-diff.json").write_text(json.dumps({
         "added": [{"what": w, "already_red": r} for w, r in added],
-        "removed": [], "changed": [], "moved": [],
+        "removed": [], "changed": [], "moved": MOVED,
         "red": [{"what": w} for w in red],
     }))
     return assets
@@ -855,7 +862,7 @@ REBUILD = "python3 /tools/build-review-html.py content.json --out review.html"
 def test_the_command_names_every_step_the_reader_has_to_take(tmp_path):
     assets = _drawio_set(tmp_path / "assets")
     (assets / "conceptual-diff.json").write_text(json.dumps({
-        "added": [], "removed": [], "changed": [], "moved": [], "red": [], "rerun": RERUN}))
+        "added": [], "removed": [], "changed": [], "moved": MOVED, "red": [], "rerun": RERUN}))
     out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
     assert "cd /repo" in out and RERUN["command"] in out and REBUILD in out
 
@@ -865,7 +872,7 @@ def test_the_button_copies_exactly_what_the_page_shows(tmp_path):
     one — and the copied one is the only one that gets run."""
     assets = _drawio_set(tmp_path / "assets")
     (assets / "conceptual-diff.json").write_text(json.dumps({
-        "added": [], "removed": [], "changed": [], "moved": [], "red": [], "rerun": RERUN}))
+        "added": [], "removed": [], "changed": [], "moved": MOVED, "red": [], "rerun": RERUN}))
     out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
     # The command is on the page exactly twice, on two attributes of two controls — the
     # offer, whose click copies it off disk, and the copy glyph beside it — plus once more
@@ -896,9 +903,9 @@ def test_the_command_says_what_it_is_for(tmp_path):
     sentence and a code block stacked under the picture they explain."""
     assets = _drawio_set(tmp_path / "assets")
     (assets / "conceptual-diff.json").write_text(json.dumps({
-        "added": [], "removed": [], "changed": [], "moved": [], "red": [], "rerun": RERUN}))
+        "added": [], "removed": [], "changed": [], "moved": MOVED, "red": [], "rerun": RERUN}))
     (assets / "conceptual-diff.json").write_text(json.dumps({
-        "added": [], "removed": [], "changed": [], "moved": [], "red": [], "rerun": RERUN,
+        "added": [], "removed": [], "changed": [], "moved": MOVED, "red": [], "rerun": RERUN,
         "drawio_url": "drawio:///repo/C.drawio.png"}))
     out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
     line = re.search(r'<p class="dgm-open">(.*?)</p>', out, re.S).group(1)
@@ -924,7 +931,7 @@ def test_the_command_is_in_a_hover_and_not_in_a_block(tmp_path):
     its hover, which is the only place a reader who wants to paste it looks."""
     assets = _drawio_set(tmp_path / "assets")
     (assets / "conceptual-diff.json").write_text(json.dumps({
-        "added": [], "removed": [], "changed": [], "moved": [], "red": [], "rerun": RERUN}))
+        "added": [], "removed": [], "changed": [], "moved": MOVED, "red": [], "rerun": RERUN}))
     out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
     assert "cmdline" not in out and "cmdpeek" not in out
     assert "<code>" not in out
@@ -939,7 +946,7 @@ def test_each_copy_of_the_report_shows_the_route_it_can_actually_take(tmp_path):
     cannot keep; served, the shell line is noise beside a control that already runs it."""
     assets = _drawio_set(tmp_path / "assets")
     (assets / "conceptual-diff.json").write_text(json.dumps({
-        "added": [], "removed": [], "changed": [], "moved": [], "red": [], "rerun": RERUN}))
+        "added": [], "removed": [], "changed": [], "moved": MOVED, "red": [], "rerun": RERUN}))
     out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
     # One control in both copies, and it always sends the same id: the difference is what
     # the page does with it, which the probe decides. The last offer with two renderings is
@@ -961,7 +968,7 @@ def test_both_editors_are_offered_and_named(tmp_path):
     the URL. A reader has to be able to tell which is which before clicking."""
     assets = _drawio_set(tmp_path / "assets")
     (assets / "conceptual-diff.json").write_text(json.dumps({
-        "added": [], "removed": [], "changed": [], "moved": [], "red": [],
+        "added": [], "removed": [], "changed": [], "moved": MOVED, "red": [],
         "drawio_url": "drawio:///repo/C.drawio.png",
         "drawio_web_url": "https://app.diagrams.net/?splash=0&title=C#R%3Cmx%3E"}))
     out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
@@ -978,7 +985,7 @@ def test_the_edit_offer_sits_where_the_caption_sentence_used_to(tmp_path):
     to do about the drawing, then the drawing."""
     assets = _drawio_set(tmp_path / "assets")
     (assets / "conceptual-diff.json").write_text(json.dumps({
-        "added": [], "removed": [], "changed": [], "moved": [], "red": [], "rerun": RERUN}))
+        "added": [], "removed": [], "changed": [], "moved": MOVED, "red": [], "rerun": RERUN}))
     out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
     assert out.index('class="rerun"') < out.index('class="dgmviews"'), \
         "the edit offer and its buttons come before the diagram, not after it"
@@ -1028,7 +1035,7 @@ def test_the_web_link_is_dropped_when_the_verdict_has_none(tmp_path):
     and no half-rendered "or" hanging off the end of the sentence."""
     assets = _drawio_set(tmp_path / "assets")
     (assets / "conceptual-diff.json").write_text(json.dumps({
-        "added": [], "removed": [], "changed": [], "moved": [], "red": [],
+        "added": [], "removed": [], "changed": [], "moved": MOVED, "red": [],
         "drawio_url": "drawio:///repo/C.drawio.png"}))
     out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
     assert ">Desktop App ↗</a>" in out
@@ -1157,7 +1164,7 @@ def _as_read(html_out: str, served: bool) -> str:
 def _widget_with(tmp_path, **verdict):
     assets = _drawio_set(tmp_path / "assets")
     (assets / "conceptual-diff.json").write_text(json.dumps(
-        {"added": [], "removed": [], "changed": [], "moved": [], "red": [], **verdict}))
+        {"added": [], "removed": [], "changed": [], "moved": MOVED, "red": [], **verdict}))
     return build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
 
 
@@ -1308,3 +1315,168 @@ def test_the_play_glyph_is_hidden_by_the_attribute_and_not_by_a_class(tmp_path):
         assert "display:" not in rule, f"a display on the glyph defeats [hidden]: {rule}"
     out = _widget_with(tmp_path, rerun=RERUN)
     assert 'class="runhere cmd-run has-word" hidden' in out
+
+
+# ── UNCHANGED is one card, whichever renderer draws it ─────────────────────────────
+#
+# Victor, on the hr-try-4 page: a Domain Model whose .puml moved only its link line
+# numbers came out as a red frame, a Diff / New-Old switch and a focus-0 picture reading
+# "nothing changed at this focus level"; the conceptual model offered "Update the report /
+# Revert the diagram" over a drawing nobody touched; and the C2 card wore UNCHANGED *and*
+# the switch. Every one of those controls acts on a delta. A diagram this branch left
+# alone is the title, the UNCHANGED badge, the file name and the whole picture — and the
+# sweep below holds every path that can draw one to that.
+
+def _unchanged_cards(tmp_path, monkeypatch):
+    """One unchanged card from each renderer that can produce one."""
+    cards = {}
+    # A structural diagram `puml-diff.sh` filed as unchanged: it still drew the delta,
+    # the focus levels and the undiffed pair, and none of them may reach the page.
+    a = tmp_path / "manifest"
+    a.mkdir()
+    row = {"name": "DomainModel", "source": "docs/DomainModel.puml", "kind": "structural",
+           "status": "unchanged", "diff_puml": "d.diff.puml",
+           "svg": _svg(a / "d.diff.svg", "delta"),
+           "focus": "0:" + _svg(a / "d.focus0.svg", "nothing changed at this focus level"),
+           "new_svg": _svg(a / "d.new.svg", "whole current picture"),
+           "old_svg": _svg(a / "d.old.svg", "base picture")}
+    (a / "M.tsv").write_text("")
+    cards["manifest row"] = build.render_diagrams(
+        {"manifest": "manifest/M.tsv"}, tmp_path, tmp_path, [row])
+    # The C2 projection, from a manifest of its own, with payload sidecars beside it.
+    c2 = dict(row, name="C2-Containers", source="c2/C2-Containers.new.puml",
+              new_details="", old_details="")
+    cards["own manifest (C2)"] = build.render_diagrams(
+        {"manifest": "manifest/M.tsv", "only": ["C2-Containers"]}, tmp_path, tmp_path, [c2])
+    # A name the block asked for that no manifest row covers (DB on an index-only branch).
+    cache = tmp_path / "from-source.svg"
+    _svg(cache, "whole current picture")
+    monkeypatch.setattr(diagrams, "_context_svg", lambda rel, root, out: (cache, ""))
+    cards["made up from source"] = build.render_diagrams(
+        {"manifest": "manifest/M.tsv"}, tmp_path, tmp_path,
+        [build.unchanged_row("DB", "docs/DB.puml")])
+    # The Structure tab's standalone `puml` card — the look the others copy.
+    cards["puml block"] = diagrams.render_puml(
+        {"src": "docs/MavenModules.puml", "name": "Maven modules"}, tmp_path, tmp_path)
+    # The hand-drawn conceptual model, with a verdict that found nothing.
+    assets = _drawio_set(tmp_path / "assets")
+    _svg(assets / "conceptual-new.svg", "whole current picture")
+    (assets / "conceptual-diff.json").write_text(json.dumps({
+        "added": [], "removed": [], "changed": [], "moved": [], "red": [], "rerun": RERUN,
+        "diagram": "docs/ConceptualModel.drawio.png", "tested_against": "Java Domain Model",
+        "drawio_url": "drawio:///repo/C.drawio.png"}))
+    cards["drawio"] = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
+    return cards
+
+
+def test_an_unchanged_diagram_is_the_plain_card_whichever_renderer_draws_it(
+        tmp_path, monkeypatch):
+    for who, out in _unchanged_cards(tmp_path, monkeypatch).items():
+        assert '<span class="badge sev-info">unchanged</span>' in out, who
+        assert out.count('class="svgbox"') == 1, f"{who}: one picture, the whole one"
+        assert "whole current picture" in out, who
+        for control in ('class="dgmviews"', "dgm-diff", "dgm-newold", 'class="focus"',
+                        "dgm-toggles", 'class="rerun', "dgm-open", "data-action=",
+                        "cmlegend"):
+            assert control not in out, f"{who} still carries {control}"
+        for delta in ("delta", "nothing changed at this focus level", "base picture"):
+            assert f"<text>{delta}</text>" not in out, f"{who} drew the {delta!r} svg"
+
+
+def test_an_unchanged_drawing_is_the_plain_card(tmp_path):
+    """The conceptual model's own case, named: no edit offer, no Update / Revert, and the
+    card names its file the way every other diagram card does."""
+    assets = _drawio_set(tmp_path / "assets")
+    (assets / "conceptual-diff.json").write_text(json.dumps({
+        "added": [], "removed": [], "changed": [], "moved": [], "red": [], "rerun": RERUN,
+        "diagram": "docs/ConceptualModel.drawio.png"}))
+    out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
+    assert "<b>Conceptual Model</b>" in out
+    assert "Update the report" not in out
+    assert "Revert" not in out and "Relayout" not in out
+
+
+def test_a_drawing_with_a_layout_still_owed_is_not_unchanged(tmp_path):
+    """Red is a to-do, not a delta — a drawing compared with itself still reports it —
+    and the offer to go and do it is the whole point of the widget while it is there."""
+    assets = _drawio_set(tmp_path / "assets", red=["Vet-Visit"])
+    (assets / "conceptual-diff.json").write_text(json.dumps({
+        "added": [], "removed": [], "changed": [], "moved": [], "red": [{"what": "V"}],
+        "rerun": RERUN}))
+    out = build.drawio_widget_html("conceptual", assets, tmp_path, REBUILD)
+    assert 'class="dgmviews"' in out and "sev-info" not in out
+
+
+def test_no_verdict_is_not_unchanged():
+    assert not build.drawio_unchanged({})
+    assert build.drawio_unchanged({"added": [], "removed": [], "changed": [], "moved": [],
+                                   "red": []})
+
+
+# ── what an ERD cannot draw ──────────────────────────────────────────────────────────
+
+BASE_SQL = """CREATE TABLE public.owners (
+    id integer NOT NULL,
+    first_name text,
+    city text
+);
+
+CREATE INDEX pets_name_idx ON public.pets USING btree (name);
+"""
+
+WORK_SQL = """CREATE TABLE public.owners (
+    id integer NOT NULL,
+    first_name text COLLATE pg_catalog."und-x-icu",
+    city text
+);
+
+CREATE INDEX owners_city_id_idx ON public.owners USING btree (city, id);
+
+CREATE INDEX pets_name_idx ON public.pets USING btree (name);
+"""
+
+
+def _schema_repo(tmp_path):
+    run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                                    capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    run("config", "user.email", "t@t.t")
+    run("config", "user.name", "t")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "DB.puml").write_text("@startuml\nentity owners {\n}\n@enduml\n")
+    (docs / "DB.sql").write_text(BASE_SQL)
+    run("add", "-A")
+    run("commit", "-qm", "base")
+    base = run("rev-parse", "HEAD")
+    (docs / "DB.sql").write_text(WORK_SQL)
+    return base
+
+
+def test_an_index_and_a_collation_the_erd_cannot_draw_are_named_under_it(tmp_path):
+    """hr-try-4: V4 added three indexes and an ICU collation. DB.puml came out
+    byte-identical, so the card says UNCHANGED — and the one line under it says what the
+    schema dump shows that the picture cannot."""
+    base = _schema_repo(tmp_path)
+    note = build.schema_unseen_note("docs/DB.puml", tmp_path, base)
+    assert note.startswith("Not drawn on the diagram — DB.sql changed: ")
+    assert "indexes added on owners (city, id)" in note
+    assert "collation changed on owners.first_name" in note
+    assert "owners.city" not in note and "pets" not in note
+    # A diagram that changed draws its own column changes; only the indexes are unseen.
+    assert "collation" not in build.schema_unseen_note("docs/DB.puml", tmp_path, base,
+                                                       columns=False)
+
+
+def test_a_schema_dump_that_did_not_move_says_nothing(tmp_path):
+    base = _schema_repo(tmp_path)
+    (tmp_path / "docs" / "DB.sql").write_text(BASE_SQL)
+    assert build.schema_unseen_note("docs/DB.puml", tmp_path, base) == ""
+    assert build.schema_unseen_note("docs/DB.puml", tmp_path, None) == ""
+    assert build.schema_unseen_note("docs/Other.puml", tmp_path, base) == ""
+
+
+def test_a_diagram_named_in_only_is_found_by_its_file_name(tmp_path):
+    _schema_repo(tmp_path)
+    assert build.find_diagram_source("DB", tmp_path) == "docs/DB.puml"
+    assert build.find_diagram_source("Nope", tmp_path) is None

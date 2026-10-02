@@ -752,6 +752,15 @@ def main(argv=None) -> int:
             "otherwise arrives as a wall to search for red in."
         ),
     )
+    ap.add_argument(
+        "--count-changes", action="store_true",
+        help=(
+            "Print how many elements the change touched (added, removed, a member or a "
+            "relationship gained or lost) and write no diagram. 0 means the two files "
+            "differ only in text the picture does not carry — a source line number in a "
+            "link, a reordered member — and `puml-diff.sh` files the diagram as unchanged."
+        ),
+    )
     args = ap.parse_args(argv)
     if args.focus != ALL and not args.focus.isdigit():
         ap.error("--focus takes a non-negative integer or 'all'")
@@ -760,6 +769,10 @@ def main(argv=None) -> int:
         old = parse(f.read())
     with open(args.new, encoding="utf-8") as f:
         new = parse(f.read())
+
+    if args.count_changes:
+        print(len(_impacted(old, new)))
+        return 0
 
     merged = diff(old, new, args.focus)
     if args.out:

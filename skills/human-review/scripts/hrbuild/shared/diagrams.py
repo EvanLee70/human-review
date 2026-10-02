@@ -140,6 +140,43 @@ CM_LEGEND_TODO = ('<span class="todo"><i></i>'
                   "<b>still waiting for a manual re-layout</b></span>")
 
 
+def drawio_unchanged(verdict: dict) -> bool:
+    """Did `drawio-diff.py` find nothing — no box or line added, removed, changed or
+    moved, and nothing left red for a re-layout? An absent verdict is not "unchanged":
+    it is a step that has not run, and the widget says that instead."""
+    return bool(verdict) and not any(
+        verdict.get(k) for k in ("added", "removed", "changed", "moved", "red"))
+
+
+def drawio_unchanged_at(name: str, assets: Path) -> bool:
+    vfile = assets / f"{name}-diff.json"
+    try:
+        return drawio_unchanged(json.loads(vfile.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return False
+
+
+def _drawio_unchanged_card(name: str, verdict: dict, assets: Path, root: Path) -> str:
+    """The hand-drawn diagram, when the branch did not touch it: the card a `puml`
+    context diagram gets — title, UNCHANGED, the file, the whole picture.
+
+    Everything else the widget carries is about a change. Diff / New-Old switches
+    between two identical drawings; the red frame marks a delta that is empty; and the
+    offer above it — relayout in draw.io, update the report, revert the diagram — is
+    the to-do list for a re-layout nobody owes."""
+    svg = next((assets / f"{name}-{suffix}.svg" for suffix in ("new", "original", "diff")
+                if (assets / f"{name}-{suffix}.svg").is_file()), None)
+    if svg is None:
+        return (f'<p class="sub">not rendered — run the <code>diagrams</code> step to '
+                f'write <code>{html.escape(name)}-new.svg</code></p>')
+    rel = verdict.get("diagram") or ""
+    title = _pretty(Path(rel).name.split(".")[0]) if rel else _pretty(name)
+    return ('<div class="diagram"><div class="head">'
+            f'<b>{html.escape(title)}</b>{UNCHANGED_BADGE}'
+            + (_source_link(rel, root) if rel else "") + '</div>'
+            f'<div class="svgbox">{inline_svg(svg, root)}</div></div>')
+
+
 def drawio_widget_html(name: str, assets: Path, root: Path, rebuild: str = "") -> str:
     """The Diff / New / Old widget for one `drawio-diff.py` output set.
 
@@ -153,6 +190,8 @@ def drawio_widget_html(name: str, assets: Path, root: Path, rebuild: str = "") -
     vfile = assets / f"{name}-diff.json"
     if vfile.is_file():
         verdict = json.loads(vfile.read_text(encoding="utf-8"))
+    if drawio_unchanged(verdict):
+        return _drawio_unchanged_card(name, verdict, assets, root)
     red = bool(verdict.get("red"))
     green = any(not a.get("already_red") for a in verdict.get("added") or [])
 
@@ -350,6 +389,134 @@ def _why_not_drawn(row, assets: Path) -> str:
             f'{where} of {link}{offending}</p>')
 
 
+#: The status of a diagram the branch did not change: on a manifest row (`puml-diff.sh`
+#: files a structural diagram whose text moved but whose elements and relationships did
+#: not as `unchanged`; the C2 projection files its own the same way), and on a row made
+#: up for a diagram an `only` names that no manifest row covers.
+UNCHANGED = "unchanged"
+
+#: The one look "this branch left it alone" has, wherever a diagram is drawn: the badge
+#: the Structure tab's `puml` cards have always carried. A C2 row filed as unchanged used
+#: to wear the grey `sev-low` badge a *deleted* diagram wears, inside the full Diff /
+#: New-Old frame — two looks for one fact on the same tab.
+UNCHANGED_BADGE = f'<span class="badge sev-info">{UNCHANGED}</span>'
+
+
+def _unchanged_body(row, assets: Path, root: Path, out_dir: Path) -> str:
+    """An unchanged diagram is the whole current picture and nothing else.
+
+    No Diff / New-Old switch, no red frame, no focus chips: each of those is a control
+    over a delta, and there is no delta. The whole diagram, not focus 0 — the radius
+    chooser exists to find the change inside a large picture, and with no change the
+    focus-0 view is an empty note saying so. The undiffed `new` render is preferred
+    (`puml-diff.sh` already drew it); a row made up from source has none, and is drawn
+    the way a `puml` context card is."""
+    for column in ("new_svg", "svg"):
+        name = (row.get(column) or "").strip()
+        if name and (assets / name).is_file():
+            return f'<div class="svgbox">{inline_svg(assets / name, root)}</div>'
+    cache, why_not = _context_svg(row["source"], root, out_dir)
+    return f'<div class="svgbox">{inline_svg(cache, root)}</div>' if cache else why_not
+
+
+def find_diagram_source(name: str, root: Path) -> str | None:
+    """The repository's `.puml` for a diagram an `only` names and no manifest row has.
+
+    `puml-diff.sh` files only the diagrams whose text changed, so a block written as
+    `only: ["DomainModel", "DB"]` used to show just the half that moved — and on a branch
+    whose migration only added indexes, which the ERD does not draw, the Data tab had no
+    DB at all. A name the author asked for is a promise to show that diagram; when it did
+    not change it is shown as it stands, with the UNCHANGED badge. Looked up by file
+    name, outside the review directory; an ambiguous name takes the shallowest path and
+    says so."""
+    out = subprocess.run(["git", "ls-files", "--", f"{name}.puml", f"*/{name}.puml"],
+                         cwd=root, capture_output=True, text=True)
+    hits = sorted((p for p in out.stdout.splitlines()
+                   if p and not p.startswith(".human-review/")),
+                  key=lambda p: (p.count("/"), p))
+    if len(hits) > 1:
+        print(f"[review] {name}.puml is ambiguous ({', '.join(hits)}) — showing {hits[0]}",
+              file=sys.stderr)
+    return hits[0] if hits else None
+
+
+def unchanged_row(name: str, rel: str) -> dict:
+    """A manifest-shaped row for a diagram this branch left alone, drawn from source."""
+    return {"name": name, "source": rel, "kind": "structural", "status": UNCHANGED,
+            "diff_puml": "", "svg": "", "focus": "", "new_svg": "", "old_svg": ""}
+
+
+_SQL_TABLE = re.compile(r"^CREATE TABLE (?:\w+\.)?(?P<t>\w+) \($")
+_SQL_COLUMN = re.compile(r"^\s+(?P<c>\w+) (?P<d>.+?),?$")
+_SQL_INDEX = re.compile(r"^CREATE (?P<u>UNIQUE )?INDEX (?P<n>\w+) ON (?:ONLY )?(?:\w+\.)?"
+                        r"(?P<t>\w+)(?: USING \w+)? (?P<cols>\(.*\));?$")
+_SQL_COLLATE = re.compile(r"\s+COLLATE\s+\S+")
+
+
+def _sql_shape(text: str):
+    """`{table.column: definition}` and `{index: "table (columns)"}` out of a pg_dump."""
+    cols, idx, table = {}, {}, None
+    for line in text.splitlines():
+        m = _SQL_TABLE.match(line)
+        if m:
+            table = m["t"]
+            continue
+        if table:
+            if line.startswith(")"):
+                table = None
+                continue
+            m = _SQL_COLUMN.match(line)
+            if m and m["c"].upper() != "CONSTRAINT":
+                cols[f'{table}.{m["c"]}'] = m["d"]
+            continue
+        m = _SQL_INDEX.match(line)
+        if m:
+            idx[m["n"]] = f'{"unique " if m["u"] else ""}{m["t"]} {m["cols"]}'
+    return cols, idx
+
+
+def schema_unseen_note(rel: str, root: Path, merge_base: str | None,
+                       columns: bool = True) -> str:
+    """What changed in the schema dump an ERD is drawn from that the ERD cannot show.
+
+    An ERD `.puml` converted from a dump (`DB.sql` beside `DB.puml`) draws tables,
+    columns and keys; an index or a column's collation lives only in the dump. So a
+    migration that adds indexes leaves the picture byte-identical, and the card would say
+    UNCHANGED about a schema that did change. Read the dump at the merge-base and in the
+    work tree, and name the difference in one line under the card. `columns` is off for a
+    diagram that changed: a column whose type moved is already drawn in its delta.
+
+    Empty when there is no sibling dump, no base, or nothing the picture misses."""
+    sql = Path(rel).with_suffix(".sql")
+    if not merge_base or not (root / sql).is_file():
+        return ""
+    base = subprocess.run(["git", "show", f"{merge_base}:{sql.as_posix()}"], cwd=root,
+                          capture_output=True, text=True)
+    if base.returncode != 0:
+        return ""
+    old_cols, old_idx = _sql_shape(base.stdout)
+    new_cols, new_idx = _sql_shape((root / sql).read_text(encoding="utf-8"))
+    said = []
+    added = [new_idx[n] for n in sorted(new_idx) if n not in old_idx]
+    gone = [old_idx[n] for n in sorted(old_idx) if n not in new_idx]
+    if added:
+        said.append("indexes added on " + ", ".join(added))
+    if gone:
+        said.append("indexes dropped on " + ", ".join(gone))
+    if columns:
+        moved = [c for c in new_cols if c in old_cols and new_cols[c] != old_cols[c]]
+        collation = [c for c in moved
+                     if _SQL_COLLATE.sub("", new_cols[c]) == _SQL_COLLATE.sub("", old_cols[c])]
+        other = [c for c in moved if c not in collation]
+        if collation:
+            said.append("collation changed on " + ", ".join(collation))
+        if other:
+            said.append("definition changed on " + ", ".join(other))
+    if not said:
+        return ""
+    return f"Not drawn on the diagram — {sql.name} changed: " + "; ".join(said) + "."
+
+
 def render_diagrams(spec, root: Path, out_dir: Path, rows=None, bare: str = "") -> str:
     """`bare` is the test file a pair's heading already names.
 
@@ -378,7 +545,9 @@ def render_diagrams(spec, root: Path, out_dir: Path, rows=None, bare: str = "") 
     for r in rows:
         note = notes.get(r["name"], "")
         svg_rel = manifest.parent / r["svg"] if r.get("svg") else None
-        if svg_rel and svg_rel.is_file():
+        if r.get("status") == UNCHANGED:
+            body, toggles = _unchanged_body(r, manifest.parent, root, out_dir), False
+        elif svg_rel and svg_rel.is_file():
             body, toggles = _diagram_views(r, manifest.parent, svg_rel, root)
         else:
             body, toggles = _why_not_drawn(r, manifest.parent), False
@@ -392,14 +561,19 @@ def render_diagrams(spec, root: Path, out_dir: Path, rows=None, bare: str = "") 
             # A badge earns its place by saying something surprising. "modified" is what
             # a diagram in a delta gallery always is, and "structural" is legible from the
             # picture — so only the states that carry information get one.
-            + (f'<span class="badge {"sev-high" if r["status"] == "added" else "sev-low"}">'
+            + (UNCHANGED_BADGE if r["status"] == UNCHANGED else
+               f'<span class="badge {"sev-high" if r["status"] == "added" else "sev-low"}">'
                f'{html.escape(r["status"])}</span>' if r["status"] != "modified" else "")
             + _source_link(r["source"], root) + '</div>'
             + (f"<p>{note}</p>" if note else "")
             + ("" if bare else _provenance(r["source"], root))
             + genseq_details_at_render(r, manifest.parent, root)
-            + genseq_details_at_base(r, manifest.parent, root)
-            + body + '</div>'
+            + ("" if r["status"] == UNCHANGED
+               else genseq_details_at_base(r, manifest.parent, root))
+            + body
+            + (f'<p class="sub dgm-unseen">{html.escape(r["_unseen"])}</p>'
+               if r.get("_unseen") else "")
+            + '</div>'
         )
     return "\n".join(parts)
 

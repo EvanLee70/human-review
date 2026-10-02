@@ -22,6 +22,8 @@
 #   <name>.new.json    the generator's sidecar AS IT WAS WHEN THIS PICTURE WAS DRAWN
 #   <name>.old.json    the generator's sidecar AS OF THE MERGE-BASE, for the old render
 #   MANIFEST.tsv       name / source / kind / status / diff.puml / svg / focus / new / old
+#                      status: added | modified | deleted | deleted-unstaged | unchanged
+#                      (unchanged = the text moved, no element or relationship did)
 #
 # The undiffed pair exists because the delta is not always trustworthy. A sequence
 # diagram is generated from traces, and the ORDER of concurrent calls is not stable
@@ -214,6 +216,16 @@ for rel in "${CHANGED[@]}"; do
       rm -f "$diff_puml"
       continue
     fi
+    # Textually changed is not changed. A generator that re-ran rewrites every
+    # `[[src://…:28]]` to `:29` when a line moves above a class, and the file differs
+    # while no element, member or relationship does. Drawing that as a delta gives the
+    # reader a red frame, a Diff/New-Old switch and a focus-0 picture that says "nothing
+    # changed at this focus level" — four controls to discover there is nothing to see.
+    # Filed as `unchanged`, the page draws it as the plain current diagram instead.
+    if [ "$status" = modified ] \
+       && [ "$(python3 "$STRUCT_DIFF" "$old" "$new" --count-changes 2>/dev/null)" = 0 ]; then
+      status=unchanged
+    fi
   fi
 
   svg=""
@@ -237,7 +249,7 @@ for rel in "${CHANGED[@]}"; do
   # skyline. Rendering all of them up front costs a few seconds once; deciding at read
   # time costs nothing, and the guide has to survive being emailed as one file.
   focus=""
-  if [ "$kind" = structural ] && [ "$status" != added ] && [ -n "$svg" ]; then
+  if [ "$kind" = structural ] && [ "$status" = modified ] && [ -n "$svg" ]; then
     # Each level is a separate plantuml JVM start, and on small diagrams the levels
     # frequently converge — four identical pictures behind four buttons. Hash first,
     # render only what is new, and stop once a level equals the unpruned diagram.

@@ -132,6 +132,24 @@ def test_identical_snapshots_have_no_diff_markup():
     assert "<s>" not in body
 
 
+def test_count_changes_is_zero_when_only_link_line_numbers_moved(tmp_path, capsys):
+    """The hr-try-4 case: a generator re-ran, every `[[src://…:28]]` became `:29`, and
+    no class, member or relationship moved. Textually changed, semantically not — the
+    count `puml-diff.sh` reads to file the diagram as unchanged instead of drawing an
+    empty delta that says "nothing changed at this focus level"."""
+    with open(AFTER, encoding="utf-8") as f:
+        text = f.read()
+    old, new = tmp_path / "old.puml", tmp_path / "new.puml"
+    link = "class Owner [[src://domain/Owner.java:{}{{Click to open in editor}}]] {{"
+    old.write_text(text.replace("class Owner {", link.format(28)), encoding="utf-8")
+    new.write_text(text.replace("class Owner {", link.format(29)), encoding="utf-8")
+    assert old.read_text() != new.read_text()
+    assert m.main([str(old), str(new), "--count-changes"]) == 0
+    assert capsys.readouterr().out.strip() == "0"
+    assert m.main([BEFORE, AFTER, "--count-changes"]) == 0
+    assert int(capsys.readouterr().out.strip()) > 0
+
+
 # ── The title says the picture is a delta ────────────────────────────────────
 # Only that. What the colours in it mean is the caption's job, in the footer band under
 # the picture; an unpainted suffix, because red is half the delta's vocabulary now and a
