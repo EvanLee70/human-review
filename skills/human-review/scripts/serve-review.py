@@ -1400,6 +1400,8 @@ def main():
     ap.add_argument("--no-watch", dest="watch", action="store_false",
                     help="do not watch the directory for changes; the page then keeps "
                          "whatever it was served until somebody reloads it by hand")
+    ap.add_argument("--no-open", dest="open", action="store_false",
+                    help="do not open the page when this call starts the server")
     ap.add_argument("--stop", action="store_true")
     ap.add_argument("--_child", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
@@ -1455,8 +1457,33 @@ def main():
         time.sleep(0.1)
     else:
         sys.exit(f"[serve-review] the server did not come up on :{port}")
+    if args.open:
+        open_page(url)
     print(url)
     return 0
+
+
+#: victor-vsc's bridge: shows a URL in the embedded browser of the VS Code window whose
+#: workspace folder is this git root — beside the code, not on another desktop.
+VSC_OPENER = Path(os.environ.get("HUMAN_REVIEW_VSC_OPENER",
+                                 "~/workspace/victor-vsc/open-in-browser.py")).expanduser()
+
+
+def open_page(url: str) -> None:
+    """Show the page the first time it is served, and only then.
+
+    Only on a *new* server: a rebuild reaches a tab that is already open by itself (the
+    page reloads when the build stops writing), so opening again on every refresh would
+    pile up one tab per iteration. Inside VS Code the page goes into the window's own
+    browser, beside the code; anywhere else, into the default browser. It is an http URL
+    either way — never `open review.html`, which hands a file to whatever owns `.html`."""
+    in_vscode = os.environ.get("TERM_PROGRAM") == "vscode" or "VSCODE_IPC_HOOK_CLI" in os.environ
+    if in_vscode and VSC_OPENER.is_file():
+        r = subprocess.run([sys.executable, str(VSC_OPENER), url], capture_output=True)
+        if r.returncode == 0:
+            return
+    import webbrowser
+    webbrowser.open(url)
 
 
 if __name__ == "__main__":

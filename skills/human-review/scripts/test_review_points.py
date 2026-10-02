@@ -803,51 +803,42 @@ def _prompt() -> str:
     return (SKILLS / "record-review" / "prompt.md").read_text(encoding="utf-8")
 
 
-def test_the_prompt_names_all_three_trailers_the_scripts_read():
+def _script() -> str:
+    return (SKILLS / "record-review" / "record-review.py").read_text(encoding="utf-8")
+
+
+def test_the_script_writes_all_three_trailers_the_scripts_read():
     """Each trailer is read by a different script, so a missing one is a silent loss of
-    exactly one row on the page — not an error anybody would see."""
+    exactly one row on the page. The agent no longer types them: the script does, which
+    is the only way they stop drifting from what review-commits.py parses."""
+    script = _script()
+    for trailer in ('"Review-Points"', '"Implements"', '"Claude-Session"'):
+        assert trailer in script, f"{trailer} is read by a script and written nowhere"
+
+
+def test_the_script_tags_the_auto_fix_commit():
+    """`[auto-fix]` on the subject is how review-driven changes are found again later,
+    and `review-commits.py` lists them by it — the two have to agree on the tag."""
+    assert rc.AUTO_FIX_TAG in _script()
+
+
+def test_the_prompt_leaves_the_mechanics_to_the_script():
+    """What the first VS Code run spent its 332 tool calls on: the paths, the base, the
+    trailers, the PR comments. Each of those has one right answer, so a program gives it."""
     prompt = _prompt()
-    for trailer in ("Review-Points:", "Implements:", "Claude-Session:"):
-        assert trailer in prompt, f"{trailer} is read by a script and named nowhere"
-
-
-def test_the_prompt_says_where_the_trailers_go_and_that_a_later_paragraph_is_fine():
-    """Both halves matter. Without "last lines" an agent scatters them mid-message; without
-    the reassurance about the harness's own paragraph, an agent that notices
-    `Co-Authored-By:` landing underneath starts moving them or repeating them, and a
-    repeated `Implements:` is two shas for one slot."""
-    prompt = _prompt()
-    assert prompt.count("The last lines you write in the message are:") == 2, (
-        "both commits need it — commit #1 carries Claude-Session, commit #2 all three")
-    assert "Co-Authored-By" in prompt, (
-        "the paragraph that broke the first run has to be named, or the agent will try to "
-        "make room for it")
-    assert "whole message body" in prompt
-    assert "Do not move them, do not repeat them below it." in prompt
-
-
-def test_the_skill_explains_why_the_body_is_read_and_not_just_the_trailer_block():
-    skill = (SKILLS / "record-review" / "SKILL.md").read_text(encoding="utf-8")
-    assert "penultimate" in skill and "Co-Authored-By" in skill
-    assert "%(trailers" in skill, "the git construct that returns empty here is the fact"
-
-
-def test_the_prompt_names_the_file_and_the_checker_the_parser_actually_is():
-    prompt = _prompt()
-    assert "review-points.md at the repo root" in prompt
-    assert "review-points.py --check" in prompt, (
-        "the check is the last thing step 4 does — it is what rejects a malformed file "
-        "while the agent can still fix it")
+    assert "record-review.py" in prompt
+    assert "prepare" in prompt and "finish" in prompt
+    assert "Commit nothing yourself" in prompt
 
 
 def test_the_prompt_points_at_paths_that_exist():
     """A path in a prompt is never resolved by anything, so a wrong one fails as the agent
     quietly skipping the step."""
     prompt = _prompt()
-    for rel in ("skills/human-review/reference/review-points.md",
-                "skills/human-review/scripts/review-points.py"):
-        assert rel in prompt, f"{rel} is not the path the prompt gives"
-        assert (SKILLS.parent / rel).is_file(), f"{rel} does not exist"
+    rel = "skills/human-review/reference/review-points.md"
+    assert rel in prompt and (SKILLS.parent / rel).is_file()
+    assert "../human-review/reference/review-points.md" in prompt
+    assert (SKILLS / "record-review" / "record-review.py").is_file()
 
 
 def test_the_prompt_still_refuses_fix():
@@ -856,20 +847,10 @@ def test_the_prompt_still_refuses_fix():
     assert "Do NOT pass --fix" in _prompt()
 
 
-def test_the_prompt_tags_the_auto_fix_commit():
-    """`[auto-fix]` on the subject is how the agent's review-driven changes are found again
-    later, and `review-commits.py` lists them by it — the two have to agree on the tag."""
-    prompt = _prompt()
-    assert rc.AUTO_FIX_TAG in prompt
-    assert "git log --grep" in prompt
-
-
 def test_the_prompt_keeps_review_points_terse():
-    """The reader skims the file and jumps into the code: a title and its fields, capped,
-    and no prose unless asked."""
     prompt = _prompt()
     assert "15 words at most" in prompt
-    assert "No prose under an item" in prompt
+    assert "no prose under an" in prompt
     doc = (HERE.parent / "reference" / "review-points.md").read_text(encoding="utf-8")
     assert "Terse by design" in doc
 
@@ -879,6 +860,12 @@ def test_the_three_pile_names_are_the_ones_the_parser_accepts():
     for heading in ("Fixed", "Ignored", "Assumptions"):
         assert heading in prompt
         assert rp.SECTIONS[heading.lower()]
+
+
+def test_the_skill_explains_why_the_body_is_read_and_not_just_the_trailer_block():
+    skill = (SKILLS / "record-review" / "SKILL.md").read_text(encoding="utf-8")
+    assert "penultimate" in skill and "Co-Authored-By" in skill
+    assert "%(trailers" in skill, "the git construct that returns empty here is the fact"
 
 
 def test_the_skill_is_discoverable_as_a_skill():

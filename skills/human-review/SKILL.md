@@ -274,11 +274,11 @@ its own review and the record is gone, so the band reading *nothing records what
 reviewed* would be true of the disk and false about the run. Restore the file, or drop the
 trailer if the claim was never true.
 
-**Never `open review.html`** — that hands it to whatever the OS thinks owns `.html`, on
-another desktop. With `$TERM_PROGRAM = vscode` and
-[victor-vsc](https://github.com/victorrentea/victor-vsc)'s bridge, `open-in-browser.py "$URL"`
-opens it beside the code (it matches by workspace **folder, not focus**). Otherwise print the
-URL to ⌘-click.
+**The page opens itself.** The first time `refresh-report.py` starts the server it shows
+the page — in the VS Code window's own browser, beside the code, when the run is in a VS
+Code terminal and [victor-vsc](https://github.com/victorrentea/victor-vsc)'s bridge is
+installed; in the default browser otherwise. Later rebuilds open nothing: the tab already
+open reloads itself. Do not open it again by hand, and never `open review.html`.
 
 **Print `$URL` as the last line of the run.** Then make sure the app runs from *this*
 checkout, open the screen the change affects, and start `/relay` so they can dictate tweaks.

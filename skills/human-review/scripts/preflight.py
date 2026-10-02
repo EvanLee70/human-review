@@ -43,6 +43,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -58,6 +59,17 @@ def run(cmd: str, capture=True, check=False) -> subprocess.CompletedProcess:
                           stderr=subprocess.PIPE if capture else None)
 
 
+def push_failure(stderr: str) -> str:
+    """The lines that say *why*, not the first 300 characters.
+
+    A pre-push hook that lints prints its warnings first — ninety of them on petclinic —
+    and the one error that blocked the push last; a prefix of stderr is all warnings and
+    reads as "could not push" with no reason. So: the error lines, then the hook's verdict."""
+    lines = [l.rstrip() for l in stderr.splitlines() if l.strip()]
+    keep = [l for l in lines if re.search(r"\berror\b|❌|rejected|denied|fatal", l, re.I)]
+    return "\n".join((keep or lines[-5:])[:12])
+
+
 def gate(wait_minutes: float) -> tuple[bool, str]:
     """True when the pushed commit is proven green (or the repo has no CI at all)."""
     dirty = run("git status --porcelain").stdout.strip()
@@ -71,7 +83,8 @@ def gate(wait_minutes: float) -> tuple[bool, str]:
         # A push that fails is not a gate failure yet — it may need -u on a new branch.
         up = run("git push -u origin HEAD")
         if up.returncode != 0:
-            return False, f"cannot push: {(up.stderr or push.stderr or '').strip()[:300]}"
+            return False, "cannot push: " + push_failure(
+                (up.stdout or "") + (up.stderr or "") or (push.stdout or "") + (push.stderr or ""))
 
     sha = run("git rev-parse HEAD").stdout.strip()
     if not sha:

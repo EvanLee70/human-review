@@ -38,7 +38,20 @@ or reopen the chat in VS Code) rather than start a new one.
 ## Run it
 
 Read `prompt.md` beside this file and follow it, with `$ARGUMENTS` as the base of the
-change set (empty: the merge-base with `origin/main`). From a shell:
+change set (empty: the merge-base with `origin/main`).
+
+**`record-review.py` does the mechanical half**, so the agent's turns go to judgement. The
+first run in VS Code spent 332 tool calls, most of them on things with one right answer:
+where the format file lives, what the base is, the diff a hunk at a time, four reviewer
+prompts, the trailers, seventeen hand-written PR comments. `prepare` resolves the change
+set, writes the diff to one file and one brief per reviewer lens, and runs the repository's
+own pre-push checks as a dry-run — the cheapest reviewer there is, and the one four model
+reviewers missed when the Spectral hook later refused the push. `finish` fills the
+front-matter, checks the file, commits with the trailers and derives the PR comments
+(`push-pr-comments.py --from-review-points`). What is left to the agent: run the reviewers,
+decide each finding, write the piles.
+
+From a shell:
 
 ```sh
 for c in "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/skills/record-review" \
@@ -74,7 +87,8 @@ wrong is a silent loss of exactly one row on the page:
 | `Claude-Session:` on both commits | `scripts/session-cost.py` | the phase costs fall back to `.human-review/.session`, which is gitignored and dies with the directory. Outside Claude Code the line is left out, and the coding half has no price: Copilot's own session logs are not read yet |
 | `.human-review/pr-comments.json` (not committed) | `scripts/push-pr-comments.py`, behind the Review tab's *Push to GitHub PR* button | the button has nothing to send; `--from-review-points` can derive a blunter one from the record |
 
-**The trailers are the last lines the agent writes, and the harness writes after them.**
+**The trailers are written by `record-review.py finish`, and the harness may write after
+them.**
 Claude Code appends `Co-Authored-By: Claude …` as a paragraph of its own, which puts the
 three keys in the *penultimate* paragraph — and git's `%(trailers:key=…)` only parses the
 last one, so it returns empty for all three. The first real run of this flow produced two
