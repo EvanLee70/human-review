@@ -6,7 +6,7 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
 
 1. `RR prepare [--base <ref>]` — pass `--impl-subject "<what it implements>"` if it says
    the implementation is uncommitted, and `--ticket "<the ticket text>"` if you have it.
-   It prints the base, the implementation commit, one diff file, four reviewer briefs, and
+   It prints the base, the implementation commit, the diff (code, tests), four briefs, and
    whether the repository's own pre-push checks pass. A failing **push gate** is a finding
    you must fix (`source: pre-push hook`): /human-review cannot run until it passes.
    When the gate passes it pushes the branch, so CI starts reviewing in parallel.
