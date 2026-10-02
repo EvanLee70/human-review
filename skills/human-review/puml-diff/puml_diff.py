@@ -150,7 +150,7 @@ def _strip_markup(s: str) -> str:
     """Normalise a line to its plain content: drop any diff colouring/strikeout."""
     s = re.sub(r"</?color[^>]*>", "", s)
     s = s.replace("<s>", "").replace("</s>", "")
-    s = re.sub(r"\[#[0-9A-Za-z_]+(?:,thickness=\d+)?\]", "", s)   # -[#C62828,thickness=3]-
+    s = re.sub(r"\[#[0-9A-Za-z_]+(?:,thickness=\d+)?\]", "", s)   # -[#C62828,thickness=2]-
     # coloured element header: `#back:FFE3AE;line:2E7D32;text:2E7D32`, in any subset and
     # in either spelling of the value — a diagram written before `_hex` still says `#2E7D32`.
     s = re.sub(r"\s*#(?:back|line|text):[^;\s]+(?:;(?:back|line|text):[^;\s]+)*", "", s)
@@ -371,15 +371,17 @@ def _split_relationship(clean: str):
 # How thick a connector the diff paints is drawn. PlantUML's default hairline is fine for
 # the grey skyline, but the one green edge a PR adds is usually the whole point of the
 # picture, and at 1px its colour barely registers — on the dark page it all but vanished
-# between two boxes. Thickness says "this line" without a third hue.
-DELTA_THICKNESS = 3
+# between two boxes. Thickness says "this line" without a third hue. Two, not three: at
+# three the double bar of an ER `||` end melted into one block, and the reader could no
+# longer tell "exactly one" from a thick stub.
+DELTA_THICKNESS = 2
 
 
 def _colorize_connector(conn: str, colour: str) -> str:
     """Inject `[<colour>,thickness=N]` into a connector so PlantUML draws it in that colour, thick.
 
-    With colour `#C62828`: `--` -> `-[#C62828,thickness=3]-`, `-->` -> `-[#C62828,thickness=3]->`,
-    `||--o{` -> `||-[#C62828,thickness=3]-o{`, `..>` -> `.[#C62828,thickness=3].>`.
+    With colour `#C62828`: `--` -> `-[#C62828,thickness=2]-`, `-->` -> `-[#C62828,thickness=2]->`,
+    `||--o{` -> `||-[#C62828,thickness=2]-o{`, `..>` -> `.[#C62828,thickness=2].>`.
     """
     style = f"[{colour},thickness={DELTA_THICKNESS}]"
     for i, ch in enumerate(conn):
