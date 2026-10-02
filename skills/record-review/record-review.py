@@ -201,6 +201,12 @@ def prepare(args) -> int:
     gate = push_gate()
     if gate:
         (work / "gate.txt").write_text(gate + "\n")
+    pushed = False
+    if not gate and not args.no_ci:
+        # CI is a reviewer too, and the slowest one: start it now, so it reviews while
+        # the model reviewers do. /human-review would push this branch anyway.
+        pushed = subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"],
+                                capture_output=True, text=True).returncode == 0
     state = {"base": base, "implementation": head, "session": session_id()}
     (work / "state.json").write_text(json.dumps(state, indent=2) + "\n")
 
@@ -219,6 +225,10 @@ def prepare(args) -> int:
             print("                " + line)
     else:
         print("push gate       passes (the repository's pre-push checks, run as a dry-run)")
+    if pushed:
+        print(f"CI              started on {head[:8]} — after the reviewers, run "
+              f"`{Path(__file__).resolve()} ci`: it waits for the result and lists what "
+              "failed, SonarCloud's new issues included, as findings")
     print()
     print("Next: start one read-only reviewer subagent per brief, in parallel, each given "
           "only its brief file's content. Then decide every finding, edit what you accept, "
@@ -280,6 +290,75 @@ def finish(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- ci
+
+def sonar_issues(repo: Path, branch: str) -> list[str]:
+    """SonarCloud's issues on the branch's new code — the quality gate's reasons, which the
+    CI log reduces to "Quality Gate has FAILED". Public projects answer without a token."""
+    props = repo / "sonar-project.properties"
+    if not props.is_file():
+        return []
+    conf = dict(re.findall(r"^\s*([\w.]+)\s*=\s*(.+?)\s*$", props.read_text(), re.M))
+    key = conf.get("sonar.projectKey")
+    if not key:
+        return []
+    host = conf.get("sonar.host.url", "https://sonarcloud.io").rstrip("/")
+    cmd = ["curl", "-sf", f"{host}/api/issues/search?componentKeys={key}&branch={branch}"
+           "&inNewCodePeriod=true&resolved=false&ps=50"]
+    if os.environ.get("SONAR_TOKEN"):
+        cmd[2:2] = ["-u", os.environ["SONAR_TOKEN"] + ":"]
+    try:
+        data = json.loads(subprocess.run(cmd, capture_output=True, text=True).stdout or "{}")
+    except ValueError:
+        return []
+    # Bugs and vulnerabilities first: they are what a quality gate on reliability and
+    # security ratings fails on; code smells are listed for completeness, after them.
+    rank = {"BUG": 0, "VULNERABILITY": 1}
+    issues = sorted(data.get("issues", []), key=lambda i: rank.get(i.get("type"), 2))
+    return [f"{i.get('type', '?'):<13} {i['component'].split(':', 1)[-1]}:{i.get('line', '?')}"
+            f"  {i['message']}  ({i['rule']})" for i in issues]
+
+
+def ci(args) -> int:
+    """Wait for CI on HEAD — the commit, never the branch — and print why it failed."""
+    import time
+    repo = root()
+    os.chdir(repo)
+    sha = git("rev-parse", "HEAD")
+    deadline = time.time() + args.wait_minutes * 60
+    runs: list = []
+    while time.time() < deadline:
+        out = subprocess.run(["gh", "run", "list", "--commit", sha, "--json",
+                              "databaseId,name,status,conclusion"],
+                             capture_output=True, text=True).stdout
+        runs = json.loads(out or "[]")
+        if runs and all(r["status"] == "completed" for r in runs):
+            break
+        time.sleep(20)
+    else:
+        print(f"CI              not finished on {sha[:8]} after {args.wait_minutes} min"
+              if runs else f"CI              no run registered for {sha[:8]}")
+        return 0
+    failed = [r for r in runs if r["conclusion"] not in ("success", "skipped", "neutral")]
+    if not failed:
+        print(f"CI              green on {sha[:8]}")
+        return 0
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    print(f"CI              FAILED on {sha[:8]} — each line is a finding (`source: CI`):")
+    for r in failed:
+        log = subprocess.run(["gh", "run", "view", str(r["databaseId"]), "--log-failed"],
+                             capture_output=True, text=True).stdout
+        plain = re.sub(r"\x1b\[[0-9;]*m|\^\[\[[0-9;]*m", "", log)
+        errors = [l.split("\t")[-1][29:] if "\t" in l else l for l in plain.splitlines()
+                  if re.search(r"##\[error\]|ERROR|FAILED|✖", l)]
+        print(f"  {r['name']}:")
+        for e in errors[-6:]:
+            print("    " + e.strip()[:200])
+    for issue in sonar_issues(repo, branch):
+        print("  sonar " + issue)
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -287,11 +366,14 @@ def main(argv=None) -> int:
     p.add_argument("--base")
     p.add_argument("--impl-subject", help="commit uncommitted work as the implementation")
     p.add_argument("--ticket", help="the ticket text, handed to every reviewer")
+    p.add_argument("--no-ci", action="store_true", help="do not push to start CI early")
+    c = sub.add_parser("ci")
+    c.add_argument("--wait-minutes", type=float, default=20)
     f = sub.add_parser("finish")
     f.add_argument("--subject", required=True)
     f.add_argument("--reviewers", default="")
     args = ap.parse_args(argv)
-    return prepare(args) if args.cmd == "prepare" else finish(args)
+    return {"prepare": prepare, "finish": finish, "ci": ci}[args.cmd](args)
 
 
 if __name__ == "__main__":

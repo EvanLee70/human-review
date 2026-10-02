@@ -9,10 +9,15 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
    It prints the base, the implementation commit, one diff file, four reviewer briefs, and
    whether the repository's own pre-push checks pass. A failing **push gate** is a finding
    you must fix (`source: pre-push hook`): /human-review cannot run until it passes.
+   When the gate passes it pushes the branch, so CI starts reviewing in parallel.
 2. Start one **read-only** reviewer subagent per brief, all four in parallel, each given
    only the content of its brief file. In Claude Code you may run `/code-review high`
    instead. Do NOT pass --fix and never let a reviewer edit: you decide every finding.
    If you can pick the reviewers' model, pick one other than yours.
+   When the reviewers are done, run `RR ci`: it waits for that CI run and prints what
+   failed — SonarCloud's new issues included — as findings with `source: CI`. A BUG or
+   VULNERABILITY line fails the quality gate, so /human-review stops on it: fix it or
+   decline it in the record. Code smells are yours to judge.
 3. Decide each finding: fix it (edit the code), or decline it. Do not re-run a pass to
    "confirm" anything. Run only the tests that cover what you edited.
 4. Write review-points.md at the repo root — the three piles only, the front-matter is
@@ -45,4 +50,5 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
    checks the file (fix what it names and re-run), commits the fixes with it as
    `[auto-fix] …` with the Review-Points:, Implements: and Claude-Session: trailers, and
    writes and checks the PR comments. Commit nothing yourself.
-6. Stop. Do not push, do not open a PR, do not build a review page.
+6. Stop. Do not push (prepare already did, for CI), do not open a PR, do not build a
+   review page.
