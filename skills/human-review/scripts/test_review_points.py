@@ -800,7 +800,7 @@ SKILLS = HERE.parent.parent          # <repo>/skills
 
 
 def _prompt() -> str:
-    return (SKILLS / "implement-ticket" / "prompt.md").read_text(encoding="utf-8")
+    return (SKILLS / "record-review" / "prompt.md").read_text(encoding="utf-8")
 
 
 def test_the_prompt_names_all_three_trailers_the_scripts_read():
@@ -827,7 +827,7 @@ def test_the_prompt_says_where_the_trailers_go_and_that_a_later_paragraph_is_fin
 
 
 def test_the_skill_explains_why_the_body_is_read_and_not_just_the_trailer_block():
-    skill = (SKILLS / "implement-ticket" / "SKILL.md").read_text(encoding="utf-8")
+    skill = (SKILLS / "record-review" / "SKILL.md").read_text(encoding="utf-8")
     assert "penultimate" in skill and "Co-Authored-By" in skill
     assert "%(trailers" in skill, "the git construct that returns empty here is the fact"
 
@@ -882,9 +882,9 @@ def test_the_three_pile_names_are_the_ones_the_parser_accepts():
 
 
 def test_the_skill_is_discoverable_as_a_skill():
-    skill = (SKILLS / "implement-ticket" / "SKILL.md").read_text(encoding="utf-8")
+    skill = (SKILLS / "record-review" / "SKILL.md").read_text(encoding="utf-8")
     assert skill.startswith("---\n")
-    assert "name: implement-ticket" in skill
+    assert "name: record-review" in skill
     assert "disable-model-invocation: true" in skill, (
         "it commits and reviews — it runs when somebody asks for it, never on a guess")
     assert "prompt.md" in skill, "the two entry points must read one text"

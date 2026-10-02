@@ -3,7 +3,7 @@
 Loaded on demand from Step 9. The runbook names the keys; this file says what goes in them.
 
 **This file is the page's layout and its ledes — not its judgement.** The three piles on
-the Review tab are the *branch's*: `/implement-ticket` writes `review-points.md` at the
+the Review tab are the *branch's*: `/record-review` writes `review-points.md` at the
 repository root, commits it with the fixes, and `review-points.py` parses it into
 `.human-review/review-points.json`. A content file asks for that with
 

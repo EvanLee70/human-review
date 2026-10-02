@@ -9,9 +9,9 @@ disable-model-invocation: true
 **This skill does not review the code. It writes up a review that already happened.**
 
 The review happened in the coding agent's own conversation, and it left a record:
-`/implement-ticket` implements the ticket, runs `/code-review` over its own commit, and
-writes **`review-points.md`** at the repository root — what it fixed because the review
-was right, what it read and **declined**, and what it **assumed** where the ticket was
+`/record-review`, run in the conversation that implemented the change, reviews it
+adversarially (`/code-review` in Claude Code, reviewer subagents elsewhere) and writes
+**`review-points.md`** at the repository root — what it fixed because the review was right, what it read and **declined**, and what it **assumed** where the ticket was
 ambiguous — committed with the fixes, so the record arrives in the pull request's own file
 list. This skill reads that file. It does not run a review, and it does not write one.
 
@@ -27,12 +27,14 @@ gap** — a pile you compose at the end of a review is exactly the artifact this
 replaced, and it reads on the page identically to one the agent actually recorded.
 
 Resolve the skill's own directory once — a plugin install, an env override, a project
-symlink and a gitignored CI clone are all real layouts:
+symlink, a gitignored CI clone and a `~/.copilot/skills/` symlink (VS Code Copilot Chat)
+are all real layouts:
 
 ```sh
 for candidate in "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/skills/human-review" \
     "${HUMAN_REVIEW_HOME:-/nonexistent}" \
-    "$(readlink -f .claude/skills/human-review 2>/dev/null)" ".claude/skills/human-review"; do
+    "$(readlink -f .claude/skills/human-review 2>/dev/null)" ".claude/skills/human-review" \
+    "$(readlink -f ~/.copilot/skills/human-review 2>/dev/null)"; do
   [ -x "$candidate/scripts/run-steps.py" ] && { SKILL="$candidate"; break; }
 done
 [ -n "${SKILL:-}" ] || { echo "cannot locate the human-review skill"; exit 1; }
@@ -58,8 +60,8 @@ Four answers, and none of them is a refusal:
 - **3** — no `review-points.md` on this branch. Say so to the human in one line and carry
   on: the page renders a band reading *nothing records what was reviewed or declined*, the
   assumptions pile says the coder could not be asked, and that is the honest page for this
-  branch. If they want the record, the thing to run is `/implement-ticket`, in the
-  repository, on a fresh implementation — not a review pass here, whose findings would be
+  branch. If they want the record, the thing to run is `/record-review`, in the
+  conversation that wrote the code — not a review pass here, whose findings would be
   nobody's decisions.
 - **4** — the file is there and will not parse. Print the problems; they name lines. This
   one *does* stop Step 3, loudly, because a pile the parser skipped reads on the page

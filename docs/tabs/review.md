@@ -24,7 +24,7 @@
   This is the pile nobody else can write, because it is not in the diff.
 
 Nothing on this tab is written by the agent building the page: it is parsed from
-`review-points.md`, committed by `/implement-ticket`. A branch without one says so, loudly,
+`review-points.md`, committed by `/record-review`. A branch without one says so, loudly,
 instead of reading as "nothing outstanding".
 
 ## Deeper

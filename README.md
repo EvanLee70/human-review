@@ -81,11 +81,12 @@ gh repo sync <your-github-user>/human-review --source victorrentea/human-review
 /plugin marketplace update human-review
 ```
 
-There are two commands, and they are the two ends of one flow. In the repository you want
-the work done in:
+There are two commands, and they are the two ends of one flow. Implement the change however
+you like — then, **in the same conversation** that wrote it (Claude Code, or Copilot Chat in
+VS Code):
 
 ```
-/implement-ticket 37       # build it, review it, write down what you decided
+/record-review             # review it adversarially, write down what you decided
 ```
 
 and then, in the same repository, when you want the page:
@@ -102,8 +103,10 @@ This is the one thing worth knowing before installing it. **The judgement is pro
 the agent that wrote the code, and committed to the branch.** `/human-review` reads it and
 never forms one of its own.
 
-`/implement-ticket` implements the ticket, commits it, runs `/code-review` over that
-commit — deliberately *without* `--fix`, because applying findings automatically destroys
+`/record-review` runs after the implementation, in the conversation that did it. It commits
+the implementation if it is not committed yet, runs an adversarial review over it —
+`/code-review high` in Claude Code, four read-only reviewer subagents elsewhere —
+deliberately *without* `--fix`, because applying findings automatically destroys
 the only information this flow exists to keep — and then writes **`review-points.md`** at
 the repository root:
 
@@ -420,7 +423,7 @@ Hard requirements — nothing runs without these:
 
 Everything else buys a tab, and its absence costs only that tab:
 
-- **A `review-points.md`** at the repository root, written by `/implement-ticket` — the
+- **A `review-points.md`** at the repository root, written by `/record-review` — the
   Review tab's three piles. Without it the tab is still there and says so, which is the
   point; with it, nothing on that tab was written by the agent building the page
 - **PyYAML** plus a JVM or Docker — the API contract diff; `oasdiff` (Homebrew) resolves
@@ -660,7 +663,7 @@ uploads the whole `demo/` directory and deploys it on every push to `main` that 
 `demo/**` (or the workflow itself), and on `workflow_dispatch`.
 
 `demo/DEMO-PR-RECIPE.md` records the retouches Victor made by hand on the
-`demo` exhibit after `/implement-ticket` finished it, one per tab, so they
+`demo` exhibit after the agent finished it, one per tab, so they
 can be redone if the demo PR is ever reimplemented or re-reviewed.
 
 To add one, `/publish-demo` from the reviewed project, once the run has finished. It is

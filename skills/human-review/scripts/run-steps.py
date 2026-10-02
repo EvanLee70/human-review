@@ -169,7 +169,7 @@ def _reviewpoints(ctx: Ctx):
     Both files are written, and the two halves fail differently on purpose:
 
     * **no points file (parser exit 3)** is a `skipped`, not a failure. A branch nobody
-      ran `/implement-ticket` on is a normal branch, and the build renders the absence as
+      ran `/record-review` on is a normal branch, and the build renders the absence as
       an absence — a band saying so — rather than as a clean review;
     * **a points file that will not parse (4) or that anchors nothing (5)** is loud. Both
       are a record that exists and says nothing checkable, and a silently skipped pile

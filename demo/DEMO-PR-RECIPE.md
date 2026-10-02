@@ -5,7 +5,7 @@ This file is about **one exhibit**: `victorrentea/petclinic` PR #49 (ticket
 branch `test-pr`, base `main`), served on Pages as the
 [`demo`](https://victorrentea.github.io/human-review/demo/review.html)
 snapshot. It exists to demonstrate `/human-review`, so every tab of the page has
-to have something worth looking at. `/implement-ticket` alone did not get there —
+to have something worth looking at. The agent's own run alone did not get there —
 after the agent finished, Victor made a handful of **deliberate retouches** on
 top of it, each aimed at one tab. This file is the list, so they can be redone
 if the implementation and/or the review step is ever re-run.
@@ -20,15 +20,17 @@ is fine, since it holds nothing private.
 
 ## Step 0 — produce the PR
 
-`/implement-ticket`, per `skills/implement-ticket/SKILL.md`, unattended and on Opus:
+It was produced by `/implement-ticket`, since replaced by `/record-review`. The equivalent
+today is one conversation, unattended and on Opus — implement, then record the review in
+the same session:
 
 ```sh
 cd ~/workspace/petclinic-pr        # test-pr, tracking origin/main
 git checkout -b test-pr            # only if starting fresh from main
-claude -p "$(cat skills/implement-ticket/prompt.md)
-
-Ticket: victorrentea/petclinic#37 — read it with: gh issue view 37" \
-  --model opus --permission-mode acceptEdits --output-format json
+SID=$(claude -p "Implement victorrentea/petclinic#37 (gh issue view 37). Commit it." \
+  --model opus --permission-mode acceptEdits --output-format json | jq -r .session_id)
+claude -p --resume "$SID" "$(cat ~/workspace/human-review/skills/record-review/prompt.md)" \
+  --model opus --permission-mode acceptEdits
 git push origin HEAD:test-pr       # never a bare `git push` on this checkout
 ```
 
@@ -334,7 +336,7 @@ retouch 4 for why it was undone.)
 
 Order matters — each step depends on the branch state the previous one left:
 
-1. `/implement-ticket` → the two commits (feature, then review fixes +
+1. Implement, then `/record-review` in the same session → the two commits (feature, then review fixes +
    `review-points.md`).
 2. Nothing else to write by hand for the review-points file — it's the coding
    session's own record.
@@ -356,7 +358,7 @@ Order matters — each step depends on the branch state the previous one left:
 
 ## If you redo only the review step
 
-Re-running `/human-review` (or `/implement-ticket`'s review half) does **not**
+Re-running `/human-review` (or `/record-review`) does **not**
 require redoing any of the above. Reset the branch to `ce56d912` (the review
 commit itself) or leave it where it is — either is fine, since `/human-review`
 only reads `review-points.md`, the trailers, and the diff; it does not write
@@ -371,5 +373,5 @@ code. What to keep:
   and start over from `/code-review high` against `a8cd9973`.
 - **Redo**: only the retouches in this file — they are what makes each tab of
   the review page have something to show, and they are the one part of the
-  branch's history that `/implement-ticket` and `/human-review` never produce
+  branch's history that `/record-review` and `/human-review` never produce
   on their own.

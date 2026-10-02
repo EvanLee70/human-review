@@ -239,7 +239,7 @@ def test_the_skill_points_at_the_branchs_own_record():
     assert "review-points.md" in skill
     assert "review-points.py --check" in skill
     assert '{"auto": "review-points"}' in skill
-    assert "/implement-ticket" in skill
+    assert "/record-review" in skill
 
 
 def test_content_json_is_still_model_owned_but_no_longer_the_judgement():

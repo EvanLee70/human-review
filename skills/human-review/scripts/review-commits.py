@@ -22,13 +22,13 @@ gitignored and dies with the directory.
 at the *last* paragraph of the message, and the harness appends its own paragraph —
 `Co-Authored-By: Claude …` — after whatever the agent wrote. The three keys then sit in
 the penultimate paragraph and `%(trailers:key=…)` returns empty for all of them, which is
-what the first `/implement-ticket` run produced: two perfectly trailered commits reported
+what the first run of this flow (then `/implement-ticket`) produced: two perfectly trailered commits reported
 as "not recorded". So `%(trailers)` is the first pass and the message body is the second,
 matched line by line anywhere in the message. That is the normal case, not a degraded one,
 and it warns about nothing: a key on its own line IS the record, wherever the harness
 ended up putting it.
 
-**`[auto-fix]` in the subject marks what the agent fixed on its own.** `/implement-ticket`
+**`[auto-fix]` in the subject marks what the agent fixed on its own.** `/record-review`
 puts it on every commit that applies a reviewer's findings, so `git log --grep='\[auto-fix\]'`
 finds that work later — including a second round after the review commit, or a branch
 whose trailers a squash lost. Every such commit is listed under `auto_fixes`, a commit

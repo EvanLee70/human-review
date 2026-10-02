@@ -61,7 +61,7 @@ CONFIG = "human-review.json"
 #: `content.json` is on the list and no longer for the reason it used to be. It was *the
 #: judgement* — the findings, which ones were fixed, which were left, what the coder
 #: assumed — written by a model at the end of a review and corroborated by nothing outside
-#: itself. That record now belongs to the branch: `/implement-ticket` writes
+#: itself. That record now belongs to the branch: `/record-review` writes
 #: `review-points.md`, commits it with the fixes, and the content file asks for the three
 #: piles with `{"auto": "review-points"}`. What is left in it is the *layout* and the
 #: *ledes* — which tabs the page has, in what order, and the sentences over them. Still a

@@ -170,7 +170,7 @@ POINTS_MISSING_BAND = (
     '<p>No <code>review-points.md</code> on this branch — nothing records what was '
     'reviewed or declined.</p>'
     '<p class="rb-sub">The piles below are empty because the record is absent, not '
-    'because the review was clean. <code>/implement-ticket</code> is what writes the '
+    'because the review was clean. <code>/record-review</code> is what writes the '
     'file; a branch it never ran on has nothing to read.</p></div>')
 
 
