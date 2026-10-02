@@ -1051,6 +1051,10 @@ def main(argv=None) -> int:
             # read first and by everyone.
             phase_total = (led.get("phases") or {}).get("cost")
             cost_label = f'${(phase_total if phase_total is not None and phase_rows_html(led.get("phases")) else (led.get("total") or 0.0)):,.0f}'
+            # A branch another agent wrote is not a cheap branch: its bill is simply not on
+            # this disk. `$0` on the pill read as "free"; the `?` says the number is partial.
+            if (led.get("writing") or {}).get("otherAgents"):
+                cost_label += "?"
             strip.append(
                 f'<button type="button" class="tab" role="tab" id="tabbtn-{COST_TAB_ID}" '
                 f'aria-controls="{COST_TAB_ID}" aria-selected="false" tabindex="-1" '
