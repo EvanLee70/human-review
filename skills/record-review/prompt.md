@@ -90,13 +90,17 @@ were given; with nothing given, `git merge-base HEAD origin/main`.
 
 ---
 
-The paths above, resolved — `<root>` is wherever the human-review plugin is installed
-(`${CLAUDE_PLUGIN_ROOT}` in Claude Code):
+The paths above, resolved. `human-review` is installed **beside** this skill — in the
+plugin, in this repo (`skills/human-review/`) and in a `~/.copilot/skills/` symlink alike —
+so they are all relative to the folder this prompt is in. Do not search the disk for them:
 
-    <root>/skills/human-review/reference/review-points.md    the format
-    <root>/skills/human-review/scripts/review-points.py      the parser
-    <root>/skills/human-review/reference/pr-comments.md      the PR comments
-    <root>/skills/human-review/scripts/push-pr-comments.py   their check
+    ../human-review/reference/review-points.md    the format
+    ../human-review/scripts/review-points.py      the parser
+    ../human-review/reference/pr-comments.md      the PR comments
+    ../human-review/scripts/push-pr-comments.py   their check
+
+(In the repository that ships them: skills/human-review/reference/review-points.md and
+skills/human-review/scripts/review-points.py, and so on.)
 
 `review-points.py --check` prints what it understood and writes nothing; it exits 4 on a
 file it cannot read and 5 on one whose every entry is unanchored. Both of those mean the
