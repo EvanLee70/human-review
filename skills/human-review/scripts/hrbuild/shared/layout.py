@@ -54,7 +54,7 @@ LAYOUT_MODEL_KEYS = {"video": ("video", "appLinks", "runtime")}
 
 #: Which step produces each canonical include — named in the notice that replaces a
 #: fragment the run did not write, so the reader knows what to re-run.
-LAYOUT_PRODUCER = {"swaggerdiff": "api", "requirements-map": "tests (the matrix subagent)",
+LAYOUT_PRODUCER = {"swaggerdiff": "api", "requirements-map": "rerun-model.py (the Tests matrix)",
             "ds-audit": "dsaudit", "complexity-delta": "complexity"}
 
 #: Script-owned tabs, in the default strip order. `label` is used only for a tab the build

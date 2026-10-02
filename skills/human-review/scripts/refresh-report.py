@@ -4,8 +4,10 @@
 `/human-review` has two halves that have never been separable by hand, and were therefore
 run together every time somebody wanted a page refreshed:
 
-  * **the model's half** — the findings, the prose, the requirements↔tests matrix and the
-    per-test catalogue behind it. Slow, paid for, and *not reproducible*: a second pass over
+  * **the model's half** — the findings, the prose, and the pairing of the ticket's
+    sentences with tests that the script could not decide (`test-mapping.json`; the Tests
+    tab's matrix itself is drawn by `semcov.py`, here, from it). Slow, paid for, and *not
+    reproducible*: a second pass over
     the same diff words and ranks its findings differently, so re-running it does not
     confirm the first one, it replaces it. It runs when the human asks for it, never as a
     side effect of anything else;
@@ -28,7 +30,7 @@ evaluated* rather than quietly buying an answer.
 
 It refuses to build in two cases, and both are the same principle: a page must not assert
 something the repository contradicts. The first is a **missing model-written part** — the
-layout, the requirements↔tests matrix, the per-test catalogue. Those are not steps this
+layout, the model's half of the sentence↔test pairing. Those are not steps this
 program can re-run, and a page without them is not a smaller page, it is the same page
 with its argument deleted. The second is a **commit claiming a `review-points.md` that is
 not on disk**: the branch says it recorded its own review and the file is gone, so the
@@ -76,9 +78,15 @@ MODEL_OWNED = {
     "content.json": "the layout and the ledes — which tabs, in what order, and the "
                     "sentences over them (the three Review piles come from the branch's "
                     'own review-points.md, via {"auto": "review-points"})',
-    "assets/requirements-map.html": "the requirements↔tests matrix",
-    "test-index": "the per-test catalogue the matrix reads",
+    "test-mapping.json": "the pairing of the ticket's sentences with the tests that the "
+                         "script could not decide (rerun-model.py asks a cheap model; "
+                         "semcov.py draws the matrix from it, the ticket and the coverage)",
 }
+
+#: What still stands in for a model-owned file written by an older run. The Tests tab's
+#: matrix was the model's whole HTML (`requirements-map.html`) until the script drew it;
+#: a review made then has no `test-mapping.json`, and its matrix is still a matrix.
+MODEL_OWNED_LEGACY = {"test-mapping.json": "assets/requirements-map.html"}
 
 #: Model-written too — **+1 LLM script** beside the matrix — and owned the same way: this
 #: program never writes it, and `rerun-film.py` (the Demo tab's 🤖) is the one command
@@ -95,12 +103,15 @@ MODEL_OWNED_OPTIONAL = {
 def missing_model_work(review: Path) -> list[tuple[str, str]]:
     """Which model-written artifacts are not on disk, with what each one is.
 
-    A directory counts as present when it exists and holds something: `test-index/` left
-    behind empty by a wipe is the same absence as no directory at all, and the honest
-    answer to both is that nobody has written the catalogue yet."""
+    A directory counts as present when it exists and holds something: a directory left
+    behind empty by a wipe is the same absence as no directory at all. A file an older run
+    wrote in its place (`MODEL_OWNED_LEGACY`) counts as present."""
     gone = []
     for rel, what in MODEL_OWNED.items():
         p = review / rel
+        legacy = MODEL_OWNED_LEGACY.get(rel)
+        if not p.exists() and legacy and (review / legacy).is_file():
+            continue
         if p.is_dir():
             if not any(p.iterdir()):
                 gone.append((rel, what))
@@ -356,6 +367,16 @@ def main(argv=None) -> int:
             print("[refresh] the build failed — the page on disk is the previous one.",
                   file=sys.stderr)
             return 1
+    if phases and not args.dry_run:
+        # A refresh's own time goes on the run's cost record (`report-cost.json`), never
+        # money: it called no model, and the run it refreshes was billed once already.
+        try:
+            sys.path.insert(0, str(HERE))
+            import harness_cost
+            harness_cost.note_refresh(review, sum(s for p, s in phases
+                                                  if p != Path(str(SERVE)).stem), args.steps)
+        except Exception as exc:  # noqa: BLE001 — a timing note must never fail a refresh
+            print(f"[refresh] refresh time not recorded: {exc}", file=sys.stderr)
     if args.timing and phases:
         # The three phases of a refresh — produce, build, serve — as three numbers, because
         # "the refresh takes two minutes" was never actionable: whether that is the

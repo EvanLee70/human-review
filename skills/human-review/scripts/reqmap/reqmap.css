@@ -1,0 +1,426 @@
+/* The Tests tab's matrix stylesheet. Lifted verbatim from the model-written fragment the
+   demo PR shipped (petclinic test-pr, ticket #37), which is the layout the tab is held to;
+   `semcov.py` emits it inside `.reqmap`. Additions for the scripted matrix are at the end. */
+.reqmap{
+  --rm-cov:linear-gradient(180deg,rgba(19,120,58,.32),rgba(19,120,58,.50));
+  /* Coarse on purpose: half-green and full green were two intensities of one colour,
+     and which one you were looking at only became clear beside the other. A hatch is
+     a different *kind* of fill, legible on a single sentence with nothing to compare
+     it to. 7px bands - fine ones read as a texture, or as a rendering artefact. */
+  --rm-par:repeating-linear-gradient(135deg,rgba(19,120,58,.44) 0 7px,rgba(19,120,58,.10) 7px 14px);
+  --rm-sel:rgba(19,120,58,.16);
+  --rm-exe:linear-gradient(180deg,rgba(214,122,10,.26),rgba(214,122,10,.44));
+  --rm-mis:linear-gradient(180deg,rgba(178,28,28,.32),rgba(178,28,28,.52));
+  --rm-g-edge:rgba(19,120,58,.85);--rm-o-edge:rgba(190,105,0,.9);--rm-r-edge:rgba(168,22,22,.9);
+  --rm-e2e-bg:rgba(28,90,175,.13);--rm-e2e-fg:rgba(22,70,145,1);
+  --rm-api-bg:rgba(112,58,168,.13);--rm-api-fg:rgba(92,44,142,1);
+  --rm-unit-bg:rgba(20,120,120,.13);--rm-unit-fg:rgba(15,95,95,1);
+  /* The band the two keys share above the two frames. Both rows claim it, so the
+     ticket and the covering-tests card start on the same line whichever row is the
+     taller one - and they are naturally unequal: framed 14px pills on the left, a
+     line of 11.5px muted text on the right. */
+  --rm-key-h:25px;   /* measured: the pill row draws 24.7px, the text row 23px */
+  color:var(--fg,#1c1c1c);font-size:14px;line-height:1.62}
+@media (prefers-color-scheme:dark){.reqmap{
+  --rm-cov:linear-gradient(180deg,rgba(72,205,120,.22),rgba(72,205,120,.40));
+  --rm-par:repeating-linear-gradient(135deg,rgba(72,205,120,.36) 0 7px,rgba(72,205,120,.07) 7px 14px);
+  --rm-sel:rgba(72,205,120,.15);
+  --rm-exe:linear-gradient(180deg,rgba(255,170,60,.20),rgba(255,170,60,.36));
+  --rm-mis:linear-gradient(180deg,rgba(255,95,95,.24),rgba(255,95,95,.44));
+  --rm-g-edge:rgba(110,225,155,.85);--rm-o-edge:rgba(255,190,110,.9);
+  --rm-r-edge:rgba(255,140,140,.92);
+  --rm-e2e-bg:rgba(120,175,255,.16);--rm-e2e-fg:rgba(160,200,255,1);
+  --rm-api-bg:rgba(195,155,255,.16);--rm-api-fg:rgba(210,180,255,1);
+  --rm-unit-bg:rgba(90,215,215,.16);--rm-unit-fg:rgba(135,228,228,1)}}
+/* --- the ticket frame -------------------------------------------------------------
+   Measured off github.com/victorrentea/petclinic/issues/37, not remembered: the issue
+   body's own 1px --borderColor-accent-muted (#54aeff66 light, #388bfd66 dark), 6px
+   radius, a header strip carrying avatar / login / "opened on", and 16px of body
+   padding. Everything else is this page's tokens - GitHub's greys would read as
+   pasted from another site. Deliberately absent: the last-edited disclosure, the
+   Owner pill, the "..." menu and every other control, because none of them would do
+   anything here. */
+.reqmap{--rm-gh-edge:#54aeff66;--rm-gh-head:rgba(84,174,255,.07)}
+@media (prefers-color-scheme:dark){.reqmap{
+  --rm-gh-edge:#388bfd66;--rm-gh-head:rgba(56,139,253,.09)}}
+/* Above the frame, the issue's own header line in GitHub's shape: the title, then the
+   number beside it in grey. The number is the link out - it is the handle the issue is
+   quoted by in standups and commit messages, and the page used to make you hunt for it.
+   Bigger than the quoted body on purpose: this names what the branch was asked to do. */
+.reqmap .rm-tktitle{margin:0 0 10px;font-size:1.75em;line-height:1.25;font-weight:600;
+  color:var(--fg,#1c1c1c)}
+.reqmap .rm-tknum{color:var(--muted,#6b6b6b);font-weight:400;text-decoration:none}
+.reqmap .rm-tknum:hover{color:var(--link,#1a4fa0);text-decoration:underline}
+.reqmap .rm-ticket{border:1px solid var(--rm-gh-edge);border-radius:6px;overflow:hidden}
+.reqmap .rm-tkhead{display:flex;align-items:center;gap:8px;padding:8px 16px;font-size:13px;
+  background:var(--rm-gh-head);border-bottom:1px solid var(--rm-gh-edge)}
+.reqmap .rm-av{width:24px;height:24px;border-radius:50%;flex:0 0 auto;display:block}
+.reqmap .rm-who{font-weight:600;color:var(--fg,#1c1c1c)}
+.reqmap .rm-when{color:var(--muted,#6b6b6b)}
+.reqmap .rm-issue{padding:16px}
+.reqmap .rm-issue > :last-child{margin-bottom:0}
+.reqmap *{box-sizing:border-box}
+.reqmap .rm-body{display:flex;gap:46px;align-items:flex-start;position:relative}
+/* The gutter used to be 20px of nothing. It is now the one place on the page where the
+   relation is actually drawn, so it is wide enough for a fan of wires to leave the ticket
+   horizontally and turn - the left column pays 26px for it, which costs the ticket about
+   three characters a line. */
+.reqmap .rm-wires{position:absolute;inset:0;overflow:visible;pointer-events:none;z-index:2;
+  opacity:0;transition:opacity .18s ease}
+.reqmap .rm-body[data-wired=yes] .rm-wires{opacity:1}
+.reqmap .rm-wires path{fill:none;stroke:var(--rm-g-edge);stroke-linecap:round;
+  stroke-linejoin:round}
+/* The wire is the thing travelling, and is drawn a shade lighter so a fan of eight
+   crossing the gutter does not read as a fence. Both of its ends are a dot on a frame -
+   one per sentence on the ticket's border, one shared on the card's - so the drawing says
+   "this row, those places" with two marks of the same kind. A brace tried to say more
+   than that: it claimed a vertical extent, and two sentences sharing a line of prose
+   overlapped into a tangle nobody could read a span out of. */
+.reqmap .rm-wires .rm-wire{stroke-width:1.25;opacity:.7}
+.reqmap .rm-wires .rm-dot,.reqmap .rm-wires .rm-hub{fill:var(--rm-g-edge);stroke:none}
+.reqmap .rm-text{flex:1 1 auto;min-width:0;container-type:inline-size}
+.reqmap .rm-issue p{margin:0 0 1.05em}
+.reqmap .rm-hr{border:0;border-top:1px solid var(--line,#e2e2e2);margin:1.2em 0}
+/* The ticket's own `## ` headings and numbered points. A <p> rather than a real heading:
+   the page's h2/h3 own the tab furniture, and this is quoted text, not our structure. */
+.reqmap .rm-issue .rm-h{margin:1.5em 0 .65em;font-weight:600;font-size:1.35em;
+  line-height:1.25;color:var(--fg,#1c1c1c);padding-bottom:.3em;
+  border-bottom:1px solid var(--line,#e2e2e2)}
+.reqmap .rm-issue .rm-h:first-child{margin-top:0}
+.reqmap .rm-issue ol{margin:0 0 1.05em;padding-left:1.9em}
+.reqmap .rm-issue li{margin:0 0 .8em}
+.reqmap .rm-issue li::marker{color:var(--muted,#6b6b6b);font-weight:700}
+.reqmap .rm-issue li:last-child{margin-bottom:0}
+.reqmap .rm-plain{color:inherit}
+/* Four steps of one continuum. Hue carries the verdict (green proven, orange walked
+   through, red unproven); the half-intensity green is the only intensity split, and a
+   dashed underline repeats "incomplete" for anyone reading the shade wrong.
+   box-decoration-break:clone gives every wrapped fragment its own padding and rounded
+   corners, so a highlight that spans three lines reads as one band, not as sliced boxes. */
+.reqmap .rm-f{border-radius:3px;padding:1px 3px;margin:0 -1px;cursor:pointer;
+  -webkit-box-decoration-break:clone;box-decoration-break:clone;
+  transition:box-shadow .12s ease}
+/* One declaration per state, worn by the sentence in the ticket and by the word in the
+   legend below it - so the legend cannot say a colour the ticket does not use. The dashed
+   underline that used to repeat "incomplete" under partial and executed is gone: the
+   hatch and the orange are already a different *kind* of fill, and a second mark saying
+   the same thing made two of the five states look like a different vocabulary. */
+.reqmap .rm-f[data-cov=covered],.reqmap .rm-lg[data-cov=covered]{background:var(--rm-cov)}
+.reqmap .rm-f[data-cov=partly],.reqmap .rm-lg[data-cov=partly]{background:var(--rm-par)}
+.reqmap .rm-f[data-cov=exercised],.reqmap .rm-lg[data-cov=exercised]{background:var(--rm-exe)}
+.reqmap .rm-f[data-cov=missing],.reqmap .rm-lg[data-cov=missing]{background:var(--rm-mis)}
+.reqmap .rm-f:hover,.reqmap .rm-f:focus-visible{box-shadow:0 0 0 2px var(--rm-g-edge);outline:none}
+.reqmap .rm-f[data-cov=missing]:hover,.reqmap .rm-f[data-cov=missing]:focus-visible,
+.reqmap .rm-f[data-cov=missing][aria-current=true]{box-shadow:0 0 0 2px var(--rm-r-edge)}
+.reqmap .rm-f[data-cov=exercised]:hover,.reqmap .rm-f[data-cov=exercised]:focus-visible,
+.reqmap .rm-f[data-cov=exercised][aria-current=true]{box-shadow:0 0 0 2px var(--rm-o-edge)}
+.reqmap .rm-f[aria-current=true]{box-shadow:0 0 0 2px var(--rm-g-edge)}
+/* One chip design, used in the tab strip, the detail summary and the legend. */
+.reqmap .rm-cat{display:inline-block;flex:0 0 auto;font-size:10px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:999px;
+  background:var(--rm-e2e-bg);color:var(--rm-e2e-fg)}
+.reqmap .rm-cat[data-cat=api]{background:var(--rm-api-bg);color:var(--rm-api-fg)}
+.reqmap .rm-cat[data-cat=unit]{background:var(--rm-unit-bg);color:var(--rm-unit-fg)}
+.reqmap .rm-hint{margin-top:16px;font-size:12px;color:var(--muted,#6b6b6b);min-height:1.5em}
+/* One row over the ticket's frame, read before the prose rather than after it. There is
+   no swatch any more: the word IS the swatch, set at the ticket's own size and wearing
+   the exact fill it wears down in the prose, so matching legend to sentence is
+   recognition rather than a comparison between two different surfaces - and they were
+   different surfaces: the same gradient reads darker in a 15x9 chip than across a phrase,
+   and the hatch for `partial` had barely two bands to show in one. It sat under the
+   frame as a footer for a while, which is the wrong end: a reader meets five coloured
+   sentences with nothing to say what the colours mean, and only finds out once they have
+   already guessed. Spread edge to edge rather than bunched at the left, so the five words
+   sit over the width of text they explain. The sentence stays on the hover.
+   It shrinks along x rather than folding. `N/A` used to drop to a second row on a narrow
+   column, which put the fifth badge directly over the ticket's first sentence, where it
+   reads as part of the prose rather than as the key above it -- and cost the ticket a
+   line of height exactly when it had least. Measured at 14px: the five words, their
+   padding and the four gaps come to 30.6em plus 14px of borders, so the row fits while
+   the column is wider than ~450px, and below that the font size is the one thing that
+   can give. The coefficient is 100/30.6 shaved to 3.2: the 14px of border is the part
+   that does not shrink with the font, and a row that overflows by 2px is the bug back
+   again, so the slack goes on the safe side. `min(1em, ...)` is why this only ever shrinks: with room to spare the row
+   stays at the ticket's own size instead of inflating to fill it. Padding and gap move
+   to `em` so the whole row shrinks together -- left in px they would eat the width the
+   smaller text just freed. The container is `.rm-text`, so the row measures itself
+   against the ticket column it labels, not against the window. */
+.reqmap .rm-legend{display:flex;flex-wrap:nowrap;justify-content:space-between;
+  align-items:center;gap:0 .86em;min-height:var(--rm-key-h);margin-bottom:10px;
+  padding:0 2px;font-size:min(1em,calc(3.2cqi - 0.5px))}
+/* A thin grey frame around all five, so the row reads as five badges rather than as five
+   words that happen to be coloured. `N/A` is why it is on all of them and not only on the
+   filled ones: its state is *no fill*, so without an edge it is a word with nothing around
+   it and the reader cannot tell it is the same kind of thing as `fully covered`. That
+   one is spelled out where the other four are single words: `full` alone answers "full
+   what?", and the row is read cold, before the ticket has taught anybody the vocabulary.
+   The other four inherit the noun from it and stay short. */
+.reqmap .rm-lg{border:1px solid var(--line,#dcdcdc);border-radius:3px;padding:0 .29em;
+  cursor:help;white-space:nowrap;color:var(--fg,#1c1c1c)}
+/* The word that says what the row is. Without it five framed words over a ticket are
+   five things the reader has to recognise as a key before they can use it as one. Muted,
+   because it is the label and the pills are the content. */
+.reqmap .rm-lgt{color:var(--muted,#6b6b6b);white-space:nowrap}
+/* The badge is a column, not a word in the sentence: same width for UI and API, or every
+   test title starts at a different x and the list stops scanning as a list. */
+.reqmap .rm-list .rm-cat{min-width:34px;text-align:center}
+/* The same badge, inside the tooltip. The bubble is appended to <body>, outside .reqmap,
+   so none of the rules above reach it and none of its variables resolve there - these are
+   the dark palette's literal values, which is right in both themes because the bubble is
+   dark in both. A tip that says "UI x2" in prose makes the reader translate it back into
+   the badge they are already looking at. */
+.tip .rm-cat{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;padding:2px 7px;border-radius:999px;min-width:34px;
+  text-align:center;vertical-align:1px;
+  background:rgba(120,175,255,.20);color:rgba(160,200,255,1)}
+.tip .rm-cat[data-cat=api]{background:rgba(195,155,255,.20);color:rgba(210,180,255,1)}
+.tip .rm-cat[data-cat=unit]{background:rgba(90,215,215,.20);color:rgba(135,228,228,1)}
+.tip .rm-n{margin:0 10px 0 5px}
+.tip .rm-do{opacity:.72;font-weight:500}
+/* The right column answers the left, so it is built the same way: a title in the page's
+   own voice, then a framed card under it, down to the ticket's border and 6px radius.
+   Drawn full from the start: the card lists every acceptance test this branch offers,
+   whether or not a sentence is selected, so the column is a thing to read rather than a
+   slot waiting to be filled. Selecting a sentence marks the ones that cover it. */
+.reqmap .rm-side{flex:0 0 50%;max-width:50%;min-width:0;position:sticky;top:12px}
+/* Sticky is worth having while the card is a short list riding alongside a long ticket.
+   It is worth nothing once a test is open: the card is then taller than the window, and a
+   sticky element taller than the window pins its top and puts its own bottom permanently
+   out of reach - the reader would scroll and scroll and never arrive at the end of the
+   excerpt they just opened. Open one, and the column simply stands in the page. */
+.reqmap .rm-side:has(.rm-t[data-open=yes]){position:static}
+.reqmap .rm-code{display:flex;flex-direction:column;min-width:0;
+  border:1px solid var(--rm-gh-edge);border-radius:6px;
+  background:var(--card,rgba(127,127,127,.05));
+  /* No height of its own, and so no scrollbar of its own. Capped at the viewport, opening
+     a test put a second vertical bar a few pixels in from the window's own, and the two
+     moved different things: reading forty lines of test meant scrolling the inner one
+     while the page stayed put, then finding the outer one again to leave. The card grows
+     to whatever it holds and the window scrolls it, which is the one bar the reader
+     already knows. `hidden` is left on to keep the corners round; there is no height for
+     it to clip against. Wide code still scrolls inside its own block. */
+  overflow:hidden}
+/* One test per row, and the row is the accordion: head always visible, source revealed
+   under it. Only one open at a time - two open panes and the list stops being a list. */
+.reqmap .rm-t{border-bottom:1px solid var(--line,#e2e2e2)}
+.reqmap .rm-t:last-child{border-bottom:0}
+.reqmap .rm-thead{display:flex;align-items:baseline;gap:8px;padding:7px 10px;cursor:pointer;
+  font-size:11.5px;line-height:1.35;color:var(--muted,#6b6b6b)}
+/* The card is headed the way the ticket is - one strip, an avatar's worth of icon and a
+   name - because it is the ticket's counterpart, not a titled list beside it. The face
+   is the robot: everything under it was read out of the code by a model. */
+.reqmap .rm-code > .rm-tkhead{cursor:default}
+.reqmap .rm-av-ai{width:24px;height:24px;flex:0 0 auto;display:inline-flex;
+  align-items:center;justify-content:center;border-radius:50%;font-size:14px;
+  background:var(--rm-gh-head);cursor:help}
+.reqmap .rm-thead:hover{background:rgba(127,127,127,.07)}
+.reqmap .rm-tt{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.reqmap .rm-tw{flex:0 0 auto;font-size:10.5px}
+/* The part of the file name that says what kind of test this is - `.feature`, `.spec.ts`,
+   `.component.spec.ts`, `.java` - in amber, the page's own "look here" colour, so the
+   kind is read off the row without decoding the whole name. Everything before the first
+   dot of the extension run is the test's name and stays the link colour. */
+.reqmap .rm-tw .rm-tk{color:var(--drift);font-weight:600}
+@media (prefers-color-scheme:dark){.reqmap .rm-tw .rm-tk{color:var(--drift)}}
+/* What the branch did to this test, on the test itself. It is the fact the deleted
+   evidence cards carried in prose ("the new one", "the pre-existing flow, extended") -
+   worth one word on the row. An untouched test used to get silence, on the theory that
+   it is the ordinary case - but on a list of "every test this change set touched" a row
+   with no mark reads as a gap, not as a fact, and the reader stops to ask whether the
+   build forgot it. So the answer "nothing" gets a mark too: the page glyph alone, no
+   badge, in the same muted grey the excerpt's own `unchanged` badge wears, and the hover
+   says why the row is here at all - the test is untouched, and it is listed because it
+   runs through code this branch changed. */
+.reqmap .rm-cat[data-tip],.reqmap .code-badge{cursor:help}
+.reqmap .rm-st{flex:0 0 auto;align-self:center;display:inline-flex;cursor:help;
+  --st:var(--rm-g-edge)}
+.reqmap .rm-st[data-st=edited]{--st:var(--rm-o-edge)}
+.reqmap .rm-st[data-st=deleted]{--st:var(--rm-r-edge)}
+.reqmap .rm-st[data-st=unchanged]{--st:var(--muted,#6b6b6b)}
+.reqmap .rm-st svg{display:block;width:15px;height:15px;overflow:visible}
+/* Two vocabularies, one alphabet. On a test row the mark stands alone - plus, pencil,
+   cross - because the subject is a test; on the excerpt's badge the same mark rides the
+   corner of VS Code's `new-file` page, because there the subject really is a file. Sharing
+   the badges and not the page is what lets a reader learn them once. The colour carries
+   the same fact a second time: green wrote it, orange changed it, red took it away. (This
+   started out muted grey with only the badge coloured, which put the whole weight of the
+   distinction on the smallest part of the mark and left the row reading as grey furniture.
+   The words are gone either way: `NEW` in a pill was a label loud enough to be read before
+   the test's own name, on a row whose subject is the test.) */
+.reqmap .rm-st .rm-page,.reqmap .rm-st .rm-badge,
+.reqmap .rm-fbadge .rm-page,.reqmap .rm-fbadge .rm-badge{fill:var(--st)}
+/* The same glyph again, one level down: the row's stamp says what happened to the TEST,
+   this says what happened to the window of code under it - a whole new file, newly
+   written lines, an edit inside older lines, or nothing. `new file` / `new code` /
+   `2 lines changed` / `unchanged` were four different widths of shouty caps stacked down
+   the left edge of every excerpt; the reader was reading them instead of the code. The
+   counts they carried are not lost - they are in the hover, and the `+` marks in the
+   gutter show them line by line. */
+.reqmap .rm-fbadge{display:inline-flex;flex:0 0 auto;cursor:help;--st:var(--rm-g-edge);
+  margin-left:-2px}
+.reqmap .rm-fbadge[data-kind=edited]{--st:var(--rm-o-edge)}
+.reqmap .rm-fbadge[data-kind=unchanged]{--st:var(--muted,#6b6b6b)}
+.reqmap .rm-fbadge svg{display:block;width:15px;height:15px;overflow:visible}
+/* A deleted test has no source in this checkout to quote, so its row does not open: no
+   disclosure arrow, and the name struck through the way the run struck it. It is in this
+   list at all because the alternative was a second list at the foot of the tab, repeating
+   every row above it for the sake of the one kind of row that could not be here. */
+.reqmap .rm-t[data-gone=yes] .rm-thead{cursor:default}
+.reqmap .rm-t[data-gone=yes] .rm-thead:hover{background:none}
+.reqmap .rm-t[data-gone=yes] .rm-tt{text-decoration:line-through;opacity:.65}
+.reqmap .rm-t[data-gone=yes] .rm-chev{visibility:hidden}
+.reqmap .rm-chev{flex:0 0 auto;font-size:8px;opacity:.55;transition:transform .15s ease}
+.reqmap .rm-t[data-open=yes] .rm-chev{transform:rotate(90deg)}
+.reqmap .rm-t[data-open=yes] .rm-thead{color:var(--fg,#1c1c1c);font-weight:600}
+/* A selected sentence sorts the list into "these prove it" and the rest: the covering
+   rows go green, everything else steps back rather than disappearing - the point of
+   showing all of them is that you can see what did NOT get picked. */
+.reqmap .rm-t[data-hit=yes]{background:var(--rm-sel);
+  box-shadow:inset 3px 0 0 var(--rm-g-edge)}
+.reqmap .rm-t[data-hit=yes] .rm-thead{color:var(--fg,#1c1c1c)}
+.reqmap .rm-list[data-sel=yes] .rm-t[data-hit=no]{opacity:.42}
+/* grid-template-rows 0fr -> 1fr is the one way to animate to a height nobody measured:
+   the row still lays out at its natural height, the transition just gets there. `hidden`
+   or display:none would snap, which is exactly what made the list jump. */
+/* min-width:0 on both, or a grid item's automatic minimum size is the width of the
+   widest line of code in it and the card is pushed open from the inside. */
+.reqmap .rm-tbody{display:grid;grid-template-rows:0fr;min-width:0;
+  transition:grid-template-rows .2s ease}
+.reqmap .rm-t[data-open=yes] .rm-tbody{grid-template-rows:1fr;
+  border-top:1px solid var(--line,#e2e2e2)}
+.reqmap .rm-tinner{overflow:hidden;min-height:0}
+/* Reading a test and asking what it pins are two different questions, and they used to be
+   the same click: opening a row to read its source also lit three sentences on the ticket,
+   so the outline you were left looking at was never one you asked for, and with a sentence
+   already selected the two directions overlapped in the same green. Opening is now only
+   opening. The relation is still many-to-many and still has to be drawable from this side,
+   so it gets a control of its own - the arrowhead pointing back at the ticket - and the
+   linked row wears the same green outline as the sentences it draws. */
+.reqmap .rm-t[data-link=yes]{box-shadow:inset 0 0 0 1.5px var(--rm-g-edge);border-radius:4px}
+.reqmap .rm-f[data-by=yes]{box-shadow:0 0 0 2px var(--rm-g-edge)}
+/* It leads the row, pointing across the gap at the column it draws into - the disclosure
+   arrow beside it points down into the row's own body, so the two controls say which way
+   they act before they say anything else. Rendered on every row, so the badges behind it
+   stay in one column, and hidden rather than merely faded on a test that pins no sentence:
+   a control that would do nothing is worse than no control. */
+.reqmap .rm-link{flex:0 0 auto;align-self:center;width:12px;height:14px;
+  margin:0 -1px 0 0;padding:0;border:0;background:none;color:var(--muted,#6b6b6b);
+  opacity:.5;cursor:pointer;transition:opacity .12s ease,color .12s ease}
+/* The glyph is the picture of what pressing it draws: one trunk on the right, where the
+   test is, fanning into three branches reaching left at the ticket. An arrowhead only
+   said "that way"; this says what will be over there. Drawn rather than borrowed from a
+   font - no glyph in any stack is this, and the ones that come close (≺, ≣, ⥂) are a
+   different picture at 12px. */
+.reqmap .rm-fan{display:block;width:12px;height:14px;overflow:visible;
+  fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round}
+.reqmap .rm-link:hover,.reqmap .rm-link:focus-visible{opacity:1;color:var(--rm-g-edge);
+  outline:none}
+.reqmap .rm-link[disabled]{visibility:hidden;cursor:default}
+.reqmap .rm-t[data-link=yes] .rm-link{opacity:1;color:var(--rm-g-edge)}
+/* Two facts in one badge: colour is the kind of test, fill is how hard it pins the
+   sentence - solid asserts it, outlined only runs through it. Unselected, every badge
+   is solid: there is no sentence for it to be weak about. */
+.reqmap .rm-cat[data-strength=exercised]{background:transparent;
+  box-shadow:inset 0 0 0 1px currentColor;opacity:.9}
+.reqmap .rm-cat[data-strength=touched]{background:transparent;
+  box-shadow:inset 0 0 0 1px currentColor;opacity:.6}
+/* What the three badges mean, over the card the way the colour legend sits over the
+   ticket. One line: the words are a reminder, not a definition, which is why they are as
+   short as they are - `clicks the screen` beside a UI badge, not a sentence about it.
+   Same height and same bottom margin as the colour legend (both take `--rm-key-h`), so
+   the two frames under them start on one line; centred inside it, because the pills on
+   the left are taller than this text and the two rows would otherwise sit at different
+   heights while occupying the same band. */
+.reqmap .rm-cats{display:flex;flex-wrap:wrap;align-items:center;
+  min-height:var(--rm-key-h);margin:0 2px 10px;font-size:11.5px;
+  color:var(--muted,#6b6b6b)}
+.reqmap .rm-cats span{display:inline-flex;align-items:center}
+.reqmap .rm-cats .rm-cat{margin-right:5px}
+.reqmap .rm-cats span+span{margin-left:14px}
+/* Inference, marked where it is claimed. Everything under it was read out of the code by
+   a model, and a reader who knows that reads it differently. */
+.reqmap .rm-ai{font-size:.5em;vertical-align:super;margin-left:.35em;cursor:help;
+  text-decoration:none}
+.reqmap .rm-part{border-bottom:1px solid var(--line,#e2e2e2)}
+.reqmap .rm-part:last-child{border-bottom:0}
+/* One phrase in one direction, the same one every other quoted block on this page reads
+   in: the two ways to open it, the file they open, then what changed in it. Nothing is
+   pushed away from anything else - the three parts are one group at the right edge. */
+.reqmap .rm-srcbar{display:flex;justify-content:flex-end;align-items:center;
+  gap:7px;padding:7px 12px 5px}
+.reqmap .rm-srcbar .code-badge{flex:0 0 auto;font-size:9px;padding:1px 6px;
+  letter-spacing:.06em}
+/* The handles lead, hard against the name they open. A file that did not exist at the
+   base has no diff to open and gets no mark rather than a dead one. The box they used to
+   wear was there to keep three letters from reading as prose; a mark needs no box, only
+   a hit area. */
+/* Closer than the row's own 7px: a mark is a smaller thing than the words around it, and
+   given the same air it floats off the name it belongs to. Two thirds of the gap, taken
+   back with a negative margin so the hover box keeps its full hit area. */
+.reqmap .rm-srcbar .rm-diff{flex:0 0 auto;display:inline-flex;align-items:center;
+  padding:2px 3px;border:0;border-radius:5px;text-decoration:none;line-height:0}
+.reqmap .rm-srcbar .rm-diff:hover{background:var(--accent-soft,rgba(127,127,127,.14))}
+/* Grey at rest, lit on hover. Two logos in full colour beside a file name are the
+   brightest thing in the row, and they are the least of what it says - a badge, a name
+   and two marks all shouting at once is a bar with no order to read it in. Grey they
+   recede to the weight of furniture and the name reads first; under the cursor each
+   comes up in the colour it is recognised by, which is the moment it has to be. */
+.reqmap .rm-srcbar .ico{display:block;width:14px;height:14px;fill:var(--muted,#6b6b6b);
+  transition:fill .12s ease}
+.reqmap .rm-srcbar .rm-diff:hover .ico{fill:var(--fg,#1c1c1c)}
+.reqmap .rm-srcbar .rm-diff:hover .ico-vsc{fill:#0098ff}
+/* A Java test path is longer than this column is wide. `anywhere` lets it wrap, and
+   wrapping *at the slashes* keeps each fragment a path segment you can still read;
+   `break-word` alone would split `victor` down the middle. */
+.reqmap .rm-srcbar .srcref{margin:0;font-size:10.5px;line-height:1.45;text-align:right;
+  min-width:0;overflow-wrap:anywhere;word-break:break-word}
+/* After the rule above, which resets every margin in the bar and would otherwise put the
+   full 7px back on order alone. */
+.reqmap .rm-srcbar .rm-diff{margin-right:-2.33px}
+.reqmap .rm-scroll{overflow-x:auto}
+/* Token colours come from the page's one Pygments stylesheet, scoped to `pre.code` - the
+   same classes extract-snippet.py emits for every other snippet, light and dark, so this
+   column cannot drift into a second palette. What follows is only the column's geometry,
+   at a specificity that wins over `pre.code`'s; `overflow:visible` matters, or the shared
+   rule's `overflow-x:auto` opens a second scroller and unsticks the file header. */
+.reqmap .rm-tbody pre.code{margin:0;padding:10px 12px 10px 0;white-space:pre;font-size:12px;
+  line-height:1.5;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color:var(--fg,#1c1c1c);width:max-content;min-width:100%;overflow:visible;
+  border-radius:0;background:var(--code-bg,var(--card,#fff))}
+/* The critique of the REQUIREMENT, and so it belongs on the requirement's side: what the
+   ticket asks for that nothing goes near. It used to sit under the code on the right,
+   where it read as a verdict on the test you happened to be looking at. */
+.reqmap .rm-gap{margin-top:12px;padding:10px 12px;border:1px solid var(--rm-o-edge);
+  border-radius:6px;background:rgba(214,122,10,.07);font-size:12.5px;line-height:1.55;
+  color:var(--fg,#1c1c1c)}
+.reqmap .rm-gap[hidden]{display:none}
+.reqmap .rm-gap h4{margin:0 0 3px;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+  font-weight:600;color:var(--rm-o-edge)}
+.reqmap .rm-gapkind{font-weight:400;opacity:.85}
+/* A hole in the ticket is not a hole in the test suite, and the colour says so before
+   the words do: nothing anyone can fix by writing a test. */
+.reqmap .rm-gap[data-kind=requirement]{border-color:rgba(150,120,235,.75);
+  background:rgba(150,120,235,.09)}
+.reqmap .rm-gap[data-kind=requirement] h4{color:rgba(170,140,255,1)}
+.reqmap .rm-gap p{margin:0}
+.reqmap .rm-ln{display:inline-block;width:4.6em;padding-right:1.1em;text-align:right;
+  color:var(--muted,#8a8a8a);opacity:.6;user-select:none}
+@media (max-width:900px){.reqmap .rm-body{flex-direction:column}
+  .reqmap .rm-side{flex:1 1 auto;max-width:100%;width:100%;position:static}
+  /* Stacked, the ticket column is sized across the flex container's cross axis, where
+     `align-items:flex-start` shrink-wraps it to its content -- and a content-based width
+     is the one thing `container-type:inline-size` refuses to compute, so the column
+     measured 0 and the legend inside it shrank to a 0px font. Stated outright, the same
+     way `.rm-side` above it already states it. */
+  .reqmap .rm-text{width:100%}}
+
+/* --- semcov additions -------------------------------------------------------------- */
+/* A sentence no pairing has reached yet - the script found no test for it and no model
+   has been asked. Not a colour: "missing" would be a claim nobody has made. */
+.reqmap .rm-f[data-cov=unmapped]{background:none;text-decoration:underline dotted;
+  text-decoration-color:var(--muted,#8a8a8a);text-underline-offset:3px}
+/* A sentence a model paired, rather than the script: a small robot after it, the same
+   mark the card uses for "as inferred by AI". */
+.reqmap .rm-f[data-src=model]::after{content:"\1F916";font-size:.62em;vertical-align:super;
+  margin-left:.2em;opacity:.75}

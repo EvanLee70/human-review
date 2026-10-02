@@ -1179,104 +1179,119 @@ def test_the_paid_endpoint_launches_the_model_step(server, tmp_path):
     assert "claude -p" not in snap["output"]
 
 
+def _ticketed_review(tmp_path, body="1. **Booking a visit lets you choose the vet.**\n"):
+    """A review directory whose ticket is already cached, so nothing asks GitHub."""
+    review = tmp_path / ".human-review"
+    (review / "assets").mkdir(parents=True)
+    (review / "content.json").write_text(json.dumps(
+        {"pr": {"ticket": {"number": 37, "title": "Link Visit with Vet", "url": "u"}}}),
+        encoding="utf-8")
+    (review / "ticket-body.json").write_text(json.dumps(
+        {"number": 37, "title": "Link Visit with Vet", "url": "u", "author": "v",
+         "avatar": "", "createdAt": "2026-06-13T09:31:55Z", "body": body}), encoding="utf-8")
+    return review
+
+
 def test_the_model_step_spends_nothing_on_a_dry_run(tmp_path):
     """Every test of the paid half, and every check that the button is wired to the right
     program, goes through `--dry-run`. So it has to print the whole invocation — the model
     included, because "which model did that page cost" is a question the command answers
     rather than one the invoice does — and call nothing."""
-    review = tmp_path / ".human-review"
-    (review / "test-index").mkdir(parents=True)
-    (review / "test-index" / "rest.json").write_text("[]", encoding="utf-8")
-    (review / "assets").mkdir()
-    (review / "assets" / "requirements-map.html").write_text("<div/>", encoding="utf-8")
-    (review / "content.json").write_text("{}", encoding="utf-8")
+    review = _ticketed_review(tmp_path)
     out = subprocess.run(
         [sys.executable, str(HERE / "rerun-model.py"), "--dir", str(review), "--dry-run"],
-        capture_output=True, text=True, cwd=str(tmp_path))
+        capture_output=True, text=True, cwd=str(tmp_path),
+        env={**os.environ, "HUMAN_REVIEW_MAPPING_MODEL": ""})
     assert out.returncode == 0, out.stderr
-    assert "claude -p --model sonnet" in out.stdout
+    # A cheap model, named, and no tools: everything it needs is in the prompt.
+    assert "claude -p --model haiku" in out.stdout
+    assert '--tools ""' in out.stdout
     assert "dry run" in out.stdout
-    # The prompt is 60 lines long; a log line carrying all of it is a log line nobody
-    # reads. It goes in on stdin — as the trailing argument it was swallowed by the
-    # variadic `--add-dir`, and `claude` exited with "Input must be provided".
-    assert "< matrix-prompt.md" in out.stdout
-    # The redirection is the fix, not decoration: `--add-dir` comes last in the argv and
-    # takes a list, so anything after it is another directory.
-    assert re.search(r"--add-dir \S+\s+< matrix-prompt", out.stdout)
-    # And it left the pair alone: a dry run that had already copied files away would be a
-    # dry run with a side effect.
+    # The prompt goes in on stdin and is named, not quoted, with what is open beside it.
+    assert "< matrix-prompt.md + 1 open sentences" in out.stdout
+    # And it wrote nothing: a dry run that had already copied files away would be a dry
+    # run with a side effect.
     assert not (review / ".model-prev").exists()
+    assert not (review / "test-mapping.json").exists()
 
 
-def test_the_model_step_refuses_rather_than_half_writing(tmp_path, monkeypatch):
-    """A model run that ends with one of the two artifacts missing leaves the report in the
-    one state `refresh-report.py` is built to refuse. Saying so here, before the build is
-    reached, is the difference between a named failure and a page that quietly lost its
-    matrix."""
+def test_the_mapping_model_is_a_setting_with_a_cheap_default(tmp_path, monkeypatch):
     model = _load("rerun_model", "rerun-model.py")
+    monkeypatch.delenv("HUMAN_REVIEW_MAPPING_MODEL", raising=False)
+    cfg = tmp_path / "human-review.json"
+    assert model.mapping_model(None, cfg) == "haiku"
+    cfg.write_text('{"mappingModel": "sonnet"}', encoding="utf-8")
+    assert model.mapping_model(None, cfg) == "sonnet"
+    monkeypatch.setenv("HUMAN_REVIEW_MAPPING_MODEL", "opus")
+    assert model.mapping_model(None, cfg) == "opus"
+    assert model.mapping_model("haiku", cfg) == "haiku"
+
+
+def test_the_model_step_refuses_rather_than_half_writing(tmp_path):
+    """An answer that fails the schema, or names a sentence it was not asked about or a
+    test it was not shown, is not written: the file on disk stays what it was."""
+    model = _load("rerun_model", "rerun-model.py")
+    asked = {"sentences": [{"id": "s000001", "text": "x", "candidates": ["a.java:1"]}],
+             "tests": [{"id": "a.java:1"}]}
+    good = {"schema": "test-mapping/1", "sentences": [
+        {"id": "s000001", "coverage": "covered",
+         "tests": [{"id": "a.java:1", "strength": "asserted", "why": "asserts it"}]}]}
+    assert model.check_answer(good, asked) == []
+    assert model.check_answer(None, asked) == ["the reply holds no JSON object"]
+    invented = json.loads(json.dumps(good))
+    invented["sentences"][0]["tests"][0]["id"] = "b.java:9"
+    assert any("not one of the tests" in p for p in model.check_answer(invented, asked))
+    unasked = json.loads(json.dumps(good))
+    unasked["sentences"][0]["id"] = "s000002"
+    assert any("not a sentence it was asked" in p for p in model.check_answer(unasked, asked))
+    # A reply wrapped in a fence, or in a sentence of prose, still yields its JSON.
+    assert model.parse_answer("Here:\n```json\n" + json.dumps(good) + "\n```") == good
     review = tmp_path / ".human-review"
-    (review / "assets").mkdir(parents=True)
-    (review / "assets" / "requirements-map.html").write_text("<div/>", encoding="utf-8")
-    assert model.missing(review) == ["test-index"]
-    # An empty directory is the same absence as no directory: a catalogue a dead run left
-    # behind is not a smaller catalogue.
-    (review / "test-index").mkdir()
-    assert model.missing(review) == ["test-index"]
-    (review / "test-index" / "rest.json").write_text("[]", encoding="utf-8")
+    review.mkdir()
+    assert model.missing(review) == ["test-mapping.json"]
+    (review / "test-mapping.json").write_text("", encoding="utf-8")
+    assert model.missing(review) == ["test-mapping.json"]
+    model.install(review, good)
     assert model.missing(review) == []
 
 
-def test_the_model_step_refuses_a_matrix_that_lost_a_mapped_test(tmp_path):
-    """The catalogue and the matrix are one artifact in two files, and a run can exit 0
-    having quietly broken the link between them.
-
-    That is not hypothetical: `keep_previous` copies today's pair into `.model-prev/`
-    *before* the model starts, so the two are byte-identical at that moment, and a run
-    that read "diff your work against the previous copy" as "am I different from
-    `.model-prev/`?" answered no for free and wrote nothing. A Gherkin scenario the branch
-    had added reached `test-index/` and never reached *Covering tests*, and the step
-    reported success. The prompt now says the copy proves nothing; this is the half that
-    does not depend on the model having read it."""
-    model = _load("rerun_model", "rerun-model.py")
-    review = tmp_path / ".human-review"
-    (review / "assets").mkdir(parents=True)
-    (review / "test-index").mkdir()
-    mapping = {"blocks": [{"sentences": [{"id": "s1", "tests": [
-        {"id": "src/add-visit.spec.ts:51"}, {"id": "src/book-visit.feature:18"}]}]}]}
-    (review / "test-index" / "mapping.json").write_text(json.dumps(mapping), encoding="utf-8")
-    matrix = review / "assets" / "requirements-map.html"
-
-    matrix.write_text('<div class="reqmap">src/add-visit.spec.ts:51</div>', encoding="utf-8")
-    assert model.unmapped(review) == ["src/book-visit.feature:18"]
-
-    matrix.write_text('<div class="reqmap">src/add-visit.spec.ts:51 '
-                      'src/book-visit.feature:18</div>', encoding="utf-8")
-    assert model.unmapped(review) == []
-
-    # A consistency check between two files, not a second opinion on either one's shape:
-    # nothing to compare is nothing to complain about.
-    (review / "test-index" / "mapping.json").write_text("{not json", encoding="utf-8")
-    assert model.unmapped(review) == []
-    (review / "test-index" / "mapping.json").unlink()
-    assert model.unmapped(review) == []
+def test_an_answer_made_elsewhere_is_checked_and_installed(tmp_path):
+    """The Copilot path: `--prompt-only` prints the prompt, the harness's own cheap model
+    answers it, `--answer` checks the reply and writes it. A refused reply writes nothing."""
+    review = _ticketed_review(tmp_path, body="We had this before: it kept coming back.\n")
+    run = lambda *a: subprocess.run(
+        [sys.executable, str(HERE / "rerun-model.py"), "--dir", str(review), *a],
+        capture_output=True, text=True, cwd=str(tmp_path))
+    prompt = run("--prompt-only")
+    assert prompt.returncode == 0, prompt.stderr
+    asked = json.loads(prompt.stdout.split("```json\n")[-1].split("\n```")[0])
+    sid = asked["sentences"][0]["id"]
+    reply = tmp_path / "reply.json"
+    reply.write_text(json.dumps({"schema": "test-mapping/1", "sentences": [
+        {"id": sid, "coverage": "covered", "tests": []}]}), encoding="utf-8")
+    bad = run("--answer", str(reply))
+    assert bad.returncode == 5 and "needs at least one asserted test" in bad.stderr
+    assert not (review / "test-mapping.json").exists()
+    reply.write_text(json.dumps({"schema": "test-mapping/1", "sentences": [
+        {"id": sid, "coverage": "n/a", "tests": []}]}), encoding="utf-8")
+    ok = run("--answer", str(reply))
+    assert ok.returncode == 0, ok.stderr
+    assert json.loads((review / "test-mapping.json").read_text())["sentences"][0]["id"] == sid
 
 
-def test_the_pair_being_replaced_is_kept_out_of_the_published_copy(tmp_path):
+def test_the_answer_being_replaced_is_kept_out_of_the_published_copy(tmp_path):
     """This replaces a judgement rather than refreshing it, so the copy the reader was
     looking at has to survive the click. Dot-prefixed, because `publish-demo.sh` publishes
-    what does not start with a dot and a demo carrying two matrices is a demo with a bug."""
+    what does not start with a dot."""
     model = _load("rerun_model", "rerun-model.py")
     review = tmp_path / ".human-review"
-    (review / "assets").mkdir(parents=True)
-    (review / "assets" / "requirements-map.html").write_text("old", encoding="utf-8")
-    (review / "test-index").mkdir()
-    (review / "test-index" / "rest.json").write_text("[1]", encoding="utf-8")
+    review.mkdir()
+    (review / "test-mapping.json").write_text("old", encoding="utf-8")
     kept = model.keep_previous(review)
     assert kept.name.startswith(".")
-    assert (kept / "requirements-map.html").read_text() == "old"
-    assert (kept / "test-index" / "rest.json").read_text() == "[1]"
-    # Copied, not moved: the prompt asks the model to diff its work against what was there.
-    assert (review / "assets" / "requirements-map.html").is_file()
+    assert (kept / "test-mapping.json").read_text() == "old"
+    # Copied, not moved: until the new answer passes, the old one is what the page uses.
+    assert (review / "test-mapping.json").is_file()
 
 
 def test_one_rerun_at_a_time_across_both_endpoints(server, tmp_path, monkeypatch):

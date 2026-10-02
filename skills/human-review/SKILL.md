@@ -17,9 +17,9 @@ list. This skill reads that file. It does not run a review, and it does not writ
 
 That is the whole division. The judgement is produced once, by the agent that made the
 decisions, while it still has them; the page is assembled by programs from the branch.
-What is left for you is two model-written artifacts — the requirements↔tests matrix with the
-per-test catalogue behind it, and **+1 LLM script**, the Demo film's — plus the page's layout
-and its ledes. Everything else on
+What is left for you is two model-written artifacts — the part of the sentence↔test pairing
+behind the Tests tab that the script could not decide (`test-mapping.json`, a cheap model's
+JSON), and **+1 LLM script**, the Demo film's — plus the page's layout and its ledes. Everything else on
 these five steps is a script. Do **not** commit or push.
 
 A branch with no `review-points.md` is not an error and not a gate: the page says so, in a
@@ -198,19 +198,32 @@ ${SKILL}/scripts/steps-ledger.py start guide --label "assemble content.json and 
   > .human-review/.step-guide
 ```
 
-### The matrix, and the model that writes it
+### The matrix, and the model that writes its last few pairings
 
-What is left that only a model can write is the requirements↔tests matrix
-(`assets/requirements-map.html`) and the per-test catalogue behind it (`test-index/`).
-`review-points.md` says nothing about which sentence of the ticket which test pins, and
-that matrix is the one claim on the page a reviewer cannot check by hand.
+The Tests tab's matrix is drawn by a script, `scripts/semcov.py`, every build: the ticket
+(`gh issue view`, cached in `ticket-body.json`) rendered on the left and split into
+sentences with stable ids; on the right the tests whose per-test coverage
+(`assets/test-coverage.json`, from the `testcov` step) runs a line this PR changed; and the
+colouring and hover/click association between them. **Most of the pairing is scripted
+too** — shared words of the test's name and assertions, a synonym table, literals, the
+changed lines its coverage ran — and every scripted link carries its evidence.
 
-**Fork a subagent for it, and give that subagent `model: sonnet`.** Named here rather than
-left to the harness's default, because the two of them are the only paid, non-reproducible
-work left in this skill and their price is now a visible line on the cost tab: Opus writes
-this matrix no better and costs several times as much. A run that goes over a dollar for
-these two is accepted; a run that goes over a dollar because nobody said which model is
-not.
+What a model still does is the sentences the script could not pair, and only those, each
+with its few candidate tests. Run it as a program, from the repository root:
+
+```sh
+${SKILL}/scripts/rerun-model.py           # cheap model (haiku), only for the open sentences
+```
+
+It writes `.human-review/test-mapping.json` (schema: `reference/test-mapping.schema.json`;
+prompt: `reference/matrix-prompt.md`), refuses an answer that fails the schema or names a
+sentence or test it was not given, and asks nothing at all when the script paired every
+sentence. The model is `haiku` unless `"mappingModel"` in `human-review.json` (or
+`--model`) says otherwise; its cost is recorded in `.model-runs.json` and shows on the cost
+tab. **Under GitHub Copilot**, pick the cheap model (*Auto*, or `gpt-5-mini`) yourself:
+`rerun-model.py --prompt-only` prints the prompt with its input, you answer it as JSON, and
+`rerun-model.py --answer reply.json` checks and installs the answer. Never write the
+matrix HTML yourself — the build draws it.
 
 ### The prose that is left
 
@@ -282,8 +295,16 @@ red, attributed to a human.
 ```sh
 ${SKILL}/scripts/steps-ledger.py end "$(cat .human-review/.step-guide)"
 ${SKILL}/scripts/steps-ledger.py check          # exits non-zero on a renamed tab
+${SKILL}/scripts/report-cost.py                 # outside Claude Code: --harness copilot-cli
 URL=$(${SKILL}/scripts/refresh-report.py | tail -1)
 ```
+
+`report-cost.py` is this run measuring itself — the `$` tab's fourth row, *this guide*: your
+session's model work since `.started` (a Claude transcript, or the Copilot CLI / VS Code
+session that ran `/human-review` here), the paid model steps you shelled out to, and how
+long the run took and how much of it the model was working. It writes
+`.human-review/report-cost.json` once per run; a refresh adds its own time there, never
+money. The other three rows were measured by `/record-review` (`review-cost.json`).
 
 `end` before `check`, so the guide record is closed when the check reads it. `check` before
 the refresh, so a `DRIFT:` line is still actionable — once the page is written, a renamed tab
@@ -299,7 +320,7 @@ It is also the whole of the machine half of this skill, which is why it is one c
 not three to retype. It pins the build to the session that did the work, it builds
 `--no-model` so a refresh cannot quietly buy a privacy verdict nobody asked for, and it
 **refuses** to build in two cases. One is a missing model-written part — `content.json`,
-the requirements matrix, the test catalogue — which it cannot re-run. The other is a commit
+the model's half of the test pairing (`test-mapping.json`) — which it cannot re-run. The other is a commit
 carrying a `Review-Points:` trailer whose file is not on disk: the branch says it recorded
 its own review and the record is gone, so the band reading *nothing records what was
 reviewed* would be true of the disk and false about the run. Restore the file, or drop the
@@ -359,20 +380,19 @@ are the project's own e2e suite. And it is deliberately not the film — the but
 its hover, because that is the one a reader is right to worry about.
 
 Beside it, **Rerun + AI** is the same thing with *this skill's own model step* in front of
-it. It is the button form of the matrix instruction above: `rerun-model.py` hands
-`reference/matrix-prompt.md` to `claude -p --model sonnet`, which rewrites
-`assets/requirements-map.html` and `test-index/`, and then the static refresh runs with
-`--allow-model`. Sonnet is named in the program, not left to a default, for the same reason
-it is named in Step 4.
+it. It is the button form of the matrix instruction above: `rerun-model.py` asks a cheap
+model (`haiku` by default) to pair the ticket sentences the script could not, rewrites
+`test-mapping.json`, and then the static refresh runs with `--allow-model` and redraws the
+matrix from it.
 
 Spelt as a program rather than as a fork because a *reader* is the one pressing it: the page
 is read outside any Claude session, and someone with the report open in front of them and a
 branch that has moved cannot fork a subagent. From inside a run, Step 4 is still the way —
 the fork has the conversation's context and this does not.
 
-It costs about $5, so it says so on its hover and asks in the page's own confirmation panel
-before it spends anything, and the pair it replaces is copied to `.human-review/.model-prev/`
-first: this replaces a judgement rather than refreshing one. `content.json` is not in it —
+It costs cents, and its hover says what the last runs really cost; it asks in the page's
+own confirmation panel before it spends anything, and the answer it replaces is copied to
+`.human-review/.model-prev/` first: this replaces a judgement rather than refreshing one. `content.json` is not in it —
 the layout and the ledes are yours, and no button regenerates them.
 
 **The Demo tab has its own 🤖**, beside its ↺: the film-only equivalent. `rerun-film.py`
@@ -441,9 +461,12 @@ anybody pressing F5.
 ### What the model half is, so the program half can never be asked to fake it
 
 Written by a model, once, when the human asks — and restored, never regenerated, if it goes
-missing: `assets/requirements-map.html` (the requirements↔tests matrix), `test-index/` (the
-per-test catalogue it reads) and `content.json`. `refresh-report.py` exits 3 rather than
-build a page without them.
+missing: `test-mapping.json` (the cheap model's pairing of the sentences the script could
+not decide) and `content.json`. `refresh-report.py` exits 3 rather than build a page
+without them. The matrix itself is no longer on this list: `semcov.py` draws it on every
+build from the ticket, the per-test coverage and that JSON. A model-written
+`assets/requirements-map.html` from an older run stands in for the JSON (it is rendered as
+it is, with a note on stderr) until `rerun-model.py` has run once.
 
 **+1 LLM script:** `.human-review/feature-script.js`, the Demo film's script, is model-written
 too and owned the same way — `refresh-report.py` never writes or regenerates it, and only a

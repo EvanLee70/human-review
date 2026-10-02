@@ -884,7 +884,8 @@ def coverage_gaps(doc: dict, root: Path) -> str:
     return f'<div class="cov-after">{"".join(blocks)}</div>' if blocks else ""
 
 
-def coverage_side(side: str, frag: str, spec: dict, out_dir: Path, root: Path) -> str:
+def coverage_side(side: str, frag: str, spec: dict, out_dir: Path, root: Path,
+                  generated: bool = False) -> str:
     """The right-hand column: the model's card, retitled for what it lists once coverage
     was measured (its rows are then every test that runs changed code — see
     `coverage_tests`), with what no test reaches folded under it. With no measurement, the
@@ -896,7 +897,8 @@ def coverage_side(side: str, frag: str, spec: dict, out_dir: Path, root: Path) -
         span = _element(side, i + j) if j is not None else None
         if span is None:
             return side
-        return side[:span[1]] + f'<p class="cov-none">{COV_NOT_MEASURED}</p>' + side[span[1]:]
+        note = COV_NOT_MEASURED_SCRIPTED if generated else COV_NOT_MEASURED
+        return side[:span[1]] + f'<p class="cov-none">{note}</p>' + side[span[1]:]
     head = (f'<div class="rm-tkhead"><span class="rm-av cov-av" '
             f'data-tip="{html.escape(COVCARD_TIP, quote=True)}" aria-hidden="true">📏</span>'
             f'<span class="rm-who">{COVCARD_WHO}</span></div>')
@@ -906,6 +908,54 @@ def coverage_side(side: str, frag: str, spec: dict, out_dir: Path, root: Path) -
     if close < 0:
         return side
     return side[:close] + coverage_gaps(doc, root) + side[close:]
+
+
+#: The matrix's own program: the ticket, the per-test coverage and the pairing in,
+#: `assets/requirements-map.html` out. Loaded by path, like `test-changes.py`.
+SEMCOV = TESTCHANGES.parent / "semcov.py"
+#: Said under the card when the build has no coverage run and the list is the manifest's.
+COV_NOT_MEASURED_SCRIPTED = (
+    "Coverage was not measured on this build, so this list is the tests this branch "
+    "declares (test-changes.py), not a run. Configure <code>steps.testcov</code> in "
+    "human-review.json and re-run the tests to see which tests execute the change.")
+
+
+def _semcov_module():
+    import importlib.util
+    if "semcov" in sys.modules:
+        return sys.modules["semcov"]
+    spec = importlib.util.spec_from_file_location("semcov", str(SEMCOV))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["semcov"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def scripted_reqmap(spec: dict, out_dir: Path, root: Path) -> str | None:
+    """Draw the Tests tab's matrix from its inputs, before the layout looks for it.
+
+    The matrix is no longer a model's HTML. `semcov.py` renders it — the ticket's sentences
+    on the left, the tests whose coverage runs this PR's changed lines on the right, and
+    the pairing between them, scripted where shared evidence decides it and taken from the
+    model's `test-mapping.json` where it does not. Only once that file exists: until the
+    model half has run, a model-written `requirements-map.html` from an older run is kept
+    and pasted as before, and a review with neither gets the layout's "not produced" line.
+    Never fatal — a matrix that cannot be drawn is one tab, not the page."""
+    if not (out_dir / "test-mapping.json").is_file():
+        if (out_dir / "assets" / "requirements-map.html").is_file():
+            print("[review] no test-mapping.json: the Tests tab shows the model-written "
+                  "requirements-map.html from an older run. rerun-model.py replaces it with "
+                  "the scripted matrix.", file=sys.stderr)
+        return None
+    try:
+        said = _semcov_module().write_fragment(spec, out_dir, root)
+    except Exception as exc:                      # noqa: BLE001 - one tab, never the page
+        print(f"[review] the Tests matrix could not be drawn ({type(exc).__name__}: {exc}); "
+              "the previous assets/requirements-map.html, if any, is used.", file=sys.stderr)
+        return None
+    if said:
+        print(f"[review] Tests matrix: {said}", file=sys.stderr)
+    return said
 
 
 def _load_test_changes(spec: dict, out_dir: Path) -> dict | None:
@@ -1178,9 +1228,13 @@ def reqmap_layout(frag: str, spec: dict, out_dir: Path, root: Path | None = None
     text_col = re.sub(r'(<div class="rm-tkhead">.*?)(</div>)',
                       lambda h: h.group(1) + semcov_switch() + h.group(2),
                       text_col, count=1, flags=re.S)
-    side_col = card_head(side_col)
+    # A matrix `semcov.py` drew already says what its card lists; only a model's is reworded.
+    generated = 'data-generated="semcov"' in frag
+    if not generated:
+        side_col = card_head(side_col)
     side_col = coverage_side(side_col, frag, spec, out_dir,
-                             root if root is not None else out_dir.resolve().parent)
+                             root if root is not None else out_dir.resolve().parent,
+                             generated=generated)
     body = (m.group(0) + ticket_head(ticket_ref(spec, out_dir))
             + text_col + cats_filter(cats) + side_col + "</div>")
     out = frag[:a] + body + frag[b:]

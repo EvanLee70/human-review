@@ -160,6 +160,7 @@ from hrbuild.tabs.tests import (
     test_index, TEST_STATES,
     TICKET_CACHE, ticket_head, ticket_ref, tests_chip, _append_inside, _element, _find,
     CARD_WHO, CARD_WHEN, CARD_AI_TIP, card_head,
+    SEMCOV, COV_NOT_MEASURED_SCRIPTED, _semcov_module, scripted_reqmap,
     RUN_TESTS_ACTION, run_tests_steps, declare_run_tests_rerun, run_tests_button,
     _gh_issue, _issue_url, _ms, _take, _test_changes_module,
     COVERAGE_JSON, COVCARD_WHO, COVCARD_TIP, COV_COMMON_SHARE, COV_COMMON_MIN,
@@ -187,7 +188,7 @@ from hrbuild.tabs.cost import (
     COST_CACHE, cost_chip, cost_ledger_html, cost_ledger_report, COST_TAB_ID, PASS_ROWS,
     PHASE_ROWS, phase_rows_html, RESIDUAL_ROWS, tab_cost_report, TOTAL_FORMULA,
     _cost_env, _cost_inputs, _cost_money, cost_session,
-    _cost_tab_rows, _cost_tokens, _when
+    _cost_tab_rows, _cost_tokens, _when, components_html, cost_pill_label
 )
 
 
@@ -282,6 +283,9 @@ def main(argv=None) -> int:
     # them as lists. This is the point at which the branch's own record becomes the page's.
     resolve_review_points(spec, out_dir)
     prepare_pr_push(spec, out_dir, root, HERE)
+    # The Tests tab's matrix is drawn from its inputs here, before `own_layout` looks for
+    # the fragment: the ticket, the coverage and the pairing (tests.py:scripted_reqmap).
+    scripted_reqmap(spec, out_dir, root)
     # The script-owned tabs, their sections and the scope bar are the skill's: whatever the
     # content file put there that no script produced is dropped here, before validation,
     # and named — the same treatment an unanchored assumption gets further down.
@@ -1050,12 +1054,10 @@ def main(argv=None) -> int:
             # own total, not the ledger's three overlapping measurements of one bill —
             # a `$703` pill over a `$207` table is the same contradiction as the footer's,
             # read first and by everyone.
-            phase_total = (led.get("phases") or {}).get("cost")
-            cost_label = f'${(phase_total if phase_total is not None and phase_rows_html(led.get("phases")) else (led.get("total") or 0.0)):,.0f}'
             # A branch another agent wrote is not a cheap branch: its bill is simply not on
             # this disk. `$0` on the pill read as "free"; the `?` says the number is partial.
-            if (led.get("writing") or {}).get("otherAgents"):
-                cost_label += "?"
+            # With the four components measured, the pill is their total (cost.py).
+            cost_label = cost_pill_label(led)
             strip.append(
                 f'<button type="button" class="tab" role="tab" id="tabbtn-{COST_TAB_ID}" '
                 f'aria-controls="{COST_TAB_ID}" aria-selected="false" tabindex="-1" '

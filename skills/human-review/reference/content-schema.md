@@ -16,9 +16,10 @@ repository root, commits it with the fixes, and `review-points.py` parses it int
 and writes no item of its own. The shapes below are still exactly what arrives — the
 parser emits them, which is why no renderer changed — so they remain the contract for
 anyone reading the page's markup or writing a pile by hand. What is left for a model is
-`assets/requirements-map.html` and `test-index/`: the requirements↔tests matrix, which is
-the one claim on the page a reviewer cannot check by hand and which `review-points.md`
-says nothing about.
+`test-mapping.json`: the pairings of ticket sentences with tests that `scripts/semcov.py`
+could not decide from shared evidence, which `review-points.md` says nothing about. The
+Tests tab's matrix (`assets/requirements-map.html`) is drawn by `semcov.py` on every build
+from the ticket, the per-test coverage and that JSON (`reference/test-mapping.schema.json`).
 
 `{"auto": "review-points"}` behaves like the other `auto` keys — computed, never typed —
 with one addition: **an absent file empties the piles and says so.** The Review tab grows
@@ -142,8 +143,10 @@ Optional, like everything else here, and usually unnecessary: with no `ticket` a
 build reads the first `#<n>` out of the PR's own title that is not the PR's own number, asks
 `gh issue view` for its name **once**, and writes the answer to `.human-review/ticket.json`
 — so a rebuild, a machine with no `gh` and the published zip all draw the same heading. Give
-the block a `title` to overrule both. What never supplies it is the model that writes the
-matrix: a heading whose wording changed between two paid runs of the same branch would be
+the block a `title` to overrule both. The ticket's **body** — the left column of the Tests
+tab, split into sentences — is fetched the same way, once, into
+`.human-review/ticket-body.json` (with its author, avatar and date), so the left column is
+the ticket and never the PR. What never supplies either is a model: a heading whose wording changed between two paid runs of the same branch would be
 the page disagreeing with GitHub about what the ticket is called.
 
 ```json
@@ -743,7 +746,7 @@ sections, which it rebuilds from its own table whatever `sections` says:
 | `video` | Demo | `assets/feature.webm` (yours: `video`, `appLinks`, `runtime`) — with no film, the recorder's verdict |
 | `swaggerdiff` | API | `includeHtml` `assets/openapi-verdict.html` + `embed` `assets/openapi-visual-diff.html#only-touched` |
 | `conceptual` | Data | `{{drawio:conceptual}}`, title `""` |
-| `requirements-map` | Tests | `includeHtml` `assets/requirements-map.html`, `includeFirst` |
+| `requirements-map` | Tests | `includeHtml` `assets/requirements-map.html` (drawn by `semcov.py` at build time once `test-mapping.json` exists), `includeFirst` |
 | `ds-audit` | UX | `includeHtml` `assets/ds-audit.html` |
 | `complexity-delta` | Complexity | `includeHtml` `assets/complexity-delta.html` |
 

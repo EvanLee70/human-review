@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "test-mapping.schema.json",
+  "title": "The ticket-sentence to test pairing behind the Tests tab",
+  "description": "Written by scripts/semcov.py (the scripted pass, every link with its evidence) and, for the sentences the script could not pair, by a cheap model through scripts/rerun-model.py into .human-review/test-mapping.json. Both halves have this shape; the build merges them and draws the matrix. A model answer names only the sentences it was asked about and only test ids from the list it was given.",
+  "type": "object",
+  "required": ["schema", "sentences"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "test-mapping/1"},
+    "note": {"type": "string"},
+    "sentences": {"type": "array", "items": {"$ref": "#/$defs/sentence"}}
+  },
+  "$defs": {
+    "sentence": {
+      "type": "object",
+      "required": ["id", "coverage", "tests"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^s[0-9a-f]{6}(-[0-9]+)?$"},
+        "coverage": {"enum": ["covered", "partial", "exercised", "missing", "n/a"]},
+        "tests": {"type": "array", "items": {"$ref": "#/$defs/link"}},
+        "gap": {"type": "string", "minLength": 1},
+        "gapKind": {"enum": ["tests", "requirement"]},
+        "by": {"enum": ["script", "model"]}
+      }
+    },
+    "link": {
+      "type": "object",
+      "required": ["id", "strength"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[^\\s]+:[0-9]+$"},
+        "strength": {"enum": ["asserted", "exercised"]},
+        "why": {"type": "string", "minLength": 1},
+        "by": {"enum": ["script", "model"]},
+        "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

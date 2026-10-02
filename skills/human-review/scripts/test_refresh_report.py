@@ -36,11 +36,10 @@ logging_tab = importlib.import_module("hrbuild.tabs.logging")
 def _review(tmp_path: Path, *, complete=True) -> Path:
     d = tmp_path / ".human-review"
     (d / "assets").mkdir(parents=True)
-    (d / "test-index").mkdir()
     if complete:
         (d / "content.json").write_text("{}", encoding="utf-8")
-        (d / "assets" / "requirements-map.html").write_text("<div/>", encoding="utf-8")
-        (d / "test-index" / "rest.json").write_text("[]", encoding="utf-8")
+        (d / "test-mapping.json").write_text('{"schema": "test-mapping/1", "sentences": []}',
+                                             encoding="utf-8")
     return d
 
 
@@ -53,17 +52,19 @@ def test_a_missing_judgement_stops_the_refresh_and_is_named(tmp_path):
     wrong half: this one names the model's part and stops."""
     d = _review(tmp_path, complete=False)
     assert [rel for rel, _ in refresh.missing_model_work(d)] == [
-        "content.json", "assets/requirements-map.html", "test-index"]
+        "content.json", "test-mapping.json"]
     assert refresh.missing_model_work(_review(tmp_path / "ok")) == []
 
 
-def test_an_emptied_catalogue_counts_as_missing(tmp_path):
-    """`test-index/` left behind empty by a wipe is the same absence as no directory at
-    all — nobody has written the catalogue — and the refusal has to read the same."""
+def test_a_model_written_matrix_from_an_older_run_stands_in_for_the_mapping(tmp_path):
+    """Before the matrix was drawn by `semcov.py`, a model wrote its whole HTML. A review
+    made then has no `test-mapping.json`, and its matrix is still a matrix: the refresh
+    builds it as it is rather than refusing a page that was fine yesterday."""
     d = _review(tmp_path)
-    for f in (d / "test-index").iterdir():
-        f.unlink()
-    assert [rel for rel, _ in refresh.missing_model_work(d)] == ["test-index"]
+    (d / "test-mapping.json").unlink()
+    assert [rel for rel, _ in refresh.missing_model_work(d)] == ["test-mapping.json"]
+    (d / "assets" / "requirements-map.html").write_text("<div/>", encoding="utf-8")
+    assert refresh.missing_model_work(d) == []
 
 
 def test_the_refusal_exits_three_and_says_which_half_writes_them(tmp_path, capsys, monkeypatch):
@@ -265,9 +266,11 @@ def test_content_json_is_still_model_owned_but_no_longer_the_judgement():
     assert "judgement" not in refresh.MODEL_OWNED["content.json"]
     assert "layout" in refresh.MODEL_OWNED["content.json"]
     assert "review-points" in refresh.MODEL_OWNED["content.json"]
-    # The two that are still a model's whole output, unchanged.
-    assert "assets/requirements-map.html" in refresh.MODEL_OWNED
-    assert "test-index" in refresh.MODEL_OWNED
+    # The matrix is drawn by a script now; only the pairing the script left open is a
+    # model's, and only that is owned.
+    assert "test-mapping.json" in refresh.MODEL_OWNED
+    assert "assets/requirements-map.html" not in refresh.MODEL_OWNED
+    assert "test-index" not in refresh.MODEL_OWNED
 
 
 def test_the_two_review_tab_producers_are_safe_to_rerun_from_the_page():
