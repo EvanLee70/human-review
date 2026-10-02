@@ -804,6 +804,26 @@ TEMPLATE = r"""<!doctype html>
     color: var(--dv-dim);
   }
   .swagger-ui .json-schema-2020-12__attribute--primary { color: var(--dv-attr); }
+  /* ---------- Swagger UI's form controls ----------
+     The parameter inputs and the enum <select>s are painted white / light grey with a
+     dark caret SVG, whatever the theme: on the dark card they were the only light boxes
+     on the page. Colour only, from the theme vars; the caret is redrawn in --dv-muted. */
+  .swagger-ui input[type=text], .swagger-ui input[type=password],
+  .swagger-ui input[type=search], .swagger-ui input[type=email],
+  .swagger-ui input[type=file], .swagger-ui textarea, .swagger-ui select {
+    background-color: var(--dv-card); color: var(--dv-fg);
+    border: 1px solid var(--dv-line); box-shadow: none;
+  }
+  .swagger-ui input::placeholder, .swagger-ui textarea::placeholder { color: var(--dv-dim); }
+  .swagger-ui input[disabled], .swagger-ui textarea[disabled], .swagger-ui select[disabled] {
+    background-color: var(--dv-code); color: var(--dv-muted); opacity: 1;
+  }
+  .swagger-ui select {
+    background-image: linear-gradient(45deg, transparent 50%, var(--dv-muted) 50%),
+                      linear-gradient(135deg, var(--dv-muted) 50%, transparent 50%);
+    background-position: calc(100% - 15px) 55%, calc(100% - 10px) 55%;
+    background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+  }
   /* The required-field asterisk is literal `red`, which on the dark card reads as a
      smudge rather than a mark. The page already owns a red that survives there. */
   .swagger-ui .json-schema-2020-12-property--required
