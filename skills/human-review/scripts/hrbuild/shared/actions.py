@@ -234,12 +234,27 @@ TAB_AI = {
                          "clears the red band of commits made since the review. It refuses, "
                          "before spending anything, while anything is staged; the record it "
                          "replaces is kept in .human-review/.model-prev/."),
+    # The Demo tab's: the film's script is the second model-written artifact, owned like
+    # the matrix — `rerun-film.py` rewrites it, then the tab's own refresh (`--steps video`)
+    # records the film from it.
+    "behaviour": ("film", "Rewrites the Demo film's script (.human-review/feature-script.js) "
+                          "with a model — the screens derived from the diff, every one the "
+                          "change touched visited, what is new said on each — then records "
+                          "the film again from it, which needs the app up and takes "
+                          "minutes. The script it replaces is kept in "
+                          ".human-review/.model-prev/."),
 }
 
 #: Which program a paid press runs in front of the tab's refresh, and whether the refresh
 #: then needs `--allow-model`. The matrix's does (it is what the Tests tab's build reads
-#: under that flag); the review's does not — its producers read git, and nothing else.
-AI_STEPS = {"model": ("rerun-model.py", True), "review": ("rerun-review.py", False)}
+#: under that flag); the review's does not — its producers read git, and nothing else; nor
+#: does the film's, whose refresh is the recorder.
+AI_STEPS = {"model": ("rerun-model.py", True), "review": ("rerun-review.py", False),
+            "film": ("rerun-film.py", False)}
+
+#: The paid presses whose price the probe can quote, each out of its own program's ledger
+#: (`serve-review.price_estimate`). The re-review is not one: its price is in its sentence.
+PRICED = ("model", "film")
 
 
 #: What a tab's free ↺ does, where "re-derive the tab" would promise more than it does.
@@ -296,8 +311,10 @@ def declare_tab_reruns(root: Path, out_dir: Path, skill_dir: Path,
                            reload=True,
                            label=("Re-review the whole PR, commit and push the record, then "
                                   "rebuild this page") if how[0] == "review"
+                           else ("Rewrite the film's script with a model, then film it "
+                                 "again") if how[0] == "film"
                            else f"Re-derive the {tab} tab with a model")
-            info.update(ai=True, aiTip=how[1], priced=how[0] == "model")
+            info.update(ai=True, aiTip=how[1], priced=how[0] in PRICED, price=how[0])
         out[tab] = info
     return out
 

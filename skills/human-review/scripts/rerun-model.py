@@ -5,6 +5,8 @@
 free, safe to run again at any time. This is the other half, reduced to the smallest thing
 that can still be a *command* — the requirements↔tests matrix
 (`assets/requirements-map.html`) and the per-test catalogue behind it (`test-index/`).
+The other model-written artifact, the Demo film's script, has a sibling of this program:
+`rerun-film.py`, which borrows its plumbing.
 
 It exists because the skill's own instruction for that half is "fork a subagent, and give
 it `model: sonnet`", which is only executable from inside a Claude session. The page is
@@ -205,7 +207,7 @@ def _priced(out: str):
             doc.get("result") or "")
 
 
-def record_run(review: Path, cost, seconds: float) -> None:
+def record_run(review: Path, cost, seconds: float, ledger: str = RUNS_LEDGER) -> None:
     """Append what this run cost, so the button can stop guessing what the next one will.
 
     Appended even when the cost could not be read, with `cost: null` — the *number* of runs
@@ -215,8 +217,12 @@ def record_run(review: Path, cost, seconds: float) -> None:
     Bounded, and failures are swallowed whole. This is bookkeeping running after the money
     has already been spent; an unwritable directory is not a reason to report a successful
     run as a failed one.
+
+    `ledger` is the file it goes in: the matrix's by default, `rerun-film.py` passes its
+    own — the two buttons buy different amounts of work, and an average over both would be
+    the right price for neither.
     """
-    path = review / RUNS_LEDGER
+    path = review / ledger
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
         runs = doc.get("runs") if isinstance(doc, dict) else doc

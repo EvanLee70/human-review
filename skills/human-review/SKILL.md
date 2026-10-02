@@ -17,8 +17,9 @@ list. This skill reads that file. It does not run a review, and it does not writ
 
 That is the whole division. The judgement is produced once, by the agent that made the
 decisions, while it still has them; the page is assembled by programs from the branch.
-What is left for you is one model-written artifact — the requirements↔tests matrix and the
-per-test catalogue behind it — plus the page's layout and its ledes. Everything else on
+What is left for you is two model-written artifacts — the requirements↔tests matrix with the
+per-test catalogue behind it, and **+1 LLM script**, the Demo film's — plus the page's layout
+and its ledes. Everything else on
 these five steps is a script. Do **not** commit or push.
 
 A branch with no `review-points.md` is not an error and not a gate: the page says so, in a
@@ -110,7 +111,9 @@ the producers run, following `reference/feature-script.md`: derive the screens f
 drive the app through every one the change touched, `say()` what is new on each. Fork it to a
 `model: sonnet` subagent, like the matrix. Without it the video step exits 2, "no feature
 script", and the Demo tab says *nothing was filmed* — the reference run had a film because a
-model wrote this file; the Copilot run of 2 Oct had none because nothing asked it to.
+model wrote this file; the Copilot run of 2 Oct had none because nothing asked it to. Outside a
+session the same step is a program, `scripts/rerun-film.py` (`claude -p --model sonnet` over
+`reference/film-prompt.md`), which is what the Demo tab's 🤖 runs.
 
 ```sh
 ${SKILL}/scripts/run-steps.py --base "$BASE"
@@ -372,6 +375,13 @@ before it spends anything, and the pair it replaces is copied to `.human-review/
 first: this replaces a judgement rather than refreshing one. `content.json` is not in it —
 the layout and the ledes are yours, and no button regenerates them.
 
+**The Demo tab has its own 🤖**, beside its ↺: the film-only equivalent. `rerun-film.py`
+hands `reference/film-prompt.md` to `claude -p --model sonnet`, which rewrites
+`.human-review/feature-script.js` (the old one goes to `.model-prev/` first, and a result that
+is missing, empty, fails `node --check` or exports no function is refused), then
+`refresh-report.py --steps video` films it again. Same confirmation, its price on the hover
+out of its own ledger (`.human-review/.film-runs.json`), and the tab reloads when it is done.
+
 Both buttons exist only where the page is served; read off disk or out of the zip there is
 nothing behind them, so there is nothing there, and the paid one is also absent where
 `rerun-model.py` is not beside the server. A rerun that fails puts the program's last lines
@@ -434,6 +444,11 @@ Written by a model, once, when the human asks — and restored, never regenerate
 missing: `assets/requirements-map.html` (the requirements↔tests matrix), `test-index/` (the
 per-test catalogue it reads) and `content.json`. `refresh-report.py` exits 3 rather than
 build a page without them.
+
+**+1 LLM script:** `.human-review/feature-script.js`, the Demo film's script, is model-written
+too and owned the same way — `refresh-report.py` never writes or regenerates it, and only a
+model run (Step 3's fork, or `rerun-film.py` behind the Demo tab's 🤖) does. Its absence is
+**not** a refusal: no script means no film, which the Demo tab already says.
 
 `content.json` is on that list and no longer for the reason it used to be. It *was* the
 judgement — which findings were raised, which were fixed, which were left, what the coder

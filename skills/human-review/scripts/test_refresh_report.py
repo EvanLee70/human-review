@@ -329,3 +329,46 @@ def test_the_skill_still_asks_for_the_film_script():
     skill = _skill()
     assert ".human-review/feature-script.js" in skill
     assert "reference/feature-script.md" in skill
+
+
+# ── +1 LLM script: the film's script is model-owned, and its absence is not a refusal ──
+
+def test_the_film_script_is_model_owned_but_not_required():
+    """The second model-written artifact, beside the matrix — listed as such, and kept out
+    of the refusal: no script means no film, a state the Demo tab already names."""
+    assert "feature-script.js" in refresh.MODEL_OWNED_OPTIONAL
+    assert "rerun-film.py" in refresh.MODEL_OWNED_OPTIONAL["feature-script.js"]
+    assert "feature-script.js" not in refresh.MODEL_OWNED
+
+
+def test_a_review_without_a_film_script_still_refreshes(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("HUMAN_REVIEW_FEATURE_SCRIPT", raising=False)
+    monkeypatch.setattr(refresh, "broken_points_promise", lambda base: None)
+    d = _review(tmp_path)
+    assert refresh.missing_model_work(d) == []
+    assert refresh.main(["--dry-run", "--no-serve", "--steps", "video"]) == 0
+    err = capsys.readouterr().err
+    # Said, so the reader knows who writes it — and only as a note.
+    assert "feature-script.js" in err and "rerun-film.py" in err
+    # Not said when the film is not being asked for.
+    assert refresh.main(["--dry-run", "--no-serve", "--steps", "static"]) == 0
+    assert "rerun-film.py" not in capsys.readouterr().err
+
+
+def test_a_refresh_never_writes_or_touches_the_film_script(tmp_path, monkeypatch):
+    """Nothing the refresh runs is the model step: the plan names no rerun-film.py, and a
+    dry run with the film asked for leaves the script byte-for-byte where it was."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(refresh, "broken_points_promise", lambda base: None)
+    d = _review(tmp_path)
+    script = d / "feature-script.js"
+    script.write_text("module.exports = async () => ({ok: true});\n", encoding="utf-8")
+    before = script.stat().st_mtime_ns, script.read_bytes()
+    for steps in ("all", "video", "static", "none"):
+        cmds = refresh.plan(d, steps, None, False, False, None)
+        assert not any("rerun-film.py" in part or "rerun-model.py" in part
+                       for c in cmds for part in c), steps
+        assert refresh.main(["--dry-run", "--no-serve", "--steps", steps]) == 0
+    assert (script.stat().st_mtime_ns, script.read_bytes()) == before
+    assert refresh.film_script(d) == script

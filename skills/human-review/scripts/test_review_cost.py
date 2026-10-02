@@ -1463,6 +1463,27 @@ def test_a_model_step_inside_the_regeneration_is_part_of_it(tmp_path, monkeypatc
     assert page["cost"] < 8.09, "an hour earlier is a separate errand, not this build"
 
 
+def test_a_film_script_step_inside_the_regeneration_is_part_of_it_too(tmp_path, monkeypatch):
+    """+1 LLM script: `rerun-film.py` is the second paid model step, a `claude -p` with no
+    priced turn in any transcript, and its own ledger is billed exactly like the matrix's —
+    beside it, not instead of it."""
+    assert "rerun-film.py" in rc.BUILD_PROGRAMS
+    rows = [
+        _bash("2026-09-03T12:00:00Z", "python3 refresh-report.py --steps all", mid="r1"),
+        _result("2026-09-03T12:02:00Z", "r1"),
+    ]
+    (tmp_path / rc.MODEL_RUNS).write_text(json.dumps(
+        {"version": 1, "runs": [{"when": "2026-09-03T12:01:30+00:00", "model": "sonnet",
+                                 "cost": 8.09, "seconds": 90}]}), encoding="utf-8")
+    (tmp_path / rc.FILM_RUNS).write_text(json.dumps(
+        {"version": 1, "runs": [{"when": "2026-09-03T12:01:40+00:00", "model": "sonnet",
+                                 "cost": 1.5, "seconds": 40}]}), encoding="utf-8")
+    doc = _build_run(tmp_path, monkeypatch, rows)
+    page = next(r for r in doc["rows"] if r["key"] == "page_build")
+    assert page["cost"] > 8.09 + 1.5
+    assert "model step" in page["detail"] and "film-script step" in page["detail"]
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
 

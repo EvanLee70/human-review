@@ -1634,3 +1634,222 @@ def test_refreshes_of_one_report_reuse_its_server_past_another_checkouts(tmp_pat
                 os.kill(pid, 15)
             except OSError:
                 pass
+
+
+# --------------------------------------------------------------------------- #
+# +1 LLM script: the Demo film's script, owned like the matrix
+# --------------------------------------------------------------------------- #
+
+film = _load("rerun_film", "rerun-film.py")
+
+
+def _film_review(tmp_path, script: str | None = "module.exports = async () => ({ok: true});\n"):
+    review = tmp_path / ".human-review"
+    review.mkdir(parents=True, exist_ok=True)
+    (review / "content.json").write_text("{}", encoding="utf-8")
+    if script is not None:
+        (review / "feature-script.js").write_text(script, encoding="utf-8")
+    return review
+
+
+def _stub_claude(tmp_path, writes: str | None, cost=1.25, exit_code=0):
+    """A `claude` on PATH that spends nothing: it reads the prompt, writes `writes` as the
+    film script (or nothing), prints what `-p --output-format json` prints, and exits."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    body = tmp_path / "stub-script.js"
+    if writes is not None:
+        body.write_text(writes, encoding="utf-8")
+    stub = bin_dir / "claude"
+    stub.write_text(
+        "#!/bin/sh\ncat > /dev/null\n"
+        + (f"cp {shlex.quote(str(body))} .human-review/feature-script.js\n"
+           if writes is not None else "")
+        + f"echo '{{\"total_cost_usd\": {cost}, \"result\": \"stub wrote it\"}}'\n"
+        + f"exit {exit_code}\n", encoding="utf-8")
+    stub.chmod(0o755)
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ.get('PATH', '')}")
+    env.pop("HUMAN_REVIEW_FEATURE_SCRIPT", None)
+    return env
+
+
+def _run_film(tmp_path, env, *extra):
+    return subprocess.run([sys.executable, str(HERE / "rerun-film.py"),
+                           "--dir", ".human-review", *extra],
+                          capture_output=True, text=True, cwd=str(tmp_path), env=env,
+                          timeout=120)
+
+
+needs_node = pytest.mark.skipif(not __import__("shutil").which("node"),
+                                reason="the script is checked with node")
+
+
+def test_the_film_step_spends_nothing_on_a_dry_run(tmp_path):
+    """The whole invocation, the model named, the prompt going in on stdin — and nothing
+    called, nothing copied away. Every check that the button is wired goes through this."""
+    review = _film_review(tmp_path)
+    env = _stub_claude(tmp_path, writes="SHOULD NOT BE WRITTEN")
+    out = _run_film(tmp_path, env, "--dry-run")
+    assert out.returncode == 0, out.stderr
+    assert "claude -p --model sonnet" in out.stdout
+    assert re.search(r"--add-dir \S+\s+< film-prompt\.md", out.stdout)
+    assert "dry run" in out.stdout
+    assert not (review / ".model-prev").exists()
+    assert not (review / film.RUNS_LEDGER).exists()
+    assert "SHOULD NOT" not in (review / "feature-script.js").read_text()
+
+
+def test_the_film_prompt_carries_the_contract_it_is_paid_for():
+    prompt = film.PROMPT.read_text(encoding="utf-8")
+    assert film.PROMPT.name == "film-prompt.md"
+    for words in (".human-review/feature-script.js", "module.exports", "derive",
+                  "every", "say(", "waitFor", "FAILED to reach:", "not filmable:",
+                  "{ok", ".model-prev/", "refresh-report.py --steps video",
+                  "do **not** commit"):
+        assert words in prompt, words
+
+
+def test_the_film_step_refuses_a_directory_that_is_not_a_review(tmp_path):
+    env = _stub_claude(tmp_path, writes="x")
+    out = _run_film(tmp_path, env)
+    assert out.returncode == 2 and "is not a review directory" in out.stderr
+    assert "claude -p" not in out.stdout
+
+
+def test_the_script_being_replaced_is_kept_with_its_helpers(tmp_path):
+    """Copied, not moved, into the dot-prefixed folder `publish-demo.sh` never publishes —
+    and the helper it `require`s goes with it, or the kept film cannot be put back."""
+    review = _film_review(tmp_path, "module.exports = require('./helper.js');\n")
+    (review / "helper.js").write_text("module.exports = async () => ({});\n")
+    kept = film.keep_previous(review)
+    assert kept.name.startswith(".") and kept == review / ".model-prev"
+    assert (kept / "feature-script.js").read_text() == "module.exports = require('./helper.js');\n"
+    assert (kept / "helper.js").is_file()
+    assert (review / "feature-script.js").is_file()
+    # No script, nothing to keep — and no folder made for it.
+    assert film.keep_previous(_film_review(tmp_path / "bare", script=None)) is None
+    assert not (tmp_path / "bare" / ".human-review" / ".model-prev").exists()
+
+
+@needs_node
+def test_the_film_step_checks_what_the_recorder_would_refuse(tmp_path):
+    d = tmp_path
+    cases = {"ok.js": ("module.exports = async ({page, say}) => ({ok: true});", None),
+             "missing-dep.js": ("const pw = require('no-such-module-here');\n"
+                                "module.exports = async () => pw;", None),
+             "empty.js": ("  \n", "empty"),
+             "syntax.js": ("module.exports = async ( => {", "does not parse"),
+             "object.js": ("module.exports = {run: 1};", "does not export a function"),
+             "throws.js": ("throw new Error('boom');", "throws when loaded")}
+    for name, (body, why) in cases.items():
+        (d / name).write_text(body, encoding="utf-8")
+        got = film.broken(d / name)
+        assert (got is None) if why is None else (why in got), (name, got)
+    assert film.broken(d / "absent.js") == "it was not written"
+
+
+@needs_node
+def test_the_film_step_refuses_a_broken_script_and_keeps_the_old_one(tmp_path):
+    """A stubbed model writes a script that does not parse: the run exits non-zero before
+    the film step is reached, says why, and the script the reader had is in `.model-prev/`.
+    The money was spent either way, so the ledger records it."""
+    old = "module.exports = async () => ({ok: true, note: 'old'});\n"
+    review = _film_review(tmp_path, old)
+    env = _stub_claude(tmp_path, writes="module.exports = async ( => {\n", cost=1.25)
+    out = _run_film(tmp_path, env)
+    assert out.returncode == 4, (out.stdout, out.stderr)
+    assert "does not parse" in out.stderr and ".model-prev" in out.stderr
+    assert (review / ".model-prev" / "feature-script.js").read_text() == old
+    runs = json.loads((review / film.RUNS_LEDGER).read_text())["runs"]
+    assert runs[-1]["cost"] == 1.25
+    # And the matrix's ledger is not where it went: the two buttons quote separate prices.
+    assert not (review / ".model-runs.json").exists()
+
+
+@needs_node
+def test_the_film_step_accepts_a_script_that_exports_a_function(tmp_path):
+    review = _film_review(tmp_path)
+    env = _stub_claude(tmp_path, writes="module.exports = async ({page, say}) => "
+                                        "({ok: true, note: 'new'});\n")
+    out = _run_film(tmp_path, env)
+    assert out.returncode == 0, out.stderr
+    assert "film script rewritten" in out.stdout
+    assert "note: 'new'" in (review / "feature-script.js").read_text()
+
+
+@needs_node
+def test_the_film_step_refuses_a_run_that_wrote_nothing(tmp_path):
+    review = _film_review(tmp_path, script=None)
+    env = _stub_claude(tmp_path, writes=None)
+    out = _run_film(tmp_path, env)
+    assert out.returncode == 4 and "was not written" in out.stderr
+    assert not (review / ".model-prev").exists()
+
+
+def test_the_demo_tab_has_a_paid_press_that_writes_the_script_then_films_it(tmp_path):
+    """Declared in the same register as every other press, so the button and the line the
+    server runs are one string: the film's program first, then the tab's own refresh —
+    `--steps video` — with no `--allow-model`, since the recorder buys nothing."""
+    build.ACTIONS.clear()
+    (tmp_path / "out").mkdir()
+    got = build.declare_tab_reruns(tmp_path, tmp_path / "out", HERE, ["behaviour"])
+    info = got["behaviour"]
+    assert info["steps"] == ["video"]
+    assert info["ai"] and info["priced"] and info["price"] == "film"
+    entry = build.ACTIONS["__rerun_ai__:behaviour"]
+    cmd = entry["command"]
+    assert cmd.index("rerun-film.py") < cmd.index("refresh-report.py")
+    assert "rerun-model.py" not in cmd and "--allow-model" not in cmd
+    assert cmd.endswith("--steps video --no-serve")
+    assert entry["reload"], "the tab reloads when the film is done"
+    assert build.TAB_AI["behaviour"][0] == "film"
+    assert build.AI_STEPS["film"][0] == "rerun-film.py"
+    # The server runs exactly the registered line.
+    (tmp_path / "out" / srv.ACTIONS_FILE).write_text(
+        json.dumps({"version": 1, "actions": build.ACTIONS}), encoding="utf-8")
+    srv._manifest.update(mtime=None, actions={})
+    srv.ROOT = tmp_path
+    assert srv.tab_rerun_plan(tmp_path / "out", True, "behaviour") == \
+        (["/bin/sh", "-c", cmd], tmp_path)
+
+
+def test_the_demo_tab_paid_press_is_served_only_and_quotes_its_own_price(tmp_path):
+    """Hidden in the markup of every copy, raised only by the probe (`rerun.js`), like the
+    Tests tab's — so off disk and out of the zip it never appears. Its hover is filled out
+    of the film's own ledger, named by `data-price`, never the matrix's figure."""
+    (tmp_path / "out").mkdir()
+    got = build.declare_tab_reruns(tmp_path, tmp_path / "out", HERE, ["behaviour"])
+    face = build.tab_rerun_html("behaviour", "Demo", got["behaviour"])
+    assert face.count("<button") == 2
+    paid = face[face.index("chip-rerun-ai"):]
+    assert 'data-rerun="__rerun_ai__"' in paid and 'data-tab="behaviour"' in paid
+    assert " hidden " in paid and 'aria-disabled="true"' in paid
+    assert 'data-price="film"' in paid
+    assert 'data-tip-fmt="costs money: {price} on Sonnet.' in paid
+    assert "\U0001F916" in paid
+    confirm = html.unescape(paid.split('data-confirm="', 1)[1].split('"', 1)[0])
+    for words in ("feature-script.js", "diff", ".model-prev"):
+        assert words in confirm, words
+    # The Tests tab's keeps the matrix's figure and names no other.
+    tests = build.declare_tab_reruns(tmp_path, tmp_path / "out", HERE, ["requirements"])
+    assert "data-price" not in build.tab_rerun_html("requirements", "Tests",
+                                                    tests["requirements"])
+    js = build.RERUN_JS
+    assert "getAttribute('data-price')" in js and "caps.prices" in js
+    assert "if (!window.HR.can(btn.getAttribute('data-rerun'), btn.getAttribute('data-tab'))) return;" in js
+
+
+def test_the_probe_prices_the_film_out_of_its_own_ledger(server, tmp_path):
+    _fresh(tmp_path)
+    srv.ROOT = tmp_path
+    (tmp_path / srv.MODEL_RUNS_FILE).write_text(json.dumps({"runs": [{"cost": 9.5}]}),
+                                                encoding="utf-8")
+    caps = json.loads(_call(server, "GET", srv.MARKER)[1])
+    assert caps["prices"]["model"]["text"] == "~$9.50"
+    assert caps["prices"]["film"] == {"text": srv.FILM_PRICE_UNKNOWN, "last": None, "n": 0}
+    (tmp_path / srv.FILM_RUNS_FILE).write_text(
+        json.dumps({"runs": [{"cost": 1.0}, {"cost": 2.0}]}), encoding="utf-8")
+    caps = json.loads(_call(server, "GET", srv.MARKER)[1])
+    assert caps["prices"]["film"]["text"] == "~$1.50" and caps["prices"]["film"]["last"] == 2.0
+    assert caps["price"]["text"] == "~$9.50", "the matrix's figure is untouched"
+    assert srv.FILM_RUNS_FILE == film.RUNS_LEDGER and srv.FILM_RUNS_FILE.startswith(".")

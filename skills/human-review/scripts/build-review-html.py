@@ -59,7 +59,7 @@ from hrbuild.shared.util import (
 from hrbuild.shared.actions import (
     ACTIONS, ACTIONS_FILE, declare_action, declare_rerun_actions, declare_rerun_tests_action,
     declare_tab_reruns, slow_steps, RERUN_TESTS_ACTION,
-    tab_rerun_id, tab_steps, TAB_AI, TAB_TIPS, AI_STEPS, _load,
+    tab_rerun_id, tab_steps, TAB_AI, TAB_TIPS, AI_STEPS, PRICED, _load,
     RERUN_ACTION, RERUN_AI_ACTION, write_actions
 )
 from hrbuild.shared.assets import (
@@ -168,7 +168,8 @@ from hrbuild.tabs.tests import (
     _API_MARKERS, _cov_cat, coverage_tests, coverage_gaps, _load_test_changes
 )
 from hrbuild.tabs.demo import (
-    embed_html, VERDICT_FACE, video_html, VIDEO_VERDICT, video_verdict_html, _link_captions
+    cloned_film, embed_html, VERDICT_FACE, video_html, VIDEO_VERDICT, video_verdict_html,
+    _link_captions
 )
 from hrbuild.tabs.city import (
     CITY_HEADING

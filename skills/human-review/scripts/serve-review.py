@@ -127,8 +127,21 @@ MODEL_RUNS_FILE = ".model-runs.json"
 PRICE_UNKNOWN = "~$5\u2013$10"
 PRICE_SAMPLE = 5
 
+# The Demo tab's 🤖 has its own program (`rerun-film.py`) and so its own ledger: a film
+# script is a smaller piece of work than the matrix and its catalogue, and an average over
+# the two would be the right price for neither. Its fallback is a range for the same reason
+# the matrix's is — and it is a guess until the first run writes the ledger.
+FILM_RUNS_FILE = ".film-runs.json"
+FILM_PRICE_UNKNOWN = "~$1\u2013$3"
 
-def price_estimate(served_root) -> dict:
+#: Every priced paid press, `{kind: (ledger, fallback)}` — the kinds are the build's
+#: (`actions.PRICED`, worn on the button as `data-price`; absent means `model`).
+PRICED_RUNS = {"model": (MODEL_RUNS_FILE, PRICE_UNKNOWN),
+               "film": (FILM_RUNS_FILE, FILM_PRICE_UNKNOWN)}
+
+
+def price_estimate(served_root, ledger: str = MODEL_RUNS_FILE,
+                   unknown: str = PRICE_UNKNOWN) -> dict:
     """`{"text", "last", "n"}` — what to tell a reader before they spend.
 
     Derived from what this page's own paid runs cost, not from a constant somebody typed
@@ -146,7 +159,7 @@ def price_estimate(served_root) -> dict:
     on yet, which is also what it looks like from outside.
     """
     try:
-        doc = json.loads((Path(served_root) / MODEL_RUNS_FILE).read_text(encoding="utf-8"))
+        doc = json.loads((Path(served_root) / ledger).read_text(encoding="utf-8"))
         runs = doc["runs"] if isinstance(doc, dict) else doc
         costs = [float(r["cost"]) for r in runs
                  if isinstance(r, dict) and isinstance(r.get("cost"), (int, float))
@@ -154,7 +167,7 @@ def price_estimate(served_root) -> dict:
     except Exception:
         costs = []
     if not costs:
-        return {"text": PRICE_UNKNOWN, "last": None, "n": 0}
+        return {"text": unknown, "last": None, "n": 0}
     recent = costs[-PRICE_SAMPLE:]
     return {"text": f"~${sum(recent) / len(recent):.2f}", "last": round(costs[-1], 2),
             "n": len(recent)}
@@ -1262,6 +1275,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                              # and the price is a fact that moves every time somebody
                              # presses the button.
                              "price": price_estimate(Handler.root),
+                             # And every priced paid press's own, by the kind the
+                             # button names in `data-price` — the Demo tab's film script
+                             # is not the matrix and must not quote the matrix's figure.
+                             "prices": {kind: price_estimate(Handler.root, *how)
+                                        for kind, how in PRICED_RUNS.items()},
                              "actions": {name: {"params": e.get("params") or {},
                                                 "reload": bool(e.get("reload")),
                                                 "label": e.get("label") or ""}

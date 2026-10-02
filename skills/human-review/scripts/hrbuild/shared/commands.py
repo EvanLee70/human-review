@@ -153,7 +153,7 @@ def tab_rerun_html(tab_id: str, label: str, info: dict | None) -> str:
 
     Same two faces as the masthead, and the same machine behind both (`rerun.js`): the
     green ↻ re-runs this tab's producers and rebuilds the page, free; the amber 🤖 is
-    there only on a tab with a model half (Tests, Logging) and opens the same confirmation
+    there only on a tab with a model half (Tests, Review, Demo) and opens the same confirmation
     the masthead's paid chip does. Empty when the tab has no producer to re-run."""
     if not info:
         return ""
@@ -182,10 +182,15 @@ def tab_rerun_html(tab_id: str, label: str, info: dict | None) -> str:
                 f'aria-disabled="true" data-rerun="__rerun_ai__" data-tab="{tid}" '
                 f'data-steps="{steps}" aria-label="Rerun the {name} tab with AI \u2014 costs money" '
                 f'data-confirm="{tip}" '
-                # The probe's price is what *the matrix* has cost on this page; only the
-                # Tests tab's paid press is that run, so only it wears the figure.
+                # The probe quotes each paid program out of its own ledger: the matrix's
+                # (the Tests tab) and the film script's (the Demo tab). `data-price` names
+                # which — absent means the matrix's, as it always did. The re-review is
+                # priced in its sentence, so it wears no figure.
                 + (f'data-tip-fmt="costs money: {{price}} on Sonnet. {tip}" '
-                   if info.get("priced") else "") +
+                   if info.get("priced") else "")
+                + (f'data-price="{html.escape(info["price"], quote=True)}" '
+                   if info.get("priced") and info.get("price") not in (None, "model")
+                   else "") +
                 f'data-tip="costs money. {tip}">'
                 '<span class="rr-ico">\U0001F916</span></button>')
     return out + "</span>"

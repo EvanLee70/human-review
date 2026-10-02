@@ -721,7 +721,7 @@ def _merge_models(dicts) -> dict:
 #: was up to. Named rather than inferred, because there is no other mark on a turn that says
 #: "this one was building the page".
 BUILD_PROGRAMS = ("refresh-report.py", "run-steps.py", "build-review-html.py",
-                  "rerun-model.py")
+                  "rerun-model.py", "rerun-film.py")
 
 #: How long after a build's result the turn that reads it may arrive. A reply to a finished
 #: build lands in seconds; anything further out is the conversation having moved on, and a
@@ -742,6 +742,8 @@ STEPS_PROGRAM = "run-steps.py"
 RENDER_PROGRAM = "build-review-html.py"
 REFRESH_PROGRAM = "refresh-report.py"
 MODEL_PROGRAM = "rerun-model.py"
+#: The other model step: the Demo film's script (+1 LLM script beside the matrix).
+FILM_PROGRAM = "rerun-film.py"
 
 #: The tabs that get a row of their own in the phase table. Their steps are subtracted from
 #: the build/other split so no turn is billed twice; every *other* step is page building or
@@ -960,7 +962,7 @@ def _regenerations(path: Path, programs=BUILD_PROGRAMS) -> list[dict]:
         g["command"] = (making[-1]["command"] if making else g["runs"][-1]["command"])
         g["when"] = (making[0]["start"] if making else g["start"])
         g["programs"] = tuple(sorted(halves))
-        g["model"] = MODEL_PROGRAM in halves
+        g["model"] = MODEL_PROGRAM in halves or FILM_PROGRAM in halves
         g.pop("runs")
     return groups
 
@@ -1105,9 +1107,13 @@ def named_build(command: str, programs=BUILD_PROGRAMS) -> str:
 #: -p` subprocess: it costs real money and leaves not one priced turn in any transcript, so
 #: the only record of it is this ledger.
 MODEL_RUNS = ".model-runs.json"
+#: And what `rerun-film.py` spent — the film script, the second model-written artifact.
+FILM_RUNS = ".film-runs.json"
+#: Every paid model step's ledger, in the order the page-build row names them.
+MODEL_LEDGERS = ((MODEL_RUNS, "the model step"), (FILM_RUNS, "the film-script step"))
 
 
-def model_run_in(review: Path, lo, hi) -> dict | None:
+def model_run_in(review: Path, lo, hi, ledger: str = MODEL_RUNS) -> dict | None:
     """The last `rerun-model.py` run, if it belongs to the regeneration being billed.
 
     The step is part of building the page when it ran as part of building the page, and a
@@ -1116,7 +1122,7 @@ def model_run_in(review: Path, lo, hi) -> dict | None:
     "did it happen here" is a question the timestamps can answer.
     """
     try:
-        doc = json.loads((Path(review) / MODEL_RUNS).read_text(encoding="utf-8"))
+        doc = json.loads((Path(review) / ledger).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     runs = doc.get("runs") if isinstance(doc, dict) else doc
@@ -2050,10 +2056,12 @@ def phase_costs(session: str | None, t0, t1, t2, t3, t4, reviewer_files=(),
                 page = {**split["ours"], "tokens": round(split["ours"]["tokens"])}
                 detail = ("the last full regeneration of this report (steps + build): "
                           + named_build(last["command"]))
-                paid = model_run_in(Path(steps_path).parent, last["start"], last["end"])
-                if paid:
-                    page["cost"] += float(paid["cost"])
-                    detail += f", including the model step it ran ({money(paid['cost'])})"
+                for ledger, what in MODEL_LEDGERS:
+                    paid = model_run_in(Path(steps_path).parent, last["start"], last["end"],
+                                        ledger)
+                    if paid:
+                        page["cost"] += float(paid["cost"])
+                        detail += f", including {what} it ran ({money(paid['cost'])})"
                 rows.append(_row("page_build", True, page,
                                  window=(last["start"], last["end"]), detail=detail,
                                  # The line as it ran, for the row's hover. The face is

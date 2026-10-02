@@ -400,18 +400,41 @@
   var bodyP = panel && panel.querySelector('.hrconfirm-b');
   var bodyDefault = bodyP ? bodyP.innerHTML : '';
 
+  // Each priced paid press is quoted out of its own program's ledger: the probe answers
+  // `prices[kind]`, and the button names its kind in `data-price` — absent means the
+  // matrix's, which is also what the older probe's single `price` was. The Demo tab's 🤖
+  // rewrites the film's script, a different run at a different price, and quoting the
+  // matrix's figure over it would be the label typed once and never measured all over again.
+  var prices = {};
+  function priceOf(btn) {
+    var kind = (btn && btn.getAttribute('data-price')) || 'model';
+    return prices[kind] || null;
+  }
+  function lastLine(price) {
+    if (!price || !price.last) return '';
+    return 'The last one really cost $' + price.last.toFixed(2)
+      + (price.n > 1 ? ', and that average is over the last ' + price.n + '.' : '.');
+  }
+
   function confirmSpend(btn) {
     if (!panel) return Promise.resolve(true);
+    var priced = !!(btn && btn.getAttribute('data-tip-fmt'));
+    var price = priced ? priceOf(btn) : null;
     if (bodyP) {
       var own = btn && btn.getAttribute('data-confirm');
-      if (own) bodyP.textContent = own; else bodyP.innerHTML = bodyDefault;
+      if (own) {
+        bodyP.textContent = (price && price.text ? 'About ' + price.text + ' on Sonnet. ' : '')
+          + own;
+      } else bodyP.innerHTML = bodyDefault;
     }
-    // "The last one really cost $X" is the matrix's invoice. A paid press that is not the
-    // matrix (the Review tab's re-review wears no `data-tip-fmt`) must not borrow it.
+    // "The last one really cost $X" is that program's own invoice. A paid press with no
+    // ledger of its own (the Review tab's re-review wears no `data-tip-fmt`) must not
+    // borrow the matrix's.
     var lastP = panel.querySelector('.hrconfirm-last');
     if (lastP) {
       var borrowed = !!(btn && btn.getAttribute('data-confirm')
                         && !btn.getAttribute('data-tip-fmt'));
+      lastP.textContent = lastLine(price);
       lastP.hidden = borrowed || !lastP.textContent;
     }
     lastFocus = document.activeElement;
@@ -469,22 +492,19 @@
     // real runs on this page came in at $4.00, $8.09 and $10.63, so a reader who budgeted
     // for the label was out by a factor of two. The markup keeps the range as its
     // fallback, which is what a static copy and a server with no ledger both show.
-    var price = caps.price;
+    prices = caps.prices || {};
+    if (!prices.model && caps.price) prices.model = caps.price;
+    var price = prices.model;
+    buttons.forEach(function (btn) {
+      var fmt = btn.getAttribute('data-tip-fmt');
+      var own = priceOf(btn);
+      if (!fmt || !own || !own.text) return;
+      btn.setAttribute('data-tip', fmt.replace('{price}', own.text));
+      btn.setAttribute('data-idle-tip', btn.getAttribute('data-tip'));
+    });
     if (price && price.text) {
-      buttons.forEach(function (btn) {
-        var fmt = btn.getAttribute('data-tip-fmt');
-        if (!fmt) return;
-        btn.setAttribute('data-tip', fmt.replace('{price}', price.text));
-        btn.setAttribute('data-idle-tip', btn.getAttribute('data-tip'));
-      });
       var face = panel && panel.querySelector('.hrconfirm-price');
       if (face) face.textContent = 'about ' + price.text + ' on Sonnet';
-      var last = panel && panel.querySelector('.hrconfirm-last');
-      if (last && price.last) {
-        last.textContent = 'The last one really cost $' + price.last.toFixed(2)
-          + (price.n > 1 ? ', and that average is over the last ' + price.n + '.' : '.');
-        last.hidden = false;
-      }
     }
     // Per button, from the probe's own answer for that verb. Inferring the paid one from
     // the free one would draw a $5 control over a server that has no model step beside it.

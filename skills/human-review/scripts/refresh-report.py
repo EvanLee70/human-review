@@ -34,6 +34,11 @@ with its argument deleted. The second is a **commit claiming a `review-points.md
 not on disk**: the branch says it recorded its own review and the file is gone, so the
 band reading *nothing records what was reviewed* would be true of the disk and false about
 the run.
+
+The film's script (`feature-script.js`) is the other model-written artifact — +1 LLM script
+beside the matrix — and it too is never written here: `rerun-film.py` is the command that
+does. But it is not a refusal when it is missing. No script is no film, a state the `video`
+step and the Demo tab already name, not a page with its argument deleted.
 """
 from __future__ import annotations
 
@@ -75,6 +80,17 @@ MODEL_OWNED = {
     "test-index": "the per-test catalogue the matrix reads",
 }
 
+#: Model-written too — **+1 LLM script** beside the matrix — and owned the same way: this
+#: program never writes it, and `rerun-film.py` (the Demo tab's 🤖) is the one command
+#: that does. Kept apart from MODEL_OWNED for the one way it differs: its absence is not a
+#: refusal. No script means no film, which is a real state of a review — the `video` step
+#: says "no feature script" and the Demo tab says nothing was filmed — whereas a page
+#: without its matrix is the same page with its argument deleted.
+MODEL_OWNED_OPTIONAL = {
+    "feature-script.js": "the Demo film's script — which screens to drive and what to say "
+                         "on each (rerun-film.py rewrites it; without it there is no film)",
+}
+
 
 def missing_model_work(review: Path) -> list[tuple[str, str]]:
     """Which model-written artifacts are not on disk, with what each one is.
@@ -91,6 +107,26 @@ def missing_model_work(review: Path) -> list[tuple[str, str]]:
         elif not p.is_file():
             gone.append((rel, what))
     return gone
+
+
+#: The film script's name, under the review directory. `record-feature-video.sh` also reads
+#: `human-review-feature.js` at the repository root and `$HUMAN_REVIEW_FEATURE_SCRIPT`.
+FILM_SCRIPT = "feature-script.js"
+
+
+def film_script(review: Path) -> Path | None:
+    """The script the recorder would film from, in its own order, or None."""
+    for p in (os.environ.get("HUMAN_REVIEW_FEATURE_SCRIPT"), review / FILM_SCRIPT,
+              Path("human-review-feature.js")):
+        if p and Path(p).is_file():
+            return Path(p)
+    return None
+
+
+def film_asked(steps: str) -> bool:
+    """Whether this run's producers include the film: `all`, or a list naming `video`."""
+    steps = (steps or "").strip()
+    return steps == "all" or "video" in {s.strip() for s in steps.split(",")}
 
 
 def config_base(explicit: str | None) -> str:
@@ -277,6 +313,13 @@ def main(argv=None) -> int:
               f"{sha} -- {rel}`), or drop the trailer if the claim was never true.",
               file=sys.stderr)
         return 3
+
+    if film_asked(args.steps) and film_script(review) is None:
+        # A note, never a refusal (see MODEL_OWNED_OPTIONAL): the step will say "no feature
+        # script" and the Demo tab "nothing was filmed". This only says who writes it.
+        print(f"[refresh] no {FILM_SCRIPT} — the film's script is model-written and this "
+              "program does not write it; rerun-film.py does (the Demo tab's 🤖). The video "
+              "step will film nothing.", file=sys.stderr)
 
     commands = plan(review, args.steps, args.base, args.serve,
                     args.allow_model, session_id(review), args.timing, args.force)
