@@ -1599,3 +1599,31 @@ def test_the_lookups_for_the_write_up_belong_to_the_write_up(tmp_path):
 ])
 def test_a_lookup_is_a_command_that_only_reads(command, lookup):
     assert rc._is_lookup({"name": "Bash", "input": {"command": command}}) is lookup
+
+
+def _authoring(monkeypatch, found: dict):
+    import subprocess as _sp
+    monkeypatch.setattr(rc.subprocess, "run", lambda *a, **k: _sp.CompletedProcess(
+        a, 4, stdout=json.dumps(found), stderr=""))
+
+
+def test_a_shell_only_session_the_branch_does_not_name_is_not_its_author(monkeypatch, tmp_path):
+    """hr-try-3: Copilot wrote the code, the orchestrating Claude session ran git and
+    python in the repo, and the weak fallback billed it $20.91 as "writing the code"."""
+    _authoring(monkeypatch, {"mode": "B", "otherAgents": [], "claimedSessions": [],
+                             "sessions": [{"session": "orchestrator", "edits": 0, "bash": 3,
+                                           "transcript": str(tmp_path / "x.jsonl")}]})
+    out = rc.authoring_cost("main", tmp_path)
+    assert out["measured"] is False and "Claude-Session" in out["reason"]
+
+
+def test_a_shell_only_session_the_branch_names_is_still_taken(monkeypatch, tmp_path):
+    t = tmp_path / "s.jsonl"
+    t.write_text("")
+    _authoring(monkeypatch, {"mode": "B", "otherAgents": [], "claimedSessions": ["named"],
+                             "sessions": [{"session": "other", "edits": 0, "bash": 9,
+                                           "transcript": str(t)},
+                                          {"session": "named", "edits": 0, "bash": 1,
+                                           "transcript": str(t)}]})
+    out = rc.authoring_cost("main", tmp_path)
+    assert [s["session"] for s in out["sessions"]] == ["named"] and out["weak"]

@@ -146,6 +146,20 @@ def other_agents(base: str) -> list[str]:
                    for line in trailers.splitlines() for m in [OTHER_AGENTS.search(line)] if m})
 
 
+def claimed_sessions(base: str) -> list[str]:
+    """Claude session ids this branch's commits name in a `Claude-Session:` trailer.
+
+    The only vouch a shell-only match can get. A session that ran `git` and `python` in
+    the repo while another harness wrote the code — an orchestrating conversation — looks,
+    from its transcript alone, exactly like a weak author; the branch saying which session
+    it was written in is what tells them apart."""
+    fork = git("merge-base", base, "HEAD").strip()
+    if not fork:
+        return []
+    out = git("log", "--format=%(trailers:key=Claude-Session,valueonly)", f"{fork}..HEAD")
+    return sorted({line.strip() for line in out.splitlines() if line.strip()})
+
+
 def _when(ts: str) -> datetime | None:
     try:
         return datetime.fromisoformat(ts.replace("Z", "+00:00"))
@@ -319,7 +333,9 @@ def main() -> int:
 
     if args.json:
         print(json.dumps({"mode": mode, "base": args.base, "changed": len(wanted),
-                          "otherAgents": other_agents(args.base), "sessions": rows}, indent=2))
+                          "otherAgents": other_agents(args.base),
+                          "claimedSessions": claimed_sessions(args.base),
+                          "sessions": rows}, indent=2))
         return code
     if args.paths:
         for r in rows:

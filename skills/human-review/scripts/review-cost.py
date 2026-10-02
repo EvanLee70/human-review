@@ -1493,7 +1493,19 @@ def authoring_cost(base: str, root: Path, exclude: str | None = None) -> dict:
     # A branch another agent co-signed is not priced from the strongest shell-only Claude
     # match: that fallback exists for a Claude branch with no edit-tool session, and on a
     # Copilot branch it is just the last session that ran `sed` on a config file.
-    picked = strong or ([] if others else rows[:1])
+    # The shell-only fallback needs the branch's own vouch: a `Claude-Session:` trailer
+    # naming that session. Without it, the best shell-only match on hr-try-3 was the
+    # orchestrating conversation that ran git and python beside a Copilot run, billed
+    # $20.91 as "writing the code" for a branch it never wrote.
+    claimed = set(found.get("claimedSessions") or [])
+    weak_pick = [r for r in rows if r.get("session") in claimed][:1]
+    picked = strong or ([] if others else weak_pick)
+    if not picked and not strong and rows and not others:
+        return {"measured": False, "mode": found.get("mode"), "sessions": [],
+                "cost": 0.0, "tokens": 0, "otherAgents": others,
+                "reason": "no conversation on disk used the edit tools on these files, and "
+                          "no commit names one in a Claude-Session trailer — written "
+                          "elsewhere, so the writing is unmeasured"}
     if not picked and others:
         return {"measured": False, "mode": found.get("mode"), "sessions": [],
                 "cost": 0.0, "tokens": 0, "otherAgents": others,
