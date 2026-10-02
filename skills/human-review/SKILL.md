@@ -78,7 +78,9 @@ in the *coding* session and prices them. It is not a gate any more.
 
 ## Step 2 — Resolve the change set, then gate and wipe
 
-From `$ARGUMENTS`: **empty** → uncommitted work, `BASE=HEAD`. **A ref / range / SHA** →
+From `$ARGUMENTS`: **empty** → uncommitted work, `BASE=HEAD` — unless the working tree is
+clean, which is the normal state right after `/record-review`: then the branch against
+`origin/main`. **A ref / range / SHA** →
 `BASE=<the older ref>`. **A PR** (`#123`, a github URL) → `gh pr checkout <n>`, and
 `BASE=$(gh pr view <n> --json baseRefName -q .baseRefName)`. Default `origin/main`. Print a
 one-line scope banner; an empty change set is "Nothing to review." and stop.
