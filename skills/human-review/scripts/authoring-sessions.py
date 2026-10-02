@@ -109,10 +109,12 @@ def git(*args: str) -> str:
 def changed_files(base: str) -> list[str]:
     """Every path this change set touches, repo-relative, tracked and not.
 
-    `git diff --name-only <base>` reaches the working tree, so uncommitted work counts —
-    which is the common case for the review this skill writes up.
+    The diff runs from the merge-base to the working tree, so uncommitted work counts —
+    the common case for the review this skill writes up — and what `base` gained after the
+    fork does not: against the tip of main, a day-old branch listed 116 files for 74.
     """
-    names = set(git("diff", "--name-only", base).split("\n"))
+    fork = git("merge-base", base, "HEAD").strip() or base
+    names = set(git("diff", "--name-only", fork).split("\n"))
     names |= set(git("ls-files", "--others", "--exclude-standard").split("\n"))
     return sorted(n for n in names if n.strip())
 
@@ -125,6 +127,23 @@ def fork_time(base: str) -> datetime | None:
     stamps = git("log", "-1", "--format=%ct", fork).split()
     stamps += git("log", "--format=%at", f"{fork}..HEAD").split()
     return datetime.fromtimestamp(min(int(t) for t in stamps), timezone.utc) if stamps else None
+
+
+# Agents that sign their commits with a co-author trailer and leave no transcript under
+# `~/.claude/projects`. A branch they wrote has no measurable writing bill here, and the
+# page must say so instead of pricing whichever Claude session last touched a config file.
+OTHER_AGENTS = re.compile(r"\b(Copilot|Codex|Cursor|Devin|Gemini|Aider|Jules|Windsurf|Junie)\b",
+                          re.I)
+
+
+def other_agents(base: str) -> list[str]:
+    """Non-Claude agents named in the `Co-authored-by` trailers of this branch's commits."""
+    fork = git("merge-base", base, "HEAD").strip()
+    if not fork:
+        return []
+    trailers = git("log", "--format=%(trailers:key=Co-authored-by,valueonly)", f"{fork}..HEAD")
+    return sorted({m.group(1).capitalize() if m.group(1).islower() else m.group(1)
+                   for line in trailers.splitlines() for m in [OTHER_AGENTS.search(line)] if m})
 
 
 def _when(ts: str) -> datetime | None:
@@ -300,7 +319,7 @@ def main() -> int:
 
     if args.json:
         print(json.dumps({"mode": mode, "base": args.base, "changed": len(wanted),
-                          "sessions": rows}, indent=2))
+                          "otherAgents": other_agents(args.base), "sessions": rows}, indent=2))
         return code
     if args.paths:
         for r in rows:

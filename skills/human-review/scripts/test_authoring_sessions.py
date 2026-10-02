@@ -202,3 +202,19 @@ def test_no_change_set_is_not_a_mode_at_all(tmp_path):
     out = _run(repo, tmp_path / "home", "aaa")
     assert out.returncode == 2
     assert "nothing to attribute" in out.stderr
+
+
+def test_a_branch_co_signed_by_another_agent_names_it(tmp_path):
+    """Copilot leaves no transcript here; its trailer is the only record that the writing
+    happened somewhere this script cannot price."""
+    repo = _repo(tmp_path)
+    subprocess.run(["git", "checkout", "-qb", "feature"], cwd=repo, check=True)
+    (repo / "kept.txt").write_text("feature\n")
+    subprocess.run(["git", "commit", "-qam", "feat\n\nCo-authored-by: Copilot <1+Copilot@users.noreply.github.com>"],
+                   cwd=repo, check=True)
+    doc = json.loads(_run(repo, tmp_path / "home", "", "--json").stdout.replace('"HEAD"', '"HEAD"'))
+    assert doc["otherAgents"] == []  # --base HEAD: the commit is the base, not the branch
+    env = dict(os.environ, HOME=str(tmp_path / "home"))
+    out = subprocess.run([sys.executable, str(SCRIPT), "--base", "HEAD~1", "--json"],
+                         cwd=repo, capture_output=True, text=True, env=env)
+    assert json.loads(out.stdout)["otherAgents"] == ["Copilot"]

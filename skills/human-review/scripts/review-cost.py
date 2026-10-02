@@ -1483,7 +1483,16 @@ def authoring_cost(base: str, root: Path, exclude: str | None = None) -> dict:
     rows = [r for r in found.get("sessions") or [] if r.get("session") != exclude]
     strong = [r for r in rows if r.get("edits")]
     weak = not strong
-    picked = strong or rows[:1]
+    others = found.get("otherAgents") or []
+    # A branch another agent co-signed is not priced from the strongest shell-only Claude
+    # match: that fallback exists for a Claude branch with no edit-tool session, and on a
+    # Copilot branch it is just the last session that ran `sed` on a config file.
+    picked = strong or ([] if others else rows[:1])
+    if not picked and others:
+        return {"measured": False, "mode": found.get("mode"), "sessions": [],
+                "cost": 0.0, "tokens": 0, "otherAgents": others,
+                "reason": f"written with {', '.join(others)} — its usage leaves no "
+                          "transcript on this disk, so the writing is unmeasured"}
     if not picked:
         return {"measured": False, "mode": found.get("mode"), "sessions": [],
                 "cost": 0.0, "tokens": 0,
@@ -1505,6 +1514,7 @@ def authoring_cost(base: str, root: Path, exclude: str | None = None) -> dict:
                     "bash": r.get("bash", 0), "files": len(r.get("files") or []),
                     "current": r.get("current", False)})
     return {"measured": bool(out), "mode": found.get("mode"), "weak": weak,
+            "otherAgents": others,
             "sessions": out, "cost": total_cost, "tokens": total_tokens,
             "reason": None if out else "the authoring transcripts are no longer on disk"}
 

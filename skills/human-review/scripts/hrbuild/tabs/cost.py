@@ -490,6 +490,11 @@ def cost_ledger_html(led: dict | None, tabs: list[dict]) -> str:
             row('<span class="costnote">no conversation used the edit tools on these '
                 "files — this is the strongest shell-only match, and may be the wrong "
                 "one</span>", None, None, "costquiet")
+        if writing.get("otherAgents"):
+            names = html.escape(", ".join(writing["otherAgents"]))
+            row(f'<span class="costnote">the branch was also written with {names}, whose '
+                "usage leaves no transcript here — these rows are only the Claude part of "
+                "the bill</span>", None, None, "costquiet")
     else:
         group("writing the code")
         why = writing.get("reason") or "not measured"
