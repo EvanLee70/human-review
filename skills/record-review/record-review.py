@@ -40,6 +40,16 @@ POINTS = "review-points.md"
 DEFAULT_GENERATED = ["**/generated/**", "docs/generated/**", "openapi.yaml",
                      "**/*.genseq.*", "**/api-types.ts", "**/*.drawio*"]
 
+#: Files a reviewer of the *code* does not need. Three of the four lenses read only the
+#: code diff: in the second VS Code run the four reviewers paged through one 88 KB patch
+#: 66 times between them, and half of it was tests. `"tests"` in human-review.json adds
+#: project-specific patterns.
+DEFAULT_TESTS = ["**/src/test/**", "**/test/**", "**/tests/**", "**/*.spec.*", "**/*.test.*",
+                 "**/*Test.java", "**/*Tests.java", "**/*IT.java", "**/e2e/**",
+                 "**/*.feature"]
+READS = {"correctness": ["code"], "security": ["code"], "ticket-fit": ["code"],
+         "tests": ["code", "tests"]}
+
 LENSES = {
     "correctness": "what input or sequence of actions makes this code return the wrong "
                    "thing, lose state, or crash. Race conditions, off-by-one, null and empty "
@@ -54,8 +64,9 @@ LENSES = {
 
 BRIEF = """You are a read-only reviewer. Do not edit any file. Lens: **{lens}** — {what}
 
-The whole change set is in `{patch}` ({files} files, base {base_short}..{head_short}).
-Read that file first; open other files only to confirm a suspicion.
+The change set (base {base_short}..{head_short}) is in {patches}. Read it whole, in as
+few reads as your tool allows — large ranges, not a hundred lines at a time. Open other
+files only to confirm a suspicion, and only the lines you need.
 {ticket}
 Try to BREAK the change, not to approve it. Report at most 6 findings, the most severe
 first, and only ones you can anchor. Answer with nothing but this, one block per finding:
@@ -81,12 +92,19 @@ def root() -> Path:
         sys.exit("record-review: not inside a git repository")
 
 
-def generated_globs(repo: Path) -> list[str]:
-    cfg = repo / "human-review.json"
+def config(repo: Path) -> dict:
     try:
-        return json.loads(cfg.read_text()).get("generated") or DEFAULT_GENERATED
+        return json.loads((repo / "human-review.json").read_text())
     except (OSError, ValueError):
-        return DEFAULT_GENERATED
+        return {}
+
+
+def generated_globs(repo: Path) -> list[str]:
+    return config(repo).get("generated") or DEFAULT_GENERATED
+
+
+def test_globs(repo: Path) -> list[str]:
+    return DEFAULT_TESTS + list(config(repo).get("tests") or [])
 
 
 def resolve_base(given: str | None) -> str:
@@ -160,17 +178,25 @@ def prepare(args) -> int:
         return 2
 
     excludes = [f":(exclude,glob){g}" for g in generated_globs(repo)]
+    tests = [f":(glob){g}" for g in test_globs(repo)]
     files = git("diff", "--name-only", f"{base}..HEAD", "--", ".", *excludes).splitlines()
-    patch = git("diff", "--no-ext-diff", "-U12", f"{base}..HEAD", "--", ".", *excludes)
+    test_files = set(git("diff", "--name-only", f"{base}..HEAD", "--", *tests).splitlines())
+    groups = {"code": [f for f in files if f not in test_files],
+              "tests": [f for f in files if f in test_files]}
     work = repo / WORK
     work.mkdir(parents=True, exist_ok=True)
-    (work / "diff.patch").write_text(patch + "\n")
+    sizes = {}
+    for name, paths in groups.items():
+        patch = git("diff", "--no-ext-diff", "-U3", f"{base}..HEAD", "--", *paths) if paths else ""
+        (work / f"diff-{name}.patch").write_text(patch + "\n")
+        sizes[name] = (len(paths), len(patch) // 1024)
     ticket = ""
     if args.ticket:
         ticket = f"\nThe ticket, as the human gave it:\n\n{args.ticket.strip()}\n"
     for lens, what in LENSES.items():
+        patches = " and ".join(f"`{WORK}/diff-{g}.patch`" for g in READS[lens] if groups[g])
         (work / f"brief-{lens}.md").write_text(BRIEF.format(
-            lens=lens, what=what, patch=f"{WORK}/diff.patch", files=len(files),
+            lens=lens, what=what, patches=patches,
             base_short=base[:8], head_short=head[:8], ticket=ticket))
     gate = push_gate()
     if gate:
@@ -181,8 +207,9 @@ def prepare(args) -> int:
     print(f"base            {base[:8]}  ({args.base or 'merge-base with origin/main'})")
     print(f"implementation  {head[:8]}  ({len(commits)} commit(s): {commits[0]}"
           + (" …" if len(commits) > 1 else "") + ")")
-    print(f"diff            {WORK}/diff.patch — {len(files)} files, "
-          f"{patch.count(chr(10)) + 1} lines, generated files left out")
+    print("diff            " + "  ".join(
+        f"{WORK}/diff-{g}.patch ({n} files, {kb} KB)" for g, (n, kb) in sizes.items())
+        + " — generated files left out")
     print("briefs          " + "  ".join(f"{WORK}/brief-{l}.md" for l in LENSES))
     if gate:
         print("push gate       FAILS — the repository's own pre-push checks refuse this "
