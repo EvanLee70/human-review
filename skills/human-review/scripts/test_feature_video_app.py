@@ -768,3 +768,21 @@ def test_the_harness_never_calls_the_projects_own_api():
     src = (Path(__file__).resolve().parent / "record-feature-video.sh").read_text()
     code = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("//"))
     assert not re.search(r"apiUrl\s*\+\s*[\"'`]/api/", code)
+
+
+def test_the_single_quoted_node_block_is_valid_javascript():
+    """05b5245 put apostrophes in a comment inside `node -e '…'`: the shell closed the quote
+    early and the recorder did not even parse (eval run 5). `bash -n` does not catch it, so
+    the block is cut out exactly as the shell would hand it to node and checked by node."""
+    import re
+    import shutil
+    import subprocess
+    src = (Path(__file__).resolve().parent / "record-feature-video.sh").read_text()
+    m = re.search(r"node -e '\n(.*?)\n' \"\$BASE_URL\"", src, re.S)
+    assert m, "the node -e block moved; update this test"
+    assert "'" not in m.group(1), "an apostrophe inside the single-quoted node block"
+    node = shutil.which("node")
+    if node:
+        r = subprocess.run([node, "--check", "-"], input=m.group(1), text=True,
+                           capture_output=True)
+        assert r.returncode == 0, r.stderr
