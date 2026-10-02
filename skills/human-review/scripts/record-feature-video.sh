@@ -467,7 +467,7 @@ then
   python3 "$SCRIPT_DIR/annotate-feature-video.py" "$RAW" "$TMP/cloned.cues.json" "$CLONED" \
       --lead "${LEAD:-0}"
   printf '{"video": "%s", "label": "%s"}\n' "$(basename "$CLONED")" \
-      "${NARRATION_FISH_LABEL:-Trump}" > "$CLONED_META"
+      "${NARRATION_FISH_LABEL:-🐘}" > "$CLONED_META"
   echo "[video] cloned voice -> $CLONED" >&2
 else
   echo "[video] cloned voice: none (no Fish Audio key, NARRATION_FISH=off, or a cue failed)" >&2
