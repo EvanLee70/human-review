@@ -158,6 +158,38 @@ def test_an_annotated_parameter_list_does_not_hide_a_handler():
     assert found["MCP create_visit"]["handler"] == "PetClinicMcp.createVisit(int, LocalDate)"
 
 
+PAGED = """
+package app.rest;
+
+@RestController
+@RequestMapping("/api/owners")
+public class OwnerRestController {
+    @GetMapping(produces = "application/json")
+    public OwnerPageDto listOwners(
+            @RequestParam(name = "lastName", defaultValue = "") String lastName,
+            @Parameter(description = "Rows per page",
+                    schema = @Schema(type = "integer", defaultValue = "10")) @RequestParam(name = "size",
+                            required = false) String size,
+            @Parameter(schema = @Schema(allowableValues = {"name,asc", "city,desc"},
+                    defaultValue = "name,asc")) @RequestParam(name = "sort", required = false) String sort) {
+        if (size == null) { return null; }
+        return null;
+    }
+}
+"""
+
+
+def test_an_openapi_parameter_two_levels_deep_with_an_array_does_not_hide_a_handler():
+    """`@Parameter(schema = @Schema(allowableValues = {…}))` is two levels of parens with a
+    brace inside. The one-level pattern missed it, and the delta drew the paginated
+    `GET /api/owners` as `gone` while it still existed."""
+    found = {f'{e["httpMethod"]} {e["path"]}': e for e in ec.extract(
+        {"a/src/main/java/app/rest/OwnerRestController.java": PAGED})}
+    assert found["GET /api/owners"]["handler"] == \
+        "OwnerRestController.listOwners(String, String, String)"
+    assert found["GET /api/owners"]["flowCc"] == 1
+
+
 def test_the_flow_is_summed_over_distinct_methods_once():
     found = entries()
     # search() is 1 (the guard) + 1 (the loop) + 2 (the if inside it) = 4, and it calls

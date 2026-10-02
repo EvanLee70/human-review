@@ -54,12 +54,19 @@ NOISE = re.compile(r'"""(?:\\.|[^\\])*?"""|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n
 
 MODIFIER = r"(?:public|protected|private|static|final|abstract|default|synchronized|native|strictfp)"
 TYPE = r"[\w.$]+(?:\s*<[^<>;{}]*>)?(?:\s*\[\s*\])*"
-# The parameter list tolerates one level of nesting, because annotated parameters are
-# ordinary in this code — `listOwners(@RequestParam(name = "lastName") String lastName)` —
-# and a declaration this misses is a whole entry point missing from the tab.
+# The parameter list tolerates three levels of nesting, with braces allowed inside them,
+# because annotated parameters are ordinary in this code — `@RequestParam(name = "x")` is
+# one level, and an OpenAPI `@Parameter(schema = @Schema(allowableValues = {"a", "b"}))`
+# is two with an array initializer inside. A declaration this misses is a whole entry
+# point missing from the tab, and worse, drawn as `gone` in the delta: that is how the
+# paginated `GET /api/owners` vanished from the Complexity tab while it still existed.
+# Only the top level forbids `{`, which is what tells a parameter list from a body.
+_NEST3 = r"\([^();]*\)"
+_NEST2 = rf"\((?:[^();]|{_NEST3})*\)"
+_NEST1 = rf"\((?:[^();]|{_NEST2})*\)"
 DECL = re.compile(
     rf"(?:{MODIFIER}\s+)*(?:<[^<>;{{}}]+>\s*)?(?:({TYPE})\s+)?([A-Za-z_$]\w*)\s*"
-    rf"\(((?:[^;{{}}()]|\([^()]*\))*)\)\s*(?:throws\s[^{{;]*)?\{{"
+    rf"\(((?:[^;{{}}()]|{_NEST1})*)\)\s*(?:throws\s[^{{;]*)?\{{"
 )
 # Every construct that reads as `name (…) {` without being a method. `for` and the
 # `try (…)` of a resource block carry a `;` inside the parens and never reach this set.
