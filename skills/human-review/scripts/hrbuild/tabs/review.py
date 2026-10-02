@@ -887,6 +887,8 @@ def render_findings(findings) -> str:
             + _finding_source(f)
             + f' <span class="f-title">{f["title"]}</span>'
             + gh_comment_link(f)
+            + (f'<p class="f-obs"><b>Reviewer:</b> {f["observation"]}</p>'
+               if f.get("observation") else "")
             + (f'<p>{f["body"]}</p>' if f.get("body") else "")
             + (f'<p class="f-why">{f["why"]}</p>' if f.get("why") else "")
             + (f"<p>{refs}</p>" if refs else "")
@@ -1029,10 +1031,13 @@ def render_autofixes(fixes, badge: str = "auto-fixed") -> str:
             + _finding_source(f)
             + f' <span class="f-title">{f["title"]}</span>'
             + gh_comment_link(f)
+            + (f'<p class="f-obs"><b>Reviewer:</b> {f["observation"]}</p>'
+               if f.get("observation") else "")
             + (f'<p class="f-why">{f["why"]}</p>' if f.get("why") else "")
             + (f'<p>{f["body"]}</p>' if f.get("body") else "")
             + (f"<p>{refs}</p>" if refs else "")
             + (f.get("_diffs", "") or "")
+            + (f'<p class="f-fix"><b>Fix:</b> {f["fix"]}</p>' if f.get("fix") else "")
             + (f.get("_snippets", "") or "")
             + "</li>"
         )

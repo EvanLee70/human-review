@@ -31,11 +31,16 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
        - file: path:line
        - source: <which reviewer, or pre-push hook>
        - severity: high|medium|low         (Fixed and Ignored; never on an assumption)
+       - observation: <what the reviewer found wrong, 1-3 sentences>   (Fixed and Ignored)
+       - fix: <how you repaired it, one sentence>        (Fixed only, optional)
        - why: <15 words at most>           (Ignored: why declined. Assumptions: why this reading)
        - alternative: <the reading not taken, 15 words at most>    (Assumptions only)
        - confidence: 0.xx                                         (Assumptions only)
 
-     Fixed       — what you repaired because the review was right.
+     Fixed       — what you repaired because the review was right. The `observation:` is
+                   what makes it readable: a title and a one-line diff say *that* something
+                   changed, never *what was wrong* — "`router.navigate` returns a promise
+                   nobody awaits; a failed navigation is swallowed silently."
      Ignored     — what you read and declined. An empty Ignored section after a
                    multi-agent review is not credible; if you accepted everything, say so
                    in one line.

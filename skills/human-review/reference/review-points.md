@@ -24,7 +24,8 @@ position to fix it, rather than silently rendering as an empty pile.
 **Terse by design.** The reader skims this file and jumps into the code, so an item is a
 title of at most 15 words plus its fields, and nothing else: no preamble, no summary, no
 prose under an item unless the human asks for more. `why:` and `alternative:` are 15
-words at most too. The body described under *Items* below exists for the rare item that
+words at most too; `observation:` — what the reviewer found wrong — is one to three
+sentences, and it is the one field a Fixed or Ignored card cannot do without. The body described under *Items* below exists for the rare item that
 cannot be understood from its anchor; it is not the default.
 
 ````markdown
@@ -42,6 +43,8 @@ session: 16a1e790-2c96-4f1b-8a4f-2ddcf2d10a8e
 - file: petclinic-backend/src/main/resources/db/seed/R__seed.sql:143
 - source: /code-review agent 2
 - severity: medium
+- observation: the seed assigns visits round-robin over a literal 6; a seventh vet never gets one.
+- fix: count the vets in the same statement instead of the literal.
 - fixed-in: HEAD
 
 ## Ignored
@@ -50,6 +53,7 @@ session: 16a1e790-2c96-4f1b-8a4f-2ddcf2d10a8e
 - file: petclinic-backend/src/main/java/victor/training/VisitRestController.java:66
 - source: /code-review agent 1
 - severity: medium
+- observation: two endpoints book a visit with different validation; they will drift.
 - why: out of scope for #37; deleting the flat endpoint breaks the API
 
 ## Assumptions
@@ -130,6 +134,8 @@ fields.
 | `severity:` | no | `severity` — `high\|medium\|low\|info`. Defaults to `info` in `Ignored`; **rejected outright on an assumption**, which is not a defect and must not be ranked as one |
 | `alternative:` | no | `alternative` — the reading that was *not* taken. What makes an assumption checkable at a glance |
 | `why:` | no | `why` — the reason to decline, or the reason the reading was chosen |
+| `observation:` | no | `observation` — what the reviewer found wrong, 1–3 sentences, shown as *Reviewer:* on the card. **Fixed and Ignored**; missing or longer than three sentences is a warning. Without it a Fixed card is a title and a diff, and the reader cannot tell what was wrong |
+| `fix:` | no | `fix` — one sentence on the repair, shown under the diff. **Fixed only**, optional; elsewhere ignored with a warning |
 | `confidence:` | no | `confidence` — how sure the agent is the reading it chose is the right one, a number in `[0, 1]`. **Assumptions only**; on `Fixed` or `Ignored` it is ignored with a warning |
 | `fixed-in:` | no | `diffs[]`, one per `file:`, based at the frontmatter's `implementation`. `fixed-in: HEAD` leaves the head side as the working tree, which keeps the editor link; any other value pins both sides |
 

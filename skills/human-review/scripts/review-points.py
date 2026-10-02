@@ -78,7 +78,13 @@ PILE_HEADING = {"autofixes": "Fixed", "findings": "Ignored", "assumptions": "Ass
 # on no pile, and that is exactly the silent drop the three-pile rule forbids.
 NOTE_HEADINGS = ("taken over", "carried over", "not re-reviewed")
 
-FIELDS = {"file", "source", "severity", "alternative", "why", "fixed-in", "confidence"}
+FIELDS = {"file", "source", "severity", "alternative", "why", "fixed-in", "confidence",
+          "observation", "fix"}
+# What the reviewer saw, in its own words, at most this many sentences — on a Fixed or
+# Ignored item. A Fixed card with a title and a one-line diff (`void this.router.navigate`)
+# told the reader *that* something changed and never *what was wrong*; the observation is
+# that missing sentence. `fix:` is the optional note on the repair itself.
+OBSERVATION_SENTENCES = 3
 SEVERITIES = {"high", "medium", "low", "info"}
 # How sure the agent is that the reading it chose is the right one. Only an assumption
 # can carry it: 1.0 = the ticket left no other reading, 0.5 = a coin flip between two,
@@ -276,6 +282,21 @@ def build_item(title: str, fields: list[tuple[str, str]], body: str, pile: str,
         else:
             item[key] = inline(value)
 
+    if pile in ("autofixes", "findings"):
+        said = item.get("observation", "")
+        if not said:
+            warnings.append(
+                f"{PILE_HEADING[pile]}: {title[:60]!r} (line {where}) has no "
+                "`observation:` — the card shows the change but not what the reviewer "
+                "found wrong. One to three sentences.")
+        elif len(re.findall(r"[.!?](?:\s|$)", re.sub(r"<[^>]+>", "", said))) > OBSERVATION_SENTENCES:
+            warnings.append(
+                f"{PILE_HEADING[pile]}: {title[:60]!r} (line {where}) — `observation:` runs "
+                f"past {OBSERVATION_SENTENCES} sentences; say what was wrong, not the story.")
+    if pile != "autofixes" and item.get("fix"):
+        warnings.append(f"{PILE_HEADING[pile]}: {title[:60]!r} (line {where}) carries "
+                        "`fix:` — only a Fixed item has a repair to comment on. Ignored.")
+        item.pop("fix")
     if pile == "findings" and "severity" not in item:
         # Declined, and nobody said how bad. `info` is the honest default: the pile is
         # "somebody looked at this and said no", and inventing a rank for it would put a

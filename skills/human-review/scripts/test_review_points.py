@@ -386,7 +386,7 @@ def test_confidence_on_a_fix_or_a_decline_is_warned_about_and_dropped(tmp_path, 
     doc = _doc(tmp_path, f"## {heading}\n### Something I repaired\n- file: a.py:1\n"
                          f"- confidence: 0.9\n")
     assert "confidence" not in doc[pile][0], "a fix is in the diff or it is not"
-    assert len(doc["warnings"]) == 1
+    assert len([w for w in doc["warnings"] if "observation" not in w]) == 1
     assert "Something I repaired" in doc["warnings"][0]
     assert heading in doc["warnings"][0]
 
@@ -397,7 +397,7 @@ def test_an_out_of_range_confidence_on_a_fix_is_still_only_a_warning(tmp_path):
     second problem and hiding the first."""
     doc = _doc(tmp_path, "## Fixed\n### t\n- file: a.py:1\n- confidence: 7\n")
     assert "confidence" not in doc["autofixes"][0]
-    assert len(doc["warnings"]) == 1
+    assert len([w for w in doc["warnings"] if "observation" not in w]) == 1
 
 
 def test_confidence_is_printed_beside_the_title_by_check(tmp_path, capsys):
@@ -881,3 +881,15 @@ def test_the_skill_is_discoverable_as_a_skill():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+def test_a_fixed_item_says_what_the_reviewer_found_and_how_it_was_repaired(tmp_path):
+    """`void this.router.navigate(…)` under a title told the reader that something changed,
+    never what was wrong. The observation is that sentence; `fix:` is optional."""
+    doc = _doc(tmp_path, "## Fixed\n### Floating router promise\n- file: a.ts:141\n"
+                         "- observation: navigate() returns a promise nobody awaits.\n"
+                         "- fix: mark it void, as the lint rule asks.\n"
+                         "## Ignored\n### Bare decline\n- file: a.ts:2\n")
+    fixed = doc["autofixes"][0]
+    assert "nobody awaits" in fixed["observation"] and "void" in fixed["fix"]
+    assert any("Bare decline" in w and "observation" in w for w in doc["warnings"])
