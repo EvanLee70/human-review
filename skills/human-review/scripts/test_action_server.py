@@ -1562,3 +1562,75 @@ def test_the_tests_tab_carries_its_third_button_inside_the_pair():
                                 "extra": '<button data-rerun="__rerun_tests__">t</button>'})
     assert out.index('data-rerun="__rerun_tests__"') < out.rindex("</span>")
     assert out.count("<button") == 3
+
+
+# --------------------------------------------------------------------------- #
+# one report, one server — on real sockets, in real detached processes
+# --------------------------------------------------------------------------- #
+# Successive refreshes of one report once produced 7655 → 7656 → 7657: past an occupied
+# preferred port, only *free* ports were looked for, never the one already serving this
+# report. Run on high ports so nothing a reader has open (:7654 and friends) is touched.
+
+def _free_run(n: int) -> int:
+    """A base port with `n` free ports from it, well away from the 7654 neighbourhood."""
+    import random
+    for _ in range(200):
+        base = random.randint(41000, 59000)
+        if all(srv.free(p) for p in range(base, base + n + srv.PORT_SPAN)):
+            return base
+    pytest.skip("no run of free ports on loopback")
+
+
+def _serve_cli(directory, port, *extra):
+    p = subprocess.run([sys.executable, str(HERE / "serve-review.py"), str(directory),
+                        "--port", str(port), "--no-open", "--no-watch", "--idle-minutes", "2",
+                        *extra], capture_output=True, text=True, timeout=30)
+    assert p.returncode == 0, p.stderr
+    return p.stdout.strip(), p.stderr
+
+
+def test_refreshes_of_one_report_reuse_its_server_past_another_checkouts(tmp_path):
+    a, b = tmp_path / "a" / ".human-review", tmp_path / "b" / ".human-review"
+    a.mkdir(parents=True)
+    b.mkdir(parents=True)
+    base = _free_run(3)
+    pids = []
+    try:
+        url_a, _ = _serve_cli(a, base)
+        assert url_a == f"http://127.0.0.1:{base}/review.html"
+        pid_a = srv.probe(base)["pid"]
+        pids.append(pid_a)
+
+        url_b, err = _serve_cli(b, base)                 # a second checkout: next free port
+        assert url_b == f"http://127.0.0.1:{base + 1}/review.html"
+        assert "already serves" in err
+        pid_b = srv.probe(base + 1)["pid"]
+        pids.append(pid_b)
+        assert json.loads((b / srv.IDENTITY_FILE).read_text())["port"] == base + 1
+
+        for _ in range(3):                               # the refreshes that used to walk
+            again, _ = _serve_cli(b, base)
+            assert again == url_b
+        assert srv.probe(base + 1)["pid"] == pid_b, "a refresh replaced the server"
+        assert srv.free(base + 2), "a refresh started one more server"
+        assert srv.probe(base)["pid"] == pid_a, "the other checkout's server was touched"
+
+        _serve_cli(b, base, "--stop")                    # stops b's server, never a's
+        for _ in range(50):
+            if srv.probe(base + 1) is None:
+                break
+            time.sleep(0.1)
+        assert srv.probe(base + 1) is None
+        assert srv.probe(base)["pid"] == pid_a
+        for _ in range(20):                              # its own record goes with it
+            if not (b / srv.IDENTITY_FILE).exists():
+                break
+            time.sleep(0.1)
+        assert not (b / srv.IDENTITY_FILE).exists()
+        assert (a / srv.IDENTITY_FILE).exists()
+    finally:
+        for pid in pids:
+            try:
+                os.kill(pid, 15)
+            except OSError:
+                pass

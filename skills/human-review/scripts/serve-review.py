@@ -408,6 +408,64 @@ def probe(port):
         return None
 
 
+#: Where a running server records who it is: beside the report it serves, dot-prefixed so
+#: `publish-demo.sh` and the page's zip leave it behind. A hint, never the proof — it names a
+#: port to ask first, and only the marker on that port decides (a stale file outlives a
+#: server that idled out, and the port may since belong to somebody else).
+IDENTITY_FILE = ".server.json"
+
+#: How far past `--port` to look for a server already serving *this* report. Repeated
+#: refreshes of one report once walked 7655 → 7656 → 7657, one new server each time,
+#: because only the preferred port was asked and the rest were merely tested for "free".
+PORT_SPAN = 20
+
+
+def read_identity(directory: Path) -> dict:
+    try:
+        rec = json.loads((Path(directory) / IDENTITY_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return rec if isinstance(rec, dict) else {}
+
+
+def write_identity(directory: Path, port: int) -> None:
+    try:
+        (Path(directory) / IDENTITY_FILE).write_text(json.dumps(
+            {"served": str(Path(directory).resolve()), "port": port, "pid": os.getpid()}) + "\n",
+            encoding="utf-8")
+    except OSError:
+        pass                       # a read-only report is still servable; the scan finds it
+
+
+def drop_identity(directory: Path) -> None:
+    """Only our own record: a newer server for the same report may have written its own."""
+    if read_identity(directory).get("pid") == os.getpid():
+        try:
+            (Path(directory) / IDENTITY_FILE).unlink()
+        except OSError:
+            pass
+
+
+def find_server(directory: Path, preferred: int, span: int = PORT_SPAN):
+    """`(port, marker)` of a server already serving exactly `directory`, or None.
+
+    Asked in order: the port the report's identity file names, then `preferred` and the
+    `span` ports after it. Each answer is checked against the marker — this server's key
+    and the canonical directory it serves — so another checkout's server on any of those
+    ports is passed over, never reused and never touched."""
+    want = str(Path(directory).resolve())
+    ports = []
+    rec_port = read_identity(directory).get("port")
+    if isinstance(rec_port, int) and 0 < rec_port < 65536:
+        ports.append(rec_port)
+    ports += [p for p in range(preferred, min(preferred + span, 65536)) if p not in ports]
+    for port in ports:
+        info = probe(port)
+        if isinstance(info, dict) and info.get(MARKER_KEY) and info.get("served") == want:
+            return port, info
+    return None
+
+
 def free(port):
     with socket.socket() as s:
         try:
@@ -1368,12 +1426,15 @@ def serve(directory, port, idle_minutes, watch=True):
     ROOT = git_root(directory) or Path(directory).parent
     Handler.root = directory
     Handler.token = secrets.token_urlsafe(16)
-    if watch:
-        WATCHER = Watcher(directory)
-        threading.Thread(target=WATCHER.run, daemon=True).start()
     handler = functools.partial(Handler, directory=directory)
     socketserver.TCPServer.allow_reuse_address = True
     httpd = socketserver.ThreadingTCPServer(("127.0.0.1", port), handler)
+    # Recorded once the port is ours, and before the watcher takes its baseline — so the
+    # write is part of the tree it starts from rather than a "change" that reloads the page.
+    write_identity(Path(directory), port)
+    if watch:
+        WATCHER = Watcher(directory)
+        threading.Thread(target=WATCHER.run, daemon=True).start()
 
     def reaper():
         # Idle *and* quiet. The idle clock is fed by requests, and a reader who clicked
@@ -1385,7 +1446,13 @@ def serve(directory, port, idle_minutes, watch=True):
         httpd.shutdown()
 
     threading.Thread(target=reaper, daemon=True).start()
-    httpd.serve_forever()
+    # `--stop` sends SIGTERM; turned into an exit so the `finally` below still runs.
+    import signal
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    try:
+        httpd.serve_forever()
+    finally:
+        drop_identity(Path(directory))
 
 
 def main():
@@ -1407,32 +1474,6 @@ def main():
     args = ap.parse_args()
 
     directory = Path(args.directory).resolve()
-    running = probe(args.port)
-
-    if args.stop:
-        if running:
-            print(f"stopping the server on :{args.port} (pid {running['pid']})", file=sys.stderr)
-            os.kill(running["pid"], 15)
-        return 0
-
-    if not directory.is_dir():
-        sys.exit(f"[serve-review] not a directory: {directory}")
-
-    port = args.port
-    if running and running["served"] != str(directory):
-        # Another review is already on the default port — a second checkout, a
-        # second branch. Take the next free port and say so; silently serving a
-        # different tree at the URL the reader has bookmarked is the worse bug.
-        while not free(port):
-            port += 1
-        print(f"[serve-review] :{args.port} already serves {running['served']} — using :{port}",
-              file=sys.stderr)
-        running = None
-
-    url = f"http://127.0.0.1:{port}/{args.page}"
-    if running:
-        print(url)
-        return 0
 
     # Detach by re-exec, not by fork: the caller is a skill mid-run with more
     # steps after this one, and forking a process that has already touched
@@ -1440,8 +1481,49 @@ def main():
     if args._child:
         # Already detached by the parent's `start_new_session`; calling setsid()
         # again here fails with EPERM, which is how this exited silently once.
-        serve(str(directory), port, args.idle_minutes, args.watch)
+        # The parent chose the port; the child only takes it.
+        serve(str(directory), args.port, args.idle_minutes, args.watch)
         return 0
+
+    # Whatever already serves *this* report, wherever it landed — not just on --port.
+    found = find_server(directory, args.port)
+
+    if args.stop:
+        # Only this report's server. Whatever else is on --port is another checkout's.
+        if found:
+            port, info = found
+            print(f"stopping the server on :{port} (pid {info['pid']})", file=sys.stderr)
+            os.kill(info["pid"], 15)
+        else:
+            print(f"[serve-review] no server is serving {directory}", file=sys.stderr)
+        return 0
+
+    if not directory.is_dir():
+        sys.exit(f"[serve-review] not a directory: {directory}")
+
+    if found:
+        # The same URL as last time, no second server, no second tab: the page already
+        # open reloads itself when the build stops writing.
+        port = found[0]
+        if port != args.port:
+            print(f"[serve-review] :{port} already serves {directory} — reusing it",
+                  file=sys.stderr)
+        print(f"http://127.0.0.1:{port}/{args.page}")
+        return 0
+
+    port = args.port
+    if not free(port):
+        # Another review is already on the default port — a second checkout, a
+        # second branch. Take the next free port and say so; silently serving a
+        # different tree at the URL the reader has bookmarked is the worse bug.
+        # That server is left exactly as it is.
+        running = probe(port) or {}
+        while not free(port):
+            port += 1
+        print(f"[serve-review] :{args.port} already serves "
+              f"{running.get('served') or 'something else'} — using :{port}", file=sys.stderr)
+
+    url = f"http://127.0.0.1:{port}/{args.page}"
 
     subprocess.Popen(
         [sys.executable, os.path.abspath(__file__), str(directory), "--port", str(port),

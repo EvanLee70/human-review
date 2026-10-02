@@ -41,19 +41,45 @@ def _repo(tmp_path: Path) -> Path:
     return r
 
 
-def _stub_gh(tmp_path: Path, runs: list, workflows: str = "ci  active  1") -> dict:
-    """A `gh` that answers `run list` with `runs` and `workflow list` with `workflows`."""
+CI = {"id": 1, "name": "ci", "path": ".github/workflows/ci.yml", "state": "active"}
+PAGES = {"id": 2, "name": "pages-build-deployment",
+         "path": "dynamic/pages/pages-build-deployment", "state": "active"}
+
+
+def _stub_gh(tmp_path: Path, runs: list, workflows=(CI,), fail_workflow_list=False) -> dict:
+    """A `gh` that answers `run list` with `runs` and `workflow list` with `workflows`.
+
+    Like the real one it honours `--workflow` (by name or file name), answers a workflow it
+    does not know with a 404, and fills in `headSha` with HEAD when a run does not say."""
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
     gh = bindir / "gh"
     gh.write_text(
         "#!/usr/bin/env python3\n"
-        "import sys, json\n"
-        f"RUNS = {json.dumps(json.dumps(runs))}\n"
-        f"WORKFLOWS = {json.dumps(workflows)}\n"
+        "import sys, json, os\n"
+        f"RUNS = json.loads({json.dumps(json.dumps(runs))})\n"
+        f"WORKFLOWS = json.loads({json.dumps(json.dumps(list(workflows)))})\n"
+        f"FAIL_LIST = {fail_workflow_list!r}\n"
         "a = sys.argv[1:]\n"
-        "if a[:2] == ['run', 'list']: print(RUNS)\n"
-        "elif a[:2] == ['workflow', 'list']: print(WORKFLOWS)\n"
+        "opt = lambda k: a[a.index(k) + 1] if k in a else None\n"
+        "if a[:2] == ['run', 'list']:\n"
+        "    sha, wf = opt('--commit'), opt('--workflow')\n"
+        "    if wf is not None:\n"
+        "        known = [w for w in WORKFLOWS if wf in (w['name'], os.path.basename(w['path']))]\n"
+        "        if not known:\n"
+        "            sys.stderr.write(f'HTTP 404: workflow {wf} not found on the default branch\\n')\n"
+        "            sys.exit(1)\n"
+        "        names = {w['name'] for w in known}\n"
+        "    out = []\n"
+        "    for r in RUNS:\n"
+        "        r = dict(r); r.setdefault('headSha', sha)\n"
+        "        if wf is not None and r.get('workflowName') not in names: continue\n"
+        "        out.append(r)\n"
+        "    print(json.dumps(out))\n"
+        "elif a[:2] == ['workflow', 'list']:\n"
+        "    if FAIL_LIST:\n"
+        "        sys.stderr.write('HTTP 401: Bad credentials\\n'); sys.exit(1)\n"
+        "    print(json.dumps(WORKFLOWS))\n"
         "else: print('')\n")
     gh.chmod(0o755)
     # `git push` must succeed without a remote, and must not be the thing under test here.
@@ -98,7 +124,7 @@ def test_no_run_at_all_is_not_a_pass(tmp_path):
     """`gh run list` returns `[]` because nothing ever built this commit. It is the one
     non-green state that looks like a pass, and the repository *does* have workflows."""
     repo = _repo(tmp_path)
-    env = _stub_gh(tmp_path, [], workflows="ci  active  1")
+    env = _stub_gh(tmp_path, [])
     p = _run(repo, env, "--wait-minutes", "0")
     assert p.returncode == 1
     assert "Absence is not success" in p.stdout + p.stderr
@@ -107,7 +133,7 @@ def test_no_run_at_all_is_not_a_pass(tmp_path):
 
 def test_a_repo_with_no_ci_at_all_is_let_through_but_reported(tmp_path):
     repo = _repo(tmp_path)
-    env = _stub_gh(tmp_path, [], workflows="")
+    env = _stub_gh(tmp_path, [], workflows=())
     p = _run(repo, env, "--wait-minutes", "0")
     assert p.returncode == 0
     assert "no build proved this" in p.stdout
@@ -133,11 +159,11 @@ def test_the_wait_is_bound_to_the_commit_never_to_the_branch(tmp_path):
     git.write_text('#!/bin/sh\nif [ "$1" = push ]; then exit 0; fi\nexec /usr/bin/git "$@"\n')
     git.chmod(0o755)
     env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", CLAUDE_CODE_SESSION_ID="s1")
-    assert _run(repo, env).returncode == 0
+    assert _run(repo, env, "--workflow", "ci.yml").returncode == 0
     called = log.read_text()
     sha = subprocess.run("git rev-parse HEAD", shell=True, cwd=repo, text=True,
                          capture_output=True).stdout.strip()
-    assert f"run list --commit {sha}" in called
+    assert f"run list --commit {sha} --workflow ci.yml" in called
     assert "--branch" not in called
 
 
@@ -160,6 +186,146 @@ def test_the_wipe_and_the_ledger_reset_happen_together(tmp_path):
     assert not (repo / ".human-review" / "assets" / "old.svg").exists()
     leftover = (repo / ".human-review" / ".steps.json")
     assert not leftover.exists() or json.loads(leftover.read_text()) == []
+
+
+# ---- Which workflow is authoritative -------------------------------------------------------
+# A push runs several workflows. `gh run list --commit … --limit 1` took whichever came first,
+# so a green Pages deploy could open the gate while the application's CI was red or queued.
+
+
+def _ok(name, rid=1, **kw):
+    return {"databaseId": rid, "status": "completed", "conclusion": "success",
+            "workflowName": name, "createdAt": f"2026-10-02T10:00:{rid:02d}Z", **kw}
+
+
+def _evidence(repo: Path) -> dict:
+    return json.loads((repo / ".human-review" / ".gate.json").read_text())
+
+
+def test_a_green_deploy_cannot_open_the_gate_while_ci_is_red(tmp_path):
+    repo = _repo(tmp_path)
+    (repo / "human-review.json").write_text(json.dumps({"ci": {"workflows": ["ci.yml"]}}))
+    env = _stub_gh(tmp_path, [_ok("pages-build-deployment", 2),
+                              dict(_ok("ci", 1), conclusion="failure")],
+                   workflows=(CI, PAGES))
+    p = _run(repo, env, "--wait-minutes", "0")
+    assert p.returncode == 1, p.stdout
+    assert "ci (run 1) concluded failure" in p.stdout
+    assert (repo / ".human-review" / "assets" / "old.svg").is_file()
+    ev = _evidence(repo)
+    assert ev["verdict"] == "failure" and ev["selection"] == "configured"
+    assert [(w["workflow"], w["runId"], w["verdict"]) for w in ev["workflows"]] == \
+        [("ci.yml", 1, "failure")]
+
+
+def test_a_green_deploy_cannot_open_the_gate_while_ci_is_still_queued(tmp_path):
+    """Auto-detected: `pages-build-deployment` has "build" in its name and must not count.
+    A run never picked up by a runner is an outage, reported as one — not as a red build."""
+    repo = _repo(tmp_path)
+    env = _stub_gh(tmp_path, [_ok("pages-build-deployment", 2),
+                              dict(_ok("ci", 1), status="queued", conclusion="")],
+                   workflows=(CI, PAGES))
+    p = _run(repo, env, "--wait-minutes", "0")
+    assert p.returncode == 1
+    assert "runner outage" in p.stdout and "failure" not in p.stdout
+    ev = _evidence(repo)
+    assert ev["selection"] == "auto-detected"
+    assert ev["verdict"] == "queued"
+    assert ev["workflows"][0]["workflow"] == "ci.yml"
+
+
+def test_green_evidence_names_workflow_run_and_exact_sha(tmp_path):
+    repo = _repo(tmp_path)
+    env = _stub_gh(tmp_path, [_ok("pages-build-deployment", 2), _ok("ci", 7)],
+                   workflows=(CI, PAGES))
+    p = _run(repo, env)
+    assert p.returncode == 0, p.stdout + p.stderr
+    sha = subprocess.run("git rev-parse HEAD", shell=True, cwd=repo, text=True,
+                         capture_output=True).stdout.strip()
+    ev = _evidence(repo)
+    assert ev["verdict"] == "green" and ev["sha"] == sha
+    assert [(w["workflow"], w["name"], w["runId"], w["sha"], w["verdict"])
+            for w in ev["workflows"]] == [("ci.yml", "ci", 7, sha, "success")]
+    assert "[preflight] evidence {" in p.stdout
+    assert "green: ci (run 7)" in (repo / ".human-review" / ".gate").read_text()
+
+
+def test_every_configured_workflow_must_be_green(tmp_path):
+    repo = _repo(tmp_path)
+    e2e = {"id": 3, "name": "e2e", "path": ".github/workflows/e2e.yml", "state": "active"}
+    env = _stub_gh(tmp_path, [_ok("ci", 1)], workflows=(CI, e2e))
+    p = _run(repo, env, "--wait-minutes", "0", "--workflow", "ci.yml", "--workflow", "e2e.yml")
+    assert p.returncode == 1
+    assert "no e2e.yml run" in p.stdout and "Absence is not success" in p.stdout
+    assert {w["workflow"]: w["verdict"] for w in _evidence(repo)["workflows"]} == \
+        {"ci.yml": "success", "e2e.yml": "not-found"}
+
+
+def test_the_cli_flag_overrides_the_config(tmp_path):
+    repo = _repo(tmp_path)
+    e2e = {"id": 3, "name": "e2e", "path": ".github/workflows/e2e.yml", "state": "active"}
+    (repo / "human-review.json").write_text(json.dumps({"ci": "e2e.yml"}))
+    env = _stub_gh(tmp_path, [_ok("ci", 1)], workflows=(CI, e2e))
+    assert _run(repo, env, "--wait-minutes", "0", "--workflow", "ci").returncode == 0
+    assert _run(repo, env, "--wait-minutes", "0").returncode == 1   # config: e2e.yml, absent
+
+
+def test_a_cancelled_run_is_not_reported_as_a_failing_build(tmp_path):
+    repo = _repo(tmp_path)
+    env = _stub_gh(tmp_path, [dict(_ok("ci", 4), conclusion="cancelled")])
+    p = _run(repo, env, "--wait-minutes", "0")
+    assert p.returncode == 1
+    assert "was cancelled" in p.stdout and "concluded failure" not in p.stdout
+    assert _evidence(repo)["verdict"] == "cancelled"
+
+
+def test_a_misnamed_workflow_is_a_configuration_error_not_a_red_build(tmp_path):
+    repo = _repo(tmp_path)
+    env = _stub_gh(tmp_path, [_ok("ci", 1)])
+    p = _run(repo, env, "--wait-minutes", "5", "--workflow", "nosuch.yml")
+    assert p.returncode == 1                        # and immediately, not after 5 minutes
+    assert "does not exist" in p.stdout
+    assert _evidence(repo)["verdict"] == "workflow-not-found"
+
+
+def test_github_not_answering_is_a_discovery_failure_never_no_ci(tmp_path):
+    """Before, an unauthenticated `gh workflow list` printed nothing, which read as "this
+    repository has no CI" — and let the run through."""
+    repo = _repo(tmp_path)
+    env = _stub_gh(tmp_path, [], fail_workflow_list=True)
+    p = _run(repo, env, "--wait-minutes", "0")
+    assert p.returncode == 1
+    assert "discovery failure" in p.stdout and "no CI configured" not in p.stdout
+    assert _evidence(repo)["verdict"] == "discovery-failed"
+    assert (repo / ".human-review" / "assets" / "old.svg").is_file()
+
+
+def test_a_run_for_another_sha_never_counts(tmp_path):
+    repo = _repo(tmp_path)
+    env = _stub_gh(tmp_path, [_ok("ci", 1, headSha="0" * 40)])
+    p = _run(repo, env, "--wait-minutes", "0")
+    assert p.returncode == 1 and "Absence is not success" in p.stdout
+
+
+def test_without_a_ci_like_workflow_every_run_on_the_sha_must_be_green(tmp_path):
+    repo = _repo(tmp_path)
+    lint = {"id": 4, "name": "lint", "path": ".github/workflows/lint.yml", "state": "active"}
+    deploy = {"id": 5, "name": "deploy", "path": ".github/workflows/deploy.yml",
+              "state": "active"}
+    env = _stub_gh(tmp_path, [_ok("deploy", 2), dict(_ok("lint", 1), conclusion="failure")],
+                   workflows=(lint, deploy))
+    p = _run(repo, env, "--wait-minutes", "0")
+    assert p.returncode == 1 and "lint (run 1) concluded failure" in p.stdout
+    assert _evidence(repo)["selection"] == "all-runs"
+
+
+def test_the_newest_run_of_the_workflow_decides(tmp_path):
+    """A failed run, then a green re-run on the same SHA: the re-run is the verdict."""
+    repo = _repo(tmp_path)
+    env = _stub_gh(tmp_path, [dict(_ok("ci", 1), conclusion="failure"), _ok("ci", 2)])
+    p = _run(repo, env)
+    assert p.returncode == 0, p.stdout
+    assert _evidence(repo)["workflows"][0]["runId"] == 2
 
 
 if __name__ == "__main__":

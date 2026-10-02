@@ -31,10 +31,20 @@ The gate is about the branch **as pushed now, not the tree at the end of the run
 skill deliberately leaves the review's own fixes uncommitted for a human to inspect, so this
 never means "push the review's fixes too".
 
+**Which** build counts is configured, not guessed from whatever ran: a push triggers several
+workflows, and a green Pages deploy proves nothing about the application. `--workflow` (or
+`"ci": {"workflows": [...]}` in `human-review.json`) names the authoritative ones and **all**
+of them must be green for the exact SHA. Unconfigured, the one workflow named like `ci`/`build`
+is used; with none or several, every run on the SHA has to be green. A cancelled run, a
+workflow that never got a runner, and GitHub not answering are reported as what they are —
+none of them is a red build, and none of them is a pass. The decision lands in
+`.human-review/.gate.json` (workflow, run id, SHA, verdict), on a refusal too.
+
 Exit codes:  0 ready · 1 the gate refused · 2 misuse.
 
 Usage:
   preflight.py --base origin/main
+  preflight.py --base origin/main --workflow ci.yml
   preflight.py --no-gate          # local experiment; the guide must say the gate was skipped
 """
 from __future__ import annotations
@@ -70,8 +80,131 @@ def push_failure(stderr: str) -> str:
     return "\n".join((keep or lines[-5:])[:12])
 
 
-def gate(wait_minutes: float) -> tuple[bool, str]:
-    """True when the pushed commit is proven green (or the repo has no CI at all)."""
+#: A workflow "named like CI" — matched as a whole word in the workflow's name or file stem,
+#: so `ci.yml`, `CI`, `Java CI with Maven` and `build.yml` qualify and `Skill CLIs` does not.
+CI_LIKE = re.compile(r"(?<![a-z0-9])(ci|build)(?![a-z0-9])", re.I)
+#: …unless it is plainly a deployment. `pages-build-deployment` has "build" in it and proves
+#: nothing about the application, which is the exact confusion this gate exists to prevent.
+NOT_CI = re.compile(r"deploy|pages|release|publish", re.I)
+RUN_FIELDS = "databaseId,status,conclusion,workflowName,headSha,event,createdAt,url"
+#: Statuses in which no runner has picked the job up yet. Still one of these at the deadline
+#: means a runner outage, not a red build — and the report has to say which it was.
+NOT_STARTED = {"queued", "waiting", "requested", "pending"}
+
+
+def configured_workflows(cli: list[str], config: str) -> list[str]:
+    """`--workflow` wins; else `"ci": {"workflows": [...]}` (or `"ci": "ci.yml"`) in the
+    project's `human-review.json`; else nothing, and the gate auto-detects."""
+    if cli:
+        return list(dict.fromkeys(cli))
+    try:
+        data = json.loads(Path(config).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    ci = data.get("ci") if isinstance(data, dict) else None
+    if isinstance(ci, dict):
+        ci = ci.get("workflows")
+    if isinstance(ci, str):
+        ci = [ci]
+    return [w for w in (ci or []) if isinstance(w, str) and w.strip()]
+
+
+def list_workflows() -> list[dict] | None:
+    """The repository's active workflows, or None when GitHub could not be asked — which is
+    a discovery failure, never "this repository has no CI"."""
+    r = run("gh workflow list --json id,name,path,state")
+    if r.returncode != 0:
+        return None
+    try:
+        wfs = json.loads(r.stdout or "[]")
+    except json.JSONDecodeError:
+        return None
+    return [w for w in wfs if isinstance(w, dict) and w.get("state", "active") == "active"]
+
+
+def auto_detect(workflows: list[dict]) -> list[str]:
+    """The one workflow named like ci/build, as its file name. Two candidates is ambiguity,
+    and ambiguity is not resolved by guessing: the caller falls back to requiring every run."""
+    hits = []
+    for w in workflows:
+        path = w.get("path") or ""
+        if path.startswith("dynamic/"):      # GitHub-managed: pages, dependabot, copilot
+            continue
+        stem = Path(path).stem
+        name = w.get("name") or ""
+        if (CI_LIKE.search(name) or CI_LIKE.search(stem)) and not (
+                NOT_CI.search(name) or NOT_CI.search(stem)):
+            hits.append(Path(path).name or name)
+    return hits if len(hits) == 1 else []
+
+
+def latest_runs(sha: str, workflow: str | None) -> tuple[list[dict] | None, str]:
+    """Runs for exactly `sha` (optionally of one workflow), newest first. None + the reason
+    when GitHub could not be asked."""
+    sel = f' --workflow "{workflow}"' if workflow else ""
+    r = run(f'gh run list --commit "{sha}"{sel} --limit 50 --json {RUN_FIELDS}')
+    if r.returncode != 0:
+        return None, ((r.stderr or "") + (r.stdout or "")).strip()
+    try:
+        runs = json.loads(r.stdout or "[]")
+    except json.JSONDecodeError:
+        return None, "unparseable `gh run list` output"
+    # `--commit` already filters, but the evidence claims an exact SHA, so check it here too.
+    runs = [x for x in runs if isinstance(x, dict) and x.get("headSha", sha) == sha]
+    runs.sort(key=lambda x: (x.get("createdAt") or "", x.get("databaseId") or 0), reverse=True)
+    return runs, ""
+
+
+def _evidence(workflow: str, sha: str, one: dict | None, verdict: str, detail: str = "") -> dict:
+    one = one or {}
+    return {"workflow": workflow, "name": one.get("workflowName") or workflow,
+            "runId": one.get("databaseId"), "url": one.get("url"), "sha": sha,
+            "event": one.get("event"), "status": one.get("status"),
+            "conclusion": one.get("conclusion"), "verdict": verdict,
+            **({"detail": detail} if detail else {})}
+
+
+def _verdict(one: dict) -> str:
+    """One completed run → one verdict. Only `failure` is the application failing; a
+    cancellation, a timeout or a run that could not start says nothing about the code."""
+    c = (one.get("conclusion") or "").lower()
+    return {"success": "success", "failure": "failure", "cancelled": "cancelled",
+            "timed_out": "timed-out", "startup_failure": "startup-failure"}.get(c, c or "unknown")
+
+
+def _refusal(e: dict, wait_minutes: float) -> str:
+    sha12, name = e["sha"][:12], e["name"]
+    run_id = f" (run {e['runId']})" if e.get("runId") else ""
+    v = e["verdict"]
+    if v == "failure":
+        return (f"{name}{run_id} concluded failure for {sha12} — name it and the failing job "
+                "in the report, and fix that first")
+    if v == "cancelled":
+        return (f"{name}{run_id} was cancelled for {sha12} — not a verdict on the code, but "
+                "not a pass either; re-run it")
+    if v == "queued":
+        return (f"{name}{run_id} still {e.get('status')} after {wait_minutes:g} min, never "
+                "picked up by a runner — a runner outage, not a failing build; re-run when "
+                "runners are back")
+    if v == "stuck":
+        return f"{name}{run_id} still running after {wait_minutes:g} min — treat it as stuck"
+    if v == "not-found":
+        return (f"no {name} run for {sha12} after {wait_minutes:g} min, and this repository "
+                "does have workflows. Absence is not success")
+    if v == "workflow-not-found":
+        return (f"configured workflow {e['workflow']!r} does not exist in this repository — "
+                f"fix `ci.workflows` / --workflow ({e.get('detail', '')})")
+    if v == "discovery-failed":
+        return (f"could not ask GitHub about {name} for {sha12} — not a build failure, a "
+                f"discovery failure: {e.get('detail', '')}")
+    return f"{name}{run_id} concluded {e.get('conclusion') or v} for {sha12} — not a pass"
+
+
+def gate(wait_minutes: float, workflows: list[str] | None = None,
+         poll: float = 15.0) -> tuple[bool, str, dict]:
+    """True when the pushed commit is proven green by **every** authoritative workflow (or
+    the repo has no CI at all). The third value is the machine-readable evidence."""
+    evidence: dict = {"sha": None, "selection": None, "workflows": []}
     dirty = run("git status --porcelain").stdout.strip()
     if dirty:
         print("[preflight] working tree is not clean. Decide, deliberately, what belongs "
@@ -84,52 +217,121 @@ def gate(wait_minutes: float) -> tuple[bool, str]:
         up = run("git push -u origin HEAD")
         if up.returncode != 0:
             return False, "cannot push: " + push_failure(
-                (up.stdout or "") + (up.stderr or "") or (push.stdout or "") + (push.stderr or ""))
+                (up.stdout or "") + (up.stderr or "") or (push.stdout or "") + (push.stderr or "")), \
+                dict(evidence, verdict="push-failed")
 
     sha = run("git rev-parse HEAD").stdout.strip()
     if not sha:
-        return False, "cannot resolve HEAD"
-    print(f"[preflight] waiting on CI for {sha[:12]} (not for the branch)")
+        return False, "cannot resolve HEAD", dict(evidence, verdict="no-head")
+    evidence["sha"] = sha
 
     if not shutil.which("gh"):
-        return True, f"no `gh` — no build proved this commit ({sha[:12]}); say so in the guide"
+        return True, (f"no `gh` — no build proved this commit ({sha[:12]}); say so in the "
+                      "guide"), dict(evidence, verdict="unproven-no-gh")
+
+    # Which workflows are authoritative. A push triggers several — Pages, deploys, linters —
+    # and a green one of those proves nothing about whether the application builds.
+    selection = "configured" if workflows else None
+    if not workflows:
+        known = list_workflows()
+        if known is None:
+            evidence.update(selection="unknown", verdict="discovery-failed")
+            return False, ("could not list this repository's workflows (`gh workflow list` "
+                           "failed) — a discovery failure, not a build failure; configure "
+                           "`ci.workflows` or check `gh auth status`"), evidence
+        if not known:
+            return True, ("no build proved this — the repository has no CI configured. "
+                          "Put that in the guide; it must not read as a pass"), \
+                dict(evidence, selection="none", verdict="unproven-no-ci")
+        workflows = auto_detect(known)
+        selection = "auto-detected" if workflows else "all-runs"
+    evidence["selection"] = selection
+    label = ", ".join(workflows) if workflows else "every workflow that ran"
+    print(f"[preflight] waiting on {label} for {sha[:12]} (not for the branch)")
 
     deadline = time.time() + wait_minutes * 60
     while True:
-        # Bound to the commit, never to the branch: a green run for a different commit is
-        # exactly the signal this refuses to accept.
-        r = run(f'gh run list --commit "{sha}" --limit 1 '
-                f'--json databaseId,status,conclusion,workflowName')
-        try:
-            runs = json.loads(r.stdout or "[]")
-        except json.JSONDecodeError:
-            runs = []
-        if not runs:
-            # Absence is not success. Either nothing has registered yet, or nothing builds
-            # this branch — and only `gh workflow list` can tell those apart.
-            wf = run("gh workflow list").stdout.strip()
-            if not wf:
-                return True, ("no build proved this — the repository has no CI configured. "
-                              "Put that in the guide; it must not read as a pass")
-            if time.time() > deadline:
-                return False, (f"no CI run for {sha[:12]} after {wait_minutes:g} min, and "
-                               "this repository does have workflows. Absence is not success")
-            print("[preflight]   no run registered yet; waiting")
-            time.sleep(15)
-            continue
-        one = runs[0]
-        if one.get("status") != "completed":
-            if time.time() > deadline:
-                return False, (f"{one.get('workflowName')} still running after "
-                               f"{wait_minutes:g} min — treat it as stuck")
-            print(f"[preflight]   {one.get('workflowName')}: {one.get('status')}")
-            time.sleep(20)
-            continue
-        if one.get("conclusion") == "success":
-            return True, f"green: {one.get('workflowName')} for {sha[:12]}"
-        return False, (f"{one.get('workflowName')} concluded {one.get('conclusion')} for "
-                       f"{sha[:12]} — name it and the failing job in the report, and fix "
-                       "that first")
+        expired = time.time() > deadline
+        done: list[dict] = []
+        waiting: list[str] = []
+        if workflows:
+            for wf in workflows:
+                runs, err = latest_runs(sha, wf)
+                if runs is None:
+                    if re.search(r"not found|could not find", err, re.I):
+                        done.append(_evidence(wf, sha, None, "workflow-not-found", err))
+                    elif expired:
+                        done.append(_evidence(wf, sha, None, "discovery-failed", err))
+                    else:
+                        waiting.append(f"{wf}: cannot ask GitHub yet ({err[:80]})")
+                    continue
+                if not runs:
+                    if expired:
+                        done.append(_evidence(wf, sha, None, "not-found"))
+                    else:
+                        waiting.append(f"{wf}: no run registered yet")
+                    continue
+                one = runs[0]          # the newest run of this workflow for this exact SHA
+                if one.get("status") != "completed":
+                    if expired:
+                        v = "queued" if one.get("status") in NOT_STARTED else "stuck"
+                        done.append(_evidence(wf, sha, one, v))
+                    else:
+                        waiting.append(f"{one.get('workflowName') or wf}: {one.get('status')}")
+                    continue
+                done.append(_evidence(wf, sha, one, _verdict(one)))
+        else:
+            # Nothing configured and no single ci/build workflow to choose: the only honest
+            # reading is that every workflow that ran on this SHA has to be green.
+            runs, err = latest_runs(sha, None)
+            if runs is None:
+                if expired:
+                    done.append(_evidence("*", sha, None, "discovery-failed", err))
+                else:
+                    waiting.append(f"cannot ask GitHub yet ({err[:80]})")
+            elif not runs:
+                if expired:
+                    done.append(_evidence("*", sha, None, "not-found"))
+                else:
+                    waiting.append("no run registered yet")
+            else:
+                newest: dict[str, dict] = {}
+                for x in runs:
+                    newest.setdefault(x.get("workflowName") or "?", x)
+                for name, one in newest.items():
+                    if one.get("status") != "completed":
+                        if expired:
+                            v = "queued" if one.get("status") in NOT_STARTED else "stuck"
+                            done.append(_evidence(name, sha, one, v))
+                        else:
+                            waiting.append(f"{name}: {one.get('status')}")
+                    else:
+                        done.append(_evidence(name, sha, one, _verdict(one)))
+
+        bad = [e for e in done if e["verdict"] != "success"]
+        if bad or not waiting:
+            # Fail fast on the first non-green verdict; otherwise everything is in and green.
+            evidence["workflows"] = done
+            if bad:
+                evidence["verdict"] = bad[0]["verdict"]
+                return False, "; ".join(_refusal(e, wait_minutes) for e in bad), evidence
+            evidence["verdict"] = "green"
+            names = ", ".join(f"{e['name']} (run {e['runId']})" for e in done)
+            note = ("" if selection != "all-runs" else
+                    " — no authoritative workflow configured, so every run had to be green; "
+                    "set `ci.workflows` in human-review.json")
+            return True, f"green: {names} for {sha[:12]}{note}", evidence
+        for w in waiting:
+            print(f"[preflight]   {w}; waiting")
+        time.sleep(poll)
+
+
+def write_evidence(evidence: dict) -> None:
+    """`.human-review/.gate.json`: which workflow, which run, which SHA, which verdict — the
+    gate's decision in a form a caller can check instead of re-deriving it from prose."""
+    HR.mkdir(parents=True, exist_ok=True)
+    (HR / ".gate.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+    print("[preflight] evidence " + json.dumps(evidence, separators=(",", ":")))
 
 
 def main(argv=None) -> int:
@@ -139,6 +341,11 @@ def main(argv=None) -> int:
     ap.add_argument("--no-gate", action="store_true",
                     help="skip the CI gate; the guide must then say no build proved this")
     ap.add_argument("--wait-minutes", type=float, default=20.0)
+    ap.add_argument("--workflow", action="append", default=[], metavar="NAME_OR_FILE",
+                    help="an authoritative CI workflow (e.g. ci.yml); repeat for several, all "
+                         "must be green. Default: `ci.workflows` in --config, else the one "
+                         "workflow named like ci/build, else every run on the SHA")
+    ap.add_argument("--config", default="human-review.json")
     ap.add_argument("--session", default=os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
     args = ap.parse_args(argv)
 
@@ -146,8 +353,15 @@ def main(argv=None) -> int:
     if args.no_gate:
         caveat = "the CI gate was skipped — no build proved this"
         print(f"[preflight] {caveat}", file=sys.stderr)
+        write_evidence({"sha": run("git rev-parse HEAD").stdout.strip() or None,
+                        "selection": None, "workflows": [], "verdict": "skipped",
+                        "caveat": caveat})
     else:
-        ok, caveat = gate(args.wait_minutes)
+        ok, caveat, evidence = gate(args.wait_minutes,
+                                    configured_workflows(args.workflow, args.config))
+        # Written on a refusal too: it is a dotfile beside the guide, not the guide, and the
+        # caller needs it most exactly when the gate said no.
+        write_evidence(dict(evidence, caveat=caveat))
         print(f"[preflight] {caveat}")
         if not ok:
             print("[preflight] refusing to review a branch CI has not proven. Nothing was "

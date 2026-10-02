@@ -6,6 +6,15 @@
   "base": "origin/main",
   "spec": "openapi.yaml",
 
+  "//ci": [
+    "Which CI workflows prove the branch builds — preflight.py waits for ALL of them to be",
+    "green on the exact pushed SHA. A push runs several workflows, and a green Pages deploy",
+    "says nothing about the application. A file name or a workflow name; `--workflow`",
+    "overrides it. Leave it out and the one workflow named like ci/build is used — or, with",
+    "none or several, every run on the SHA has to be green."
+  ],
+  "ci": {"workflows": ["ci.yml"]},
+
   "//generated": [
     "Which paths nobody types. The Review tab opens with a band naming every commit that",
     "landed AFTER the agent's review commit — the one thing a page built from a diff",
