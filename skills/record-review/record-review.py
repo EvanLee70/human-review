@@ -129,7 +129,9 @@ def record_cost(repo: Path, state: dict, harness_name: str) -> tuple[dict | None
     bad = schema.cost_problems(doc)
     if bad:
         return None, "not written — " + "; ".join(bad[:3])
-    (repo / COST).write_text(json.dumps(doc, indent=1) + "\n")
+    # Two spaces and a final newline: the repository's own .editorconfig is the one that
+    # usually decides, and petclinic's pre-commit refused the 1-space file twice on hr-try-4.
+    (repo / COST).write_text(json.dumps(doc, indent=2) + "\n")
     parts = []
     for c in doc["components"]:
         money = " + ".join(x for x in (
@@ -482,17 +484,21 @@ def ci(args) -> int:
     repo = root()
     os.chdir(repo)
     sha = git("rev-parse", "HEAD")
-    if not getattr(args, "push", False):
+    try:
+        st_path = repo / WORK / "state.json"
+        state = json.loads(st_path.read_text())
         # The first `ci` comes right after the reviewers: that is the end of the review,
         # and the start of deciding and fixing. Stamped once.
-        try:
-            st_path = repo / WORK / "state.json"
-            state = json.loads(st_path.read_text())
-            if state.get("reviewStartedAt") and not state.get("reviewersDoneAt"):
-                state["reviewersDoneAt"] = _now()
-                st_path.write_text(json.dumps(state, indent=2) + "\n")
-        except (OSError, ValueError):
-            pass
+        if (not getattr(args, "push", False) and state.get("reviewStartedAt")
+                and not state.get("reviewersDoneAt")):
+            state["reviewersDoneAt"] = _now()
+        # Every `ci` moves the end of the auto-fix window. A CI round fixed and committed
+        # without another `finish` (hr-try-4's second round) is then still billed: the
+        # cost tab re-measures the window to here when the record is older than this.
+        state["lastCiAt"] = _now()
+        st_path.write_text(json.dumps(state, indent=2) + "\n")
+    except (OSError, ValueError):
+        pass
     if getattr(args, "push", False):
         pushed = subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"],
                                 capture_output=True, text=True)

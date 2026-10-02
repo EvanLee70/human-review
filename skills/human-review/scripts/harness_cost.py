@@ -395,9 +395,18 @@ def copilot_entry(session: str, lo, hi, what: str, note: str | None = None) -> d
         dur = dt.timedelta(milliseconds=int(e.get("duration_ms") or 0))
         spans.append((e["when"] - dur, e["when"]))
     aic = sum(int(e.get("total_nano_aiu") or 0) for e in events) / NANO_PER_AIC
-    subs = len({e["agent_id"] for e in events if e.get("agent_id")})
+    sub_events = [e for e in events if e.get("agent_id")]
+    subs = len({e["agent_id"] for e in sub_events})
     if subs:
-        note = ((note + "; ") if note else "") + f"{subs} subagent(s) inside"
+        # Subagents share the session id and carry their own agent_id, so the split is
+        # exact: on hr-try-4 the four reviewers were 2.2 AIC on gpt-5.6-luna and the main
+        # agent orchestrating them 250.4 on claude-sonnet-5 — the review's cost was not
+        # the reviewing.
+        sub_aic = sum(int(e.get("total_nano_aiu") or 0) for e in sub_events) / NANO_PER_AIC
+        sub_models = sorted({e["model"] for e in sub_events})
+        note = ((note + "; ") if note else "") + (
+            f"{subs} subagent(s) inside: {sub_aic:.1f} AIC on {', '.join(sub_models)}, "
+            f"the main agent {aic - sub_aic:.1f}")
     return entry(COPILOT_CLI, session, what,
                  (min(e["when"] for e in events), max(e["when"] for e in events)),
                  tokens, models, aic=aic, calls=len(events),
@@ -717,6 +726,37 @@ def record(root: Path, base: str, state: dict, harness: str, at=None) -> dict:
             "components": [impl, review, fixes]}
 
 
+def last_round_at(root: Path, state: dict) -> "dt.datetime | None":
+    """The end of the last CI round: the later of the last `ci` stamp and the last
+    `[auto-fix]` commit on the branch."""
+    stamps = [parse(state.get("lastCiAt"))]
+    out = git(root, "log", "--format=%cI", "--grep=^\\[auto-fix\\]", "-1", "HEAD")
+    stamps.append(parse(out.strip()) if out.strip() else None)
+    stamps = [t for t in stamps if t]
+    return max(stamps) if stamps else None
+
+
+def extend_to_last_round(root: Path, base: str, rec: dict) -> dict:
+    """The committed record, its auto-fix window extended past `recordedAt` when a CI round
+    ran after it. `finish` writes the record; a round fixed and committed without another
+    `finish` left 45 AIC of hr-try-4 outside it (207.7 recorded, 252.6 spent)."""
+    try:
+        state = json.loads((Path(root) / ".human-review" / "review" / "state.json")
+                           .read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return rec
+    end, recorded = last_round_at(root, state), parse(rec.get("recordedAt"))
+    if not end or not recorded or end <= recorded:
+        return rec
+    again = record(root, base, {**state, "finishes": rec.get("rounds") or []},
+                   rec.get("harness") or "", at=end)
+    for c in again["components"]:
+        if c["key"] == "autofix":
+            c["source"] = "recorded, extended to the last CI round at build"
+    return {**rec, "components": [rec["components"][0], *again["components"][1:]],
+            "extendedTo": iso(end)}
+
+
 def read_record(root: Path) -> dict | None:
     try:
         doc = json.loads((Path(root) / RECORD_FILE).read_text(encoding="utf-8"))
@@ -1031,6 +1071,7 @@ def components(root: Path, base: str, review: Path, phases: dict | None = None,
     """The four rows the `$` tab leads with, and how each was obtained."""
     rec = read_record(root)
     if rec:
+        rec = extend_to_last_round(root, base, rec)
         first3 = rec["components"]
         # VS Code prices a turn only when it ends, which is after `finish` recorded it:
         # such a row is measured again now, over the same window, when it can be.

@@ -312,3 +312,31 @@ def test_the_tab_leads_with_four_rows_and_says_it_adds_two_kinds_of_price():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+def test_a_ci_round_after_the_record_extends_the_autofix_window(tmp_path, monkeypatch):
+    """hr-try-4: finish recorded at 20:23, a second CI round was fixed and committed with
+    no second finish — 207.7 AIC recorded of 252.6 spent."""
+    (tmp_path / ".human-review" / "review").mkdir(parents=True)
+    (tmp_path / ".human-review" / "review" / "state.json").write_text(json.dumps(
+        {"reviewStartedAt": "2026-10-02T19:40:00+00:00",
+         "reviewersDoneAt": "2026-10-02T19:50:00+00:00",
+         "lastCiAt": "2026-10-02T21:00:00+00:00"}))
+    rec = {"schema": hc.RECORD_SCHEMA, "harness": "copilot-cli",
+           "recordedAt": "2026-10-02T20:23:00+00:00", "rounds": ["2026-10-02T20:23:00+00:00"],
+           "components": [{"key": "implementation"}, {"key": "review"},
+                          {"key": "autofix", "aic": 192.7}]}
+    seen = {}
+
+    def fake_record(root, base, state, harness, at=None):
+        seen["at"] = at
+        return {"components": [{"key": "implementation"}, {"key": "review"},
+                               {"key": "autofix", "aic": 237.6}]}
+    monkeypatch.setattr(hc, "record", fake_record)
+    monkeypatch.setattr(hc, "git", lambda *a: "")
+    out = hc.extend_to_last_round(tmp_path, "main", rec)
+    assert hc.iso(seen["at"]).startswith("2026-10-02T21:00")
+    assert out["components"][2]["aic"] == 237.6
+    assert "extended" in out["components"][2]["source"]
+    rec["recordedAt"] = "2026-10-02T21:30:00+00:00"
+    assert hc.extend_to_last_round(tmp_path, "main", rec) is rec
