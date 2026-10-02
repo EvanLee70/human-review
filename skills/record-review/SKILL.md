@@ -72,7 +72,17 @@ needed — link both skills into the personal skills folder and open a new chat:
 ```sh
 ln -s ~/workspace/human-review/skills/record-review ~/.copilot/skills/record-review
 ln -s ~/workspace/human-review/skills/human-review  ~/.copilot/skills/human-review
-``` Either way the reviewers only
+```
+
+**Headless Copilot CLI (`copilot -p`) cannot invoke this skill by name.** It is
+`disable-model-invocation: true`, and in `-p` mode there is no user to type the slash
+command, so `/record-review` as the prompt answers `Skill not found`. Hand it the files
+instead — `Read <skill dir>/SKILL.md and <skill dir>/prompt.md, then follow them` — with
+the skill dir found as above. And pass `--harness copilot-cli` to `prepare` and `finish`:
+a `copilot -p` started from a Claude Code session inherits `CLAUDE_CODE_SESSION_ID`, and
+without the flag the review is recorded as that Claude session's.
+
+Either way the reviewers only
 *find*; the conversation that wrote the code *decides*.
 
 ## What the flow downstream depends on

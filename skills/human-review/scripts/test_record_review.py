@@ -145,3 +145,17 @@ def test_a_record_that_does_not_parse_is_refused_before_anything_is_committed(re
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+def test_a_declared_copilot_harness_does_not_inherit_the_parent_claude_session(monkeypatch):
+    """`copilot -p` started from a Claude session inherits `CLAUDE_CODE_SESSION_ID`;
+    hr-try-3 recorded a Copilot review under that Claude session's id."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("record_review", RR)
+    rr = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rr)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "parent-claude")
+    assert rr.session_id("copilot-cli") == ""
+    assert rr.harness("copilot-cli") == "copilot-cli"
+    assert rr.session_id("claude-code") == "parent-claude"
+    assert rr.session_id() == "parent-claude"

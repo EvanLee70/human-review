@@ -152,13 +152,22 @@ def push_gate() -> str:
     return "\n".join((keep or lines[-5:])[:12])
 
 
-def session_id() -> str:
+def session_id(given_harness: str | None = None) -> str:
+    """The Claude Code session that recorded the review — none when another harness did.
+
+    `CLAUDE_CODE_SESSION_ID` is inherited: a `copilot -p` started from a Claude session
+    carries the parent's id, and hr-try-3 recorded a Copilot review under a Claude session
+    that never ran it. So a declared non-Claude harness wins over the environment."""
+    if given_harness and given_harness != "claude-code":
+        return ""
     return os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 
 
 def harness(given: str | None) -> str:
     """Which agent harness recorded the review: what the caller says, else Claude Code
-    when its session id is in the environment, else nothing — never a guess."""
+    when its session id is in the environment, else nothing — never a guess. An inherited
+    id makes this guess wrong for a Copilot child process, which is why a non-Claude
+    caller must pass `--harness`."""
     if given:
         return given
     return "claude-code" if session_id() else ""
@@ -209,8 +218,8 @@ def prepare(args) -> int:
                 print("  ", l)
             return 3
         stage_all()
-        msg = args.impl_subject + ("\n\n" + trailers(**{"Claude-Session": session_id()})
-                                   if session_id() else "")
+        msg = args.impl_subject + ("\n\n" + trailers(**{"Claude-Session": session_id(args.harness)})
+                                   if session_id(args.harness) else "")
         git("commit", "-q", "-m", msg)
     head = git("rev-parse", "HEAD")
     commits = git("log", "--format=%h %s", f"{base}..HEAD").splitlines()
@@ -253,7 +262,7 @@ def prepare(args) -> int:
     # branch tip is housekeeping that landed after the feature (`--implements <sha>`).
     implementation = rev(args.implements) or head
     state = {"base": base, "auditedHead": head, "implementation": implementation,
-             "session": session_id(), "harness": harness(args.harness)}
+             "session": session_id(args.harness), "harness": harness(args.harness)}
     (work / "state.json").write_text(json.dumps(state, indent=2) + "\n")
 
     print(f"base            {base[:8]}  ({args.base or 'merge-base with origin/main'})")
@@ -309,7 +318,7 @@ def finish(args) -> int:
         state = json.loads((repo / WORK / "state.json").read_text())
     except (OSError, ValueError):
         state = {"base": resolve_base(None), "implementation": git("rev-parse", "HEAD"),
-                 "session": session_id()}
+                 "session": session_id(args.harness)}
     head = git("rev-parse", "HEAD")
     implementation = rev(args.implements) or state["implementation"]
     audited_head = state.get("auditedHead") or state["implementation"]
