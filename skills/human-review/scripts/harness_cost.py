@@ -1022,6 +1022,33 @@ def record_run(root: Path, review: Path, harness: str | None = None, force: bool
     return doc
 
 
+def complete_guide(root: Path, review: Path, report: dict) -> tuple[dict, dict | None]:
+    """The recorded guide row, completed with what its Copilot run did after recording.
+
+    `report-cost.py` runs in Step 5, before the build and the close, so a Copilot CLI
+    session keeps calling the model after the snapshot: hr-try-4's guide recorded 198.3
+    of the 296.7 AIC its session spent (window stopped 20:40:22, session ran to 20:43:42).
+    A Copilot CLI /human-review session is the run and nothing else, so its later events
+    are this page's; a Claude session is not extended, because the conversation that ran
+    the page goes on to other work and its later turns are not this report's."""
+    guide, wall = report["guide"], report.get("wallclock")
+    if COPILOT_CLI not in (guide.get("harnesses") or [report.get("harness")]):
+        return guide, wall
+    recorded = parse(report.get("recordedAt"))
+    branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    lasts = [s["last"] for s in copilot_sessions(root, branch)
+             if s["kind"] == "human-review" and s["last"]
+             and any(e.get("session") == s["id"] for e in guide.get("entries") or [])]
+    end = max(lasts, default=None)
+    if not end or not recorded or end <= recorded:
+        return guide, wall
+    again, wall2 = measure_guide(root, review, COPILOT_CLI, end=end)
+    if (again.get("aic") or 0) <= (guide.get("aic") or 0):
+        return guide, wall
+    again["source"] = "recorded, completed at build to the session's last call"
+    return again, wall2
+
+
 def note_refresh(review: Path, seconds: float, steps: str = "none") -> None:
     """A refresh's own time, added to the run's record. Never its money: a refresh calls
     no model, and the run it refreshes has already been billed."""
@@ -1089,7 +1116,7 @@ def components(root: Path, base: str, review: Path, phases: dict | None = None,
     report = read_report(review)
     wall = None
     if report and report.get("guide"):
-        guide, wall = report["guide"], report.get("wallclock")
+        guide, wall = complete_guide(root, review, report)
     else:
         # The run's own window, `.started` to its guide step, in whichever harness ran it;
         # the phase cut's last regeneration only when that window holds nothing.

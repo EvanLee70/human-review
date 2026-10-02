@@ -340,3 +340,24 @@ def test_a_ci_round_after_the_record_extends_the_autofix_window(tmp_path, monkey
     assert "extended" in out["components"][2]["source"]
     rec["recordedAt"] = "2026-10-02T21:30:00+00:00"
     assert hc.extend_to_last_round(tmp_path, "main", rec) is rec
+
+
+def test_a_copilot_guide_recorded_mid_session_is_completed_at_build(tmp_path, monkeypatch):
+    """hr-try-4: report-cost.py recorded 198.3 of the 296.7 AIC — the session went on
+    calling the model through the build and the close."""
+    import datetime as dt
+    rep = {"recordedAt": "2026-10-02T20:40:22+00:00", "harness": hc.COPILOT_CLI,
+           "guide": {"harnesses": [hc.COPILOT_CLI], "aic": 198.3,
+                     "entries": [{"session": "511bbe15"}]},
+           "wallclock": {"seconds": 600}}
+    last = dt.datetime(2026, 10, 2, 20, 43, 42, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(hc, "git", lambda *a: "hr-try-4")
+    monkeypatch.setattr(hc, "copilot_sessions", lambda root, branch: [
+        {"id": "511bbe15", "kind": "human-review", "first": last, "last": last}])
+    monkeypatch.setattr(hc, "measure_guide", lambda root, review, h, end=None: (
+        {"harnesses": [hc.COPILOT_CLI], "aic": 296.7, "entries": []}, {"seconds": 800}))
+    guide, wall = hc.complete_guide(tmp_path, tmp_path, rep)
+    assert guide["aic"] == 296.7 and "completed at build" in guide["source"]
+    assert wall["seconds"] == 800
+    rep["harness"], rep["guide"]["harnesses"] = hc.CLAUDE, [hc.CLAUDE]
+    assert hc.complete_guide(tmp_path, tmp_path, rep)[0]["aic"] == 198.3
