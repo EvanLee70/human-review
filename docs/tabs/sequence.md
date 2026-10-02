@@ -21,6 +21,26 @@
 ## What it needs
 
 - Tests tagged for tracing, and the project's traced test run named in `human-review.json`.
+- Somewhere for the traces to land. Best: `steps.sequence.app`, the block `video.app` is,
+  whose `up` builds the commit under review **with its own trace store** and whose `vars`
+  command prints every host-picked address as `NAME=value` lines; they are exported to the
+  commands, and `down` runs in a `finally`. Several branches can then be traced at once, each
+  into its own Tempo, from a freshly seeded database. `requires` (URLs or `tcp://host:port`,
+  `{NAME}` expanded from `vars`) is probed before any command runs — after `up` with an
+  `app`, before anything without one — and a miss is a skip naming what did not answer:
+
+  ```json
+  "sequence": {
+    "app": {
+      "up": "./start-docker.sh up --ref {sha} --name petclinic-{shortsha}-otel --otel --fresh",
+      "vars": "./start-docker.sh ports petclinic-{shortsha}-otel",
+      "down": "./start-docker.sh down petclinic-{shortsha}-otel"
+    },
+    "requires": [{"url": "{GRAFANA_URL}/api/health", "what": "Grafana"},
+                 {"url": "{OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces", "what": "OTLP collector"}],
+    "commands": ["cd petclinic-test && ./run-tests-with-tracing.sh"]
+  }
+  ```
 
 ## Deeper
 

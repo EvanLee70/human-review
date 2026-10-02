@@ -492,8 +492,24 @@ def _sequence(ctx: Ctx):
         if app.started:
             ctx.notes.append(f"the traced suites ran against {app.base}, started by this run "
                              "from the commit under review — not whatever was already listening")
+        # With `app`, `requires` is asked now that the addresses exist: its `{NAME}`s are
+        # the instance's own `vars` (`{GRAFANA_URL}/api/health`). An `up` that came back
+        # without the collector — a commit whose stack has none — is a skip that says so,
+        # not three commands that pass and draw nothing. Inside the block, so `down` runs.
+        if cfg.get("app") and not ctx.dry and cfg.get("requires"):
+            wanted = [{**r, "url": expand_vars(r.get("url", ""), app.vars)}
+                      if isinstance(r, dict) else expand_vars(str(r), app.vars)
+                      for r in cfg["requires"]]
+            down = unmet_requires(wanted)
+            if down:
+                reason = ("the stack this step started for the traced suites has no "
+                          + ", ".join(down) + ", so nothing was run. Its `up` has to bring "
+                          "them, and `app.vars` has to print where — then re-run "
+                          "--only sequence")
+                write_seq_verdict("skipped", reason, missing=down)
+                raise LookupError(reason)
         for cmd in commands:
-            r = sh(f"{app.env}{cmd}", ctx, check=False, capture=True)
+            r = sh(app.command(cmd), ctx, check=False, capture=True)
             out = (r.stdout or "") + (r.stderr or "")
             print(out, end="", flush=True)
             outcome, detail = suite_outcome(r.returncode, out)
@@ -821,6 +837,44 @@ class AppInstance:
 
     def __init__(self, base: str = "", env: str = "", started: bool = False):
         self.base, self.env, self.started = base, env, started
+        self.vars: dict[str, str] = {}
+
+    def command(self, cmd: str) -> str:
+        """`cmd` with this instance's env in force for ALL of it.
+
+        `NAME=v cmd` binds NAME for the first simple command only, and the project's
+        commands are compound — `cd petclinic-test && ./run-tests-with-tracing.sh`. The
+        prefix used to land on the `cd` and nowhere else: the suite then fell back to the
+        operator's fixed ports, and a Grafana that happened to be up on :3300 answered with
+        another checkout's traces. `export` covers every command after it, in the one shell
+        `sh` starts, and leaks nowhere."""
+        return f"export {self.env.strip()}; {cmd}" if self.env else cmd
+
+
+#: One line of what `app.vars` prints: a shell-style assignment, nothing else counts.
+_APP_VAR = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(\S*)\s*$")
+
+
+def app_vars(output: str) -> dict[str, str]:
+    """`{NAME: value}` off a command that prints `NAME=value` lines (`start-docker.sh ports`).
+
+    The base URL is the only address an `up` can be scraped for, and a traced run needs
+    more than one: the backend, the trace store, the collector the JVM under test exports
+    to. All of them are host-picked, so none can be written into the config; a line that
+    is not an assignment (a banner, a warning) is ignored rather than guessed at."""
+    found = {}
+    for line in _ANSI.sub("", output or "").splitlines():
+        m = _APP_VAR.match(line.strip())
+        if m:
+            found[m.group(1)] = m.group(2)
+    return found
+
+
+def expand_vars(template: str, found: dict[str, str]) -> str:
+    """`{NAME}` → that var's value, for `requires` entries that point into the instance."""
+    for name, value in found.items():
+        template = template.replace("{" + name + "}", value)
+    return template
 
 
 @contextlib.contextmanager
@@ -894,6 +948,18 @@ def app_instance(ctx: Ctx, cfg: dict, sha: dict):
                 f"{k}={shlex.quote(v.replace('{url}', inst.base))} " for k, v in names.items())
             inst.env += (f"HUMAN_REVIEW_APP_COMMIT={shlex.quote(sha.get('sha', ''))} "
                          "HUMAN_REVIEW_APP_STARTED=1 ")
+        # Every other address the instance published, exported under the names the
+        # project's tooling reads. After `env`, so a var it also names wins: `vars` is read
+        # off the running instance, `{url}` only off what `up` happened to print. A `vars`
+        # that fails is fatal — the commands would otherwise fall back to the operator's
+        # fixed ports, which is the very hazard the block exists to remove.
+        if cfg.get("vars") and not ctx.dry:
+            got = sh(expand(cfg["vars"]), ctx, capture=True, check=False)
+            inst.vars = app_vars(got.stdout) if got.returncode == 0 else {}
+            if not inst.vars:
+                raise RuntimeError(f"the app is up but `{expand(cfg['vars'])}` printed no "
+                                   "NAME=value line to point the commands at it")
+            inst.env += "".join(f"{k}={shlex.quote(v)} " for k, v in inst.vars.items())
         yield inst
     finally:
         if inst.started and cfg.get("down"):
@@ -1348,7 +1414,7 @@ def _traces(ctx: Ctx):
             ctx.notes.append(f"the recorded suite ran against {app.base}, started by this run "
                              "from the commit under review")
         for cmd in c.get("commands") or []:
-            r = sh(f"{app.env}{cmd}", ctx, check=False)
+            r = sh(app.command(cmd), ctx, check=False)
             if r.returncode != 0:
                 ctx.notes.append(f"the traced suite did not pass ({cmd}); the recordings below "
                                  "are of that run, which is exactly when they are worth most")

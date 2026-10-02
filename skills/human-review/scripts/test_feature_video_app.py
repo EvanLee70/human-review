@@ -452,7 +452,7 @@ def test_the_sequence_step_can_start_the_stack_its_suites_are_traced_against(
 
     assert sh.first("start-docker.sh up").endswith(f"up --ref {SHA} --ttl 1800")
     traced = sh.first("run-tests-with-tracing.sh")
-    assert traced.startswith("BASE_URL=http://localhost:63241 ")
+    assert traced.startswith("export BASE_URL=http://localhost:63241 ")
     assert "API_URL=http://localhost:63241" in traced
     assert sh.has(f"start-docker.sh down petclinic-{SHORT}")
 
@@ -468,7 +468,7 @@ def test_a_step_borrows_the_video_block_by_name_rather_than_repeating_it(
     steps._traces(ctx)
 
     assert sh.has("start-docker.sh up --ref " + SHA)
-    assert sh.first("npm run test:cucumber").startswith("BASE_URL=http://localhost:63241 ")
+    assert sh.first("npm run test:cucumber").startswith("export BASE_URL=http://localhost:63241 ")
 
 
 def test_a_project_names_the_env_vars_its_own_tests_read(tmp_path, monkeypatch):
@@ -654,6 +654,102 @@ def test_what_the_suites_require_is_probed_before_anything_runs(tmp_path, monkey
     assert sh.ran == [], "nothing is run against an environment known to be missing"
     verdict = json.loads(Path(".human-review/assets/sequence.verdict.json").read_text())
     assert verdict["missing"] == [f"OTLP collector (tcp://127.0.0.1:{port})"]
+
+
+# ── a traced stack of the run's own: every address it published, not only the app's ───
+# The sequence step on a host stack was red or skipped on every eval run: it needs Grafana
+# on :3300 and a collector on :4318 beside the app, and those are one global pair that two
+# branches traced at once would share. petclinic's `start-docker.sh up --otel` puts a Tempo
+# inside the instance — on host-picked ports, which only `ports` can say afterwards.
+
+SEQ_APP = {
+    "up": "./start-docker.sh up --ref {sha} --name petclinic-{shortsha}-otel --otel --fresh",
+    "vars": "./start-docker.sh ports petclinic-{shortsha}-otel",
+    "down": "./start-docker.sh down petclinic-{shortsha}-otel",
+}
+
+
+def _seq_ctx(tmp_path, monkeypatch, ports_out, requires=None):
+    ctx, _ = _steps_ctx(tmp_path, monkeypatch, {"sequence": {
+        "app": SEQ_APP, "commands": HR_TRY_4,
+        **({"requires": requires} if requires is not None else {})}})
+    sh = Recorder([("git rev-parse HEAD", 0, SHA + "\n"),
+                   ("git rev-parse --short HEAD", 0, SHORT + "\n"),
+                   ("start-docker.sh up", 0, "✅ ready\n   Grafana  http://localhost:61000\n"
+                                             "   http://localhost:63241\n"),
+                   ("start-docker.sh ports", 0, ports_out)])
+    monkeypatch.setattr(steps, "sh", sh)
+    return ctx, sh
+
+
+@pytest.mark.parametrize("app_saying", ["any"], indirect=True)
+def test_the_traced_suites_get_every_address_the_instance_published(
+        app_saying, tmp_path, monkeypatch):
+    ports = ("PETCLINIC_INSTANCE=petclinic-904aa051-otel\n"
+             "BASE_URL=http://127.0.0.1:63241\n"
+             f"GRAFANA_URL={app_saying}\n"
+             f"OTEL_EXPORTER_OTLP_ENDPOINT={app_saying}\n")
+    ctx, sh = _seq_ctx(tmp_path, monkeypatch, ports, requires=[
+        {"url": "{GRAFANA_URL}/api/health", "what": "Grafana"},
+        {"url": "{OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces", "what": "OTLP collector"}])
+    steps._sequence(ctx)
+
+    assert sh.first("start-docker.sh up").endswith(
+        f"up --ref {SHA} --name petclinic-{SHORT}-otel --otel --fresh")
+    assert sh.has(f"start-docker.sh ports petclinic-{SHORT}-otel")
+    for cmd in HR_TRY_4:          # the Java suite exports to it as much as the browser does
+        ran = sh.first(cmd)
+        assert ran.endswith(f"; {cmd}"), "exported for the whole command, not only its `cd`"
+        exported = ran[:-len(cmd) - 2] + " "
+        assert f"GRAFANA_URL={app_saying} " in exported
+        assert f"OTEL_EXPORTER_OTLP_ENDPOINT={app_saying} " in exported
+        # The scraped `{url}` is the LAST one `up` printed, never the Grafana line above
+        # it, and the instance's own 127.0.0.1 spelling is what the commands end up with.
+        assert exported.index("BASE_URL=http://127.0.0.1:63241") > \
+            exported.index("BASE_URL=http://localhost:63241")
+    assert sh.has(f"start-docker.sh down petclinic-{SHORT}-otel")
+
+
+def test_an_instance_without_the_trace_store_is_a_skip_and_is_still_taken_down(
+        tmp_path, monkeypatch):
+    """A commit whose stack predates `--otel` comes up fine and publishes no Grafana. Run
+    anyway, the suites pass and draw nothing — or, worse, find the operator's :3300."""
+    ctx, sh = _seq_ctx(tmp_path, monkeypatch, "BASE_URL=http://127.0.0.1:63241\n",
+                       requires=[{"url": "{GRAFANA_URL}/api/health", "what": "Grafana"}])
+    with pytest.raises(LookupError, match="Grafana"):
+        steps._sequence(ctx)
+
+    assert not any(sh.has(c) for c in HR_TRY_4), "nothing runs against a store that is missing"
+    assert sh.has(f"start-docker.sh down petclinic-{SHORT}-otel")
+    verdict = json.loads(Path(".human-review/assets/sequence.verdict.json").read_text())
+    assert verdict["state"] == "skipped"
+    assert verdict["missing"] == ["Grafana ({GRAFANA_URL}/api/health)"]
+
+
+def test_a_vars_command_that_says_nothing_stops_the_step_rather_than_fall_back(
+        tmp_path, monkeypatch):
+    """Without the instance's addresses the commands would use their defaults — :3300 and
+    :4318, the shared host stack — which is the hazard the whole block removes."""
+    ctx, sh = _seq_ctx(tmp_path, monkeypatch, "❌ no such instance\n")
+    with pytest.raises(RuntimeError, match="NAME=value"):
+        steps._sequence(ctx)
+    assert not any(sh.has(c) for c in HR_TRY_4)
+    assert sh.has(f"start-docker.sh down petclinic-{SHORT}-otel")
+
+
+def test_the_env_reaches_every_command_after_a_cd_not_only_the_cd(tmp_path):
+    """Found by the first real run of the block: `GRAFANA_URL=… cd petclinic-test && ./run…`
+    gave the variable to `cd` alone, and the suite searched the host's :3300 instead."""
+    inst = steps.AppInstance(env="GRAFANA_URL=http://127.0.0.1:1 A='two words' ")
+    got = subprocess.run(inst.command(f'cd {tmp_path} && echo "$GRAFANA_URL|$A|$PWD"'),
+                         shell=True, capture_output=True, text=True)
+    assert got.stdout.strip() == f"http://127.0.0.1:1|two words|{tmp_path}"
+    assert steps.AppInstance().command("cd x && y") == "cd x && y"
+
+
+def test_only_assignments_are_read_off_the_vars_output():
+    assert steps.app_vars("\x1b[1mbanner\x1b[0m\nA=1\n  B=http://x:2/api \nnot one\nC=\n") == {
+        "A": "1", "B": "http://x:2/api", "C": ""}
 
 
 def test_a_clean_run_takes_the_previous_runs_band_away(tmp_path, monkeypatch):
