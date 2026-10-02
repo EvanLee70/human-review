@@ -28,11 +28,12 @@ def cost_session(out_dir: Path | None) -> str:
     """
     if out_dir is not None:
         try:
-            pinned = (out_dir / ".session").read_text(encoding="utf-8").strip()
+            # Blank is pinned too: the run had no Claude session (a Copilot or Codex
+            # harness), and the env id is then a stranger's — the conversation that
+            # pressed refresh — not "the run, recovered".
+            return (out_dir / ".session").read_text(encoding="utf-8").strip()
         except OSError:
-            pinned = ""
-        if pinned:
-            return pinned
+            pass
     return os.environ.get("CLAUDE_CODE_SESSION_ID") or ""
 
 

@@ -181,6 +181,22 @@ def test_a_refresh_keeps_the_session_that_did_the_work(tmp_path):
     assert refresh.session_id(tmp_path / "nowhere") is None
 
 
+def test_a_blank_session_file_means_no_claude_session_not_the_refreshers_own(tmp_path):
+    """A Copilot run writes `.session` empty. Read as "absent", the refresh fell back to its
+    own `$CLAUDE_CODE_SESSION_ID` and billed that conversation as the review run."""
+    d = _review(tmp_path)
+    (d / ".session").write_text("\n", encoding="utf-8")
+    assert refresh.session_id(d) == ""
+    from hrbuild.tabs.cost import cost_session
+    import os
+    os.environ["CLAUDE_CODE_SESSION_ID"] = "the-refresher"
+    try:
+        assert cost_session(d) == ""
+        assert cost_session(tmp_path / "nowhere") == "the-refresher"
+    finally:
+        del os.environ["CLAUDE_CODE_SESSION_ID"]
+
+
 def test_the_skill_tells_the_reader_to_run_the_program_not_the_commands():
     """The whole point is that nobody retypes the three commands — including the model
     reading this skill, which is how the two halves got run together in the first place."""

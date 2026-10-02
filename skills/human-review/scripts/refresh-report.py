@@ -217,7 +217,12 @@ def session_id(review: Path) -> str | None:
     cheaper-looking review."""
     p = review / ".session"
     try:
-        return p.read_text(encoding="utf-8").strip() or None
+        # Present but blank is an answer, not a gap: the run was started by a harness with
+        # no Claude session id (Copilot, Codex), so there is no transcript to price. It
+        # comes back as "" — not None — so the caller can stop the refreshing session's
+        # own id from standing in for it. That stand-in billed a Copilot run $39 for the
+        # Claude conversation that merely pressed refresh.
+        return p.read_text(encoding="utf-8").strip()
     except OSError:
         return None
 
@@ -279,6 +284,8 @@ def main(argv=None) -> int:
     sid = session_id(review)
     if sid:
         env["CLAUDE_CODE_SESSION_ID"] = sid
+    elif sid == "":
+        env.pop("CLAUDE_CODE_SESSION_ID", None)
 
     url = ""
     phases: list[tuple[str, float]] = []
