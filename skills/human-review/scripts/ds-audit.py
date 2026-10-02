@@ -1726,6 +1726,9 @@ def main():
                     help="CSS selector painted flat grey before the shot (repeatable) — "
                          "for the clock the page renders that no pin can freeze")
     ap.add_argument("--settle", type=int, default=250, help="ms between settle frames")
+    ap.add_argument("--jobs", type=int, default=6,
+                    help="captures taken at once, each in its own browser (default 6; 1 = "
+                         "one after another)")
     ap.add_argument("--epoch", type=int, default=1756857600000,
                     help="the frozen wall clock, ms since epoch")
     ap.add_argument("--seed", type=int, default=20260903)
@@ -1816,6 +1819,27 @@ def main():
               "two running builds; start it and re-run", file=sys.stderr)
         sys.exit(2)
 
+    # Every capture launches its own Chromium and waits for the page to settle, and the
+    # 38 of a petclinic run (19 screens, two builds) were taken one after another: the
+    # audit was the review's critical path at 105 s, nearly all of it waiting. They share
+    # nothing — each has its own browser, context and PNG — so they are taken in parallel
+    # (`--jobs`, one sync Playwright per thread) and then read back in screen order, so
+    # everything downstream of this loop is exactly what the serial run produced.
+    shot: dict = {}
+    if not cap_dir:
+        from concurrent.futures import ThreadPoolExecutor
+        todo = [(name, side, url) for name, new_url, old_url in wanted
+                for side, url in (("new", new_url), ("old", old_url))]
+
+        def take(job):
+            name, side, url = job
+            print(f"[ds-audit] {name}: capturing {url}", file=sys.stderr, flush=True)
+            png = assets / f"ds-audit-{slug(name)}-{side}.png"
+            return (name, side), capture(url, png, **common)
+
+        with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
+            shot = dict(pool.map(take, todo))
+
     snaps, screens_io = {}, []
     for name, new_url, old_url in wanted:
         stem = slug(name)
@@ -1829,10 +1853,7 @@ def main():
                 if src.resolve() != pngs[side].resolve():
                     pngs[side].write_bytes(src.read_bytes())
         else:
-            pair = {}
-            for side, url in (("new", new_url), ("old", old_url)):
-                print(f"[ds-audit] {name}: capturing {url}", file=sys.stderr)
-                pair[side] = capture(url, pngs[side], **common)
+            pair = {side: shot[(name, side)] for side in ("new", "old")}
             if keep:
                 _keep_names.append(name)
                 (keep / "screens.json").write_text(json.dumps(_keep_names, indent=1))

@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import copy
 import contextlib
 import datetime as dt
 import fnmatch
@@ -43,6 +44,7 @@ import shutil
 import re
 import shlex
 import subprocess
+import threading
 import sys
 import time
 import urllib.error
@@ -88,15 +90,44 @@ class Ctx:
         return (self.cfg.get("steps") or {}).get(name) or {}
 
 
+#: Where the step running on this thread writes. Steps run in parallel (see `schedule`),
+#: and four steps printing into one terminal is a log nobody can read; so each one writes
+#: to its own `.human-review/logs/<step>.log`, and the terminal gets one line when a step
+#: starts and one when it ends. Serial runs (`--jobs 1`) keep writing to the terminal.
+_LOCAL = threading.local()
+_NOTES_LOCK = threading.Lock()
+
+
+class _StepStdout:
+    """`sys.stdout` for the whole process: the step's log on a step's thread, the real
+    terminal everywhere else. The steps print a lot and were written for one stream."""
+
+    def __init__(self, real):
+        self.real = real
+
+    def _target(self):
+        return getattr(_LOCAL, "log", None) or self.real
+
+    def write(self, text):
+        return self._target().write(text)
+
+    def flush(self):
+        self._target().flush()
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+
 def sh(cmd, ctx: Ctx, check=True, capture=False) -> subprocess.CompletedProcess:
     """One command, echoed. A step's commands are shell strings because half of them are
     the project's own (`cd x && mvn …`), and quoting those into a list buys nothing."""
     print(f"    $ {cmd}", flush=True)
     if ctx.dry:
         return subprocess.CompletedProcess(cmd, 0, "", "")
+    log = getattr(_LOCAL, "log", None)
     r = subprocess.run(cmd, shell=True, text=True,
-                       stdout=subprocess.PIPE if capture else None,
-                       stderr=subprocess.PIPE if capture else None)
+                       stdout=subprocess.PIPE if capture else log,
+                       stderr=subprocess.PIPE if capture else log)
     if check and r.returncode != 0:
         raise RuntimeError(f"exit {r.returncode}: {cmd}"
                            + (f"\n{(r.stderr or '').strip()[:400]}" if capture else ""))
@@ -639,7 +670,18 @@ def app_instance(ctx: Ctx, cfg: dict, sha: dict):
 
     inst = AppInstance()
     try:
-        if cfg.get("up"):
+        # Already up — started by an earlier step of this run (city's browser suite brings
+        # up the very stack video and dsaudit need): reuse it, and leave it up. Tearing
+        # down a stack this step did not create was measured costing the run a full
+        # rebuild: video's `down` removed city's stack, and dsaudit then rebuilt every
+        # image and container of the same commit from scratch on the critical path.
+        if cfg.get("url") and not ctx.dry:
+            got = sh(expand(cfg["url"]), ctx, capture=True, check=False)
+            found = APP_URL.findall(got.stdout or "") if got.returncode == 0 else []
+            if found and answers(found[-1].rstrip(".,)")):
+                inst.base = found[-1].rstrip(".,)")
+                print(f"    reusing the stack already up at {inst.base}", flush=True)
+        if cfg.get("up") and not inst.base:
             up = sh(expand(cfg["up"]), ctx, capture=True, check=False)
             # Echoed: a docker build's output is what a reader asks for when the step takes
             # four minutes, and `capture` is only here to scrape the port off it.
@@ -1024,6 +1066,36 @@ def _dsaudit(ctx: Ctx):
     # Outside the block: the stylesheet is printed by the script itself and needs no
     # application at all, so it must not hold two stacks up while it is written.
     sh(f"{HERE}/ds-audit.py --css > {ART}/ds-audit.css", ctx)
+
+
+def _basestack(ctx: Ctx):
+    """Start the merge-base's stack at the beginning of the run, so dsaudit finds it up.
+
+    The audit is the run's critical path (city → dsaudit on the shared stack) and the
+    merge-base build is the part of it that waits on nothing: on petclinic dsaudit spent
+    most of its 131 s building the older commit's images while every other lane was idle
+    or done. Started here, it builds alongside city; dsaudit then reuses it through
+    `app_instance`, which leaves up what it did not start — and the stack's own TTL takes
+    it down. Only when dsaudit will actually run: `main` sets `prewarm_base` from the
+    step cache, because a two-minute docker build for a cached audit is pure waste.
+    """
+    if not getattr(ctx, "prewarm_base", False):
+        raise LookupError("dsaudit is unchanged or not running — no stack to start early")
+    cfg = ctx.step_cfg("dsaudit").get("app")
+    if cfg == "video":
+        cfg = ctx.step_cfg("video").get("app") or {}
+    if not isinstance(cfg, dict) or not cfg.get("up"):
+        raise LookupError("dsaudit starts no stack of its own")
+    slots = _app_slots(ctx, merge_base(ctx))
+    up = cfg["up"]
+    for name, value in slots.items():
+        up = up.replace("{" + name + "}", value).replace("{" + name.replace("sha", "SHA") + "}", value)
+    r = sh(up, ctx, capture=True, check=False)
+    print((r.stdout or "") + (r.stderr or ""), end="", flush=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"the merge-base stack would not start: {up}")
+    ctx.notes.append(f"started the merge-base stack ({slots.get('shortsha')}) early, "
+                     "for the design-system audit")
 
 
 def _dsaudit_prereq(ctx: Ctx):
@@ -1411,6 +1483,10 @@ STEPS = [
     # review rather than the code: everything below measures what the change did, and this
     # reads what the agent said it decided. It also resolves the two commits the later
     # steps and the cost phases date themselves from.
+    # No tab and nothing to show: it only starts the build the design-system audit will
+    # compare against, early, because that build waits on nothing (see `_basestack`).
+    ("basestack",   None,            "merge-base stack, started early for dsaudit",
+     None,                                                                        _basestack),
     ("reviewpoints", "review",       "review-points.md and the two commits",
      None,                                                                        _reviewpoints),
     # Straight after it, and never before: it reads the review commit that step resolved.
@@ -1458,6 +1534,89 @@ STEPS = [
     ("testcov",     "requirements",  "per-test coverage of the change",
      lambda c: bool(c.step_cfg("testcov")) or "testcov not configured", _testcov),
 ]
+
+
+#: What a step reads that another step writes: it starts only after those have finished
+#: (whatever their status — a failed `sequence` still leaves `c2` something to say). The
+#: order of STEPS above is the serial order and stays a valid one; this is the part of it
+#: that is a real dependency rather than habit.
+NEEDS = {
+    "aftermath": {"reviewpoints"},     # reads the review commit reviewpoints resolved
+    "c2":        {"sequence"},         # projects the diagrams sequence drew
+    "traces":    {"city", "tests"},    # copies the report city's browser run wrote
+    "testcov":   {"city", "traces"},   # reads the per-test coverage that run dumped
+    "dsaudit":   {"basestack"},        # reuses the merge-base stack it started
+}
+
+#: What a step holds that no other step may hold at the same time. Measured on petclinic:
+#: `city`'s browser suite, `traces`' cucumber run, `video` and `dsaudit` all run against
+#: the one Docker stack of
+#: the commit under review (`petclinic-<sha>`), and the step that started it tears it down
+#: when it ends — under another step still using it. `sequence` and `testcov` both run
+#: `mvn test` in the same module, and two Maven builds in one `target/` corrupt each
+#: other. Everything else reads git and files, and runs alongside anything.
+USES = {
+    "city":     {"stack"},
+    "traces":   {"stack"},             # its cucumber run writes to that stack's database
+    "video":    {"stack"},
+    "dsaudit":  {"stack"},
+    "sequence": {"maven", "devports"},
+    "testcov":  {"maven"},
+}
+
+
+def schedule(names: list[str], jobs: int, run,
+             estimate: dict[str, float] | None = None) -> dict[str, dict]:
+    """Run `run(name)` for every name, as many at once as `jobs`, honouring NEEDS and USES.
+
+    Serial before: the producers took 8.3 min on petclinic, of which design-system audit
+    3m14, Code City 1m54, per-test coverage 1m12, the traces 49 s and the sequence suite
+    38 s — and only some of those wait for one another. A step is started as soon as what
+    it NEEDS has finished and nothing it USES is held, in STEPS order, so the result is
+    deterministic for a given set of durations and `--jobs 1` is exactly the old run.
+    """
+    from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+    # Longest chain first. Each step is ranked by its own expected duration plus the
+    # longest chain of steps that wait for it, so when two steps want the same lane the one
+    # with more work behind it goes first. Taken in plain STEPS order, dsaudit (46 s, nothing
+    # after it) took the shared stack ahead of traces, which testcov (56 s) waits for: 164 s
+    # wall clock where the chains allow ~115. Expectations are the durations the step cache
+    # recorded last run; an unknown step counts as 5 s. With one job none of this applies,
+    # so `--jobs 1` stays the serial run, step for step.
+    est = estimate or {}
+    after = {n: [d for d, needs in NEEDS.items() if n in needs and d in names] for n in names}
+    rank: dict[str, float] = {}
+
+    def chain(n: str) -> float:
+        if n not in rank:
+            rank[n] = (est.get(n) or 5.0) + max((chain(d) for d in after[n]), default=0.0)
+        return rank[n]
+
+    pending = list(names) if jobs <= 1 else sorted(
+        names, key=lambda n: (-chain(n), names.index(n)))
+    done: dict[str, dict] = {}
+    held: set[str] = set()
+    running = {}
+    with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        while pending or running:
+            for name in list(pending):
+                if len(running) >= max(1, jobs):
+                    break
+                needs = NEEDS.get(name, set()) & set(names)
+                uses = USES.get(name, set())
+                if needs - done.keys() or uses & held:
+                    continue
+                pending.remove(name)
+                held |= uses
+                running[pool.submit(run, name)] = name
+            if not running:            # nothing runnable: a NEEDS cycle, which is a bug here
+                raise RuntimeError(f"cannot schedule {pending}: NEEDS has a cycle")
+            finished, _ = wait(running, return_when=FIRST_COMPLETED)
+            for fut in finished:
+                name = running.pop(fut)
+                held -= USES.get(name, set())
+                done[name] = fut.result()
+    return done
 
 
 def _prereq(spec, ctx: Ctx) -> str | None:
@@ -1513,7 +1672,11 @@ def run_step(name, tabs, label, prereq, fn, ctx: Ctx,
         handle.parent.mkdir(parents=True, exist_ok=True)
         handle.write_text(idx, encoding="utf-8")
     print(f"  * {name} -> {tabs or '(no tab)'}")
-    before = len(ctx.notes)
+    # Its own notes list: steps run on several threads, and slicing one shared list by
+    # "what was appended since I started" hands a step its neighbours' notes.
+    shared, ctx = ctx, copy.copy(ctx)
+    ctx.notes = []
+    before = 0
     try:
         fn(ctx)
         status, reason = RAN, None
@@ -1528,6 +1691,9 @@ def run_step(name, tabs, label, prereq, fn, ctx: Ctx,
         # a step that died when in fact nothing said to close it.
         if idx:
             subprocess.run([sys.executable, str(LEDGER), "end", idx], check=False)
+        # And back onto the run's own list, in one append, for whoever reads it there.
+        with _NOTES_LOCK:
+            shared.notes.extend(ctx.notes)
     return {"step": name, "tabs": tabs, "status": status, "reason": reason,
             "seconds": round(time.monotonic() - t0, 2),
             "notes": ctx.notes[before:]}
@@ -1554,6 +1720,9 @@ def main(argv=None) -> int:
     ap.add_argument("--json", action="store_true", help="emit the status table as JSON")
     ap.add_argument("--timing", action="store_true",
                     help="print what each step cost, slowest first, after the status table")
+    ap.add_argument("--jobs", type=int, default=6,
+                    help="steps run at once, within NEEDS and USES (default 6; 1 = the "
+                         "old serial run, output straight to the terminal)")
     ap.add_argument("--force", action="store_true",
                     help="re-run every step even if nothing it reads has changed")
     ap.add_argument("--no-ledger", action="store_true",
@@ -1589,12 +1758,54 @@ def main(argv=None) -> int:
     mb = merge_base(ctx) if incremental else ""
     dirty = dirty_paths() if incremental else []
 
-    results = []
-    for name, tabs, label, prereq, fn in STEPS:
-        if (only and name not in only) or name in skip:
-            continue
+    chosen = [st for st in STEPS if not ((only and st[0] not in only) or st[0] in skip)]
+    spec = {st[0]: st for st in chosen}
+    jobs = 1 if args.dry_run else args.jobs
+    logs = Path(".human-review/logs")
+    if jobs > 1:
+        logs.mkdir(parents=True, exist_ok=True)
+        sys.stdout = _StepStdout(sys.stdout)
+
+    t_wall = time.monotonic()
+
+    def one(name: str) -> dict:
+        _n, tabs, label, prereq, fn = spec[name]
         key = _step_key(name, ctx, mb, head, dirty) if incremental else None
-        r = run_step(name, tabs, label, prereq, fn, ctx, key, cache.get(name))
+        if jobs == 1:
+            return run_step(name, tabs, label, prereq, fn, ctx, key, cache.get(name))
+        # On stderr: stdout is the status table, and with --json it must parse.
+        print(f"  > {name}: started at +{time.monotonic() - t_wall:.0f} s "
+              f"(log: {logs / (name + '.log')})", file=sys.stderr, flush=True)
+        with open(logs / f"{name}.log", "w", encoding="utf-8") as log:
+            _LOCAL.log = log
+            try:
+                r = run_step(name, tabs, label, prereq, fn, ctx, key, cache.get(name))
+            finally:
+                _LOCAL.log = None
+        print(f"  < {name}: {r['status']} in {r.get('seconds', 0):.1f} s, "
+              f"at +{time.monotonic() - t_wall:.0f} s"
+              + (f" — {r['reason']}" if r.get("reason") else ""), file=sys.stderr, flush=True)
+        return r
+
+    # The audit's merge-base stack is worth starting early only for an audit that runs.
+    if "dsaudit" in spec and "basestack" in spec:
+        dkey = _step_key("dsaudit", ctx, mb, head, dirty) if incremental else None
+        dhit = (dkey and cache.get("dsaudit", {}).get("key") == dkey
+                and _outputs_present(STEP_CACHE.parent, STEP_INPUTS["dsaudit"]["outputs"]))
+        ctx.prewarm_base = not dhit and not args.dry_run
+    t_wall = time.monotonic()
+    seen = load_step_cache() if incremental else {}
+    by_name = schedule([st[0] for st in chosen], jobs, one,
+                       {n: (seen.get(n) or {}).get("seconds") or 0 for n in spec})
+    if jobs > 1:
+        sys.stdout = sys.stdout.real
+        print(f"\n[run-steps] {len(chosen)} step(s) in {time.monotonic() - t_wall:.0f} s "
+              f"wall clock, {jobs} at a time; each step's output is in {logs}/",
+              file=sys.stderr)
+
+    results = []
+    for name in (st[0] for st in chosen):
+        r = by_name[name]
         results.append(r)
         # Only a step that actually ran to completion records a key, and the key is
         # recomputed *after* it ran rather than reused from before: the fingerprint covers
