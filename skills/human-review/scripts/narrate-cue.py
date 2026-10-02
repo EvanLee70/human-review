@@ -5,10 +5,10 @@ Wraps `tts-cue.swift` (AVSpeechSynthesizer — offline, on this machine, no API 
 narration text leaving the laptop) and turns its UTF-16 word marks into times against the
 caller's own whitespace tokens, which is what the karaoke captions are drawn from.
 
-`--engine fish` speaks the cue in a cloned voice instead (Fish Audio's community
-"POTUS 47 - Trump" model unless NARRATION_FISH_VOICE names another). It is never the only
-voice of a film: the recorder asks for both and cuts a second film from the same take, which
-the Demo tab offers behind a checkbox. The key is read from $FISH_API_KEY, else from a
+`--engine fish` speaks the cue in a cloned voice instead: the Fish Audio model `--fish-voice`
+names (a community model id), else NARRATION_FISH_VOICE, else "POTUS 47 - Trump". It is never
+the only voice of a film: the recorder asks for the offline voice and every cloned one, cuts
+one film per voice from the same take, and the Demo tab offers them as radio buttons. The key is read from $FISH_API_KEY, else from a
 `FISH_API_KEY=` line in ~/.claude/fish-audio.env — never from the repository, which is
 public. With no key, or when Fish fails, this exits 3 like any other synthesis failure and
 there is simply no second film. The narration text does leave the laptop on that path.
@@ -25,7 +25,7 @@ words never pop on the same frame.
 
 Usage:
     narrate-cue.py --text "..." --out cue03.wav [--voice Samantha] [--rate 0.5]
-                   [--max-seconds N] [--engine macos|fish]
+                   [--max-seconds N] [--engine macos|fish] [--fish-voice <model id>]
 
 Prints {"duration":…, "voice":…, "words":[{"w":…, "t":…}, …]} on stdout. Exits 3 with
 {"error":…} — never a traceback — when the machine cannot synthesise, so callers can go on
@@ -144,12 +144,12 @@ def estimate_words(text: str, start: float, end: float) -> list[dict]:
   return out
 
 
-def fish(text: str, out: Path, key: str, speed: float) -> dict:
+def fish(text: str, out: Path, key: str, speed: float, voice: str = FISH_VOICE) -> dict:
   speed = round(min(2.0, max(0.5, speed)), 2)
-  digest = hashlib.sha256(f"{FISH_MODEL}|{FISH_VOICE}|{speed}|{text}".encode()).hexdigest()[:16]
+  digest = hashlib.sha256(f"{FISH_MODEL}|{voice}|{speed}|{text}".encode()).hexdigest()[:16]
   cached = CACHE / "fish" / f"{digest}.wav"
   if not cached.is_file():
-    body = {"text": text, "reference_id": FISH_VOICE, "format": "wav", "sample_rate": 44100}
+    body = {"text": text, "reference_id": voice, "format": "wav", "sample_rate": 44100}
     if speed != 1.0:
       body["prosody"] = {"speed": speed}
     req = urllib.request.Request(FISH_URL, data=json.dumps(body).encode(), headers={
@@ -161,17 +161,18 @@ def fish(text: str, out: Path, key: str, speed: float) -> dict:
     cached.write_bytes(audio)
   shutil.copyfile(cached, out)
   start, end, dur = voiced_span(out)
-  return {"duration": round(dur, 3), "voice": f"fish:{FISH_VOICE}",
+  return {"duration": round(dur, 3), "voice": f"fish:{voice}",
       "words": estimate_words(text, start, end)}
 
 
-def synthesize(text: str, out: Path, voice: str, rate: float, engine: str = "macos") -> dict:
+def synthesize(text: str, out: Path, voice: str, rate: float, engine: str = "macos",
+    fish_voice: str = "") -> dict:
   if engine == "fish":
     key = fish_key()
     if not key:
       raise RuntimeError("no Fish Audio key ($FISH_API_KEY or ~/.claude/fish-audio.env)")
     # The offline voice's rate 0.5 is its natural pace; Fish's natural pace is speed 1.0.
-    return fish(text, out, key, rate / 0.5)
+    return fish(text, out, key, rate / 0.5, fish_voice or FISH_VOICE)
   return macos(text, out, voice, rate)
 
 
@@ -196,15 +197,19 @@ def main() -> int:
   ap.add_argument("--max-seconds", type=float, default=0.0,
       help="if the cue would run longer, re-speak it faster (never beyond 1.35x)")
   ap.add_argument("--engine", choices=("macos", "fish"), default="macos")
+  ap.add_argument("--fish-voice", default="",
+      help="Fish Audio model id for --engine fish; NARRATION_FISH_VOICE when absent")
   args = ap.parse_args()
 
   try:
-    result = synthesize(args.text, Path(args.out), args.voice, args.rate, args.engine)
+    result = synthesize(args.text, Path(args.out), args.voice, args.rate, args.engine,
+        args.fish_voice)
     if args.max_seconds and result["duration"] > args.max_seconds:
       # Speeding a cue up is the lesser evil against narration bleeding over the next shot,
       # but only up to the point where the voice still sounds like it is explaining something.
       faster = min(args.rate * 1.35, args.rate * result["duration"] / args.max_seconds)
-      result = synthesize(args.text, Path(args.out), args.voice, faster, args.engine)
+      result = synthesize(args.text, Path(args.out), args.voice, faster, args.engine,
+          args.fish_voice)
   except Exception as exc:                                  # noqa: BLE001 — reported, not raised
     detail = getattr(exc, "stderr", "") or str(exc)
     print(json.dumps({"error": detail.strip()[:400]}))

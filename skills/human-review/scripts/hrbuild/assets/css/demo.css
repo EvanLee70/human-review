@@ -26,11 +26,13 @@
             align-items:start; margin:1rem 0; }
 .vidwrap video { width:100%; display:block; border:1px solid var(--line);
                   border-radius:8px; background:#000; }
-.voice-switch { display:inline-flex; align-items:center; gap:.4rem; margin-left:auto;
-                font-size:.85rem; color:var(--muted); cursor:pointer; user-select:none; }
+.vidcol { min-width:0; }
+.voice-switch { display:flex; flex-wrap:wrap; gap:.3rem 1.1rem; margin:.5rem 0 0;
+                font-size:.85rem; color:var(--muted); }
+.voice-switch label { display:inline-flex; align-items:center; gap:.35rem; cursor:pointer;
+                      user-select:none; }
 .voice-switch input { margin:0; cursor:pointer; }
-.voice-row { display:flex; margin:0 0 .5rem; }
-.voice-switch:has(input:checked) { color:var(--fg); font-weight:600; }
+.voice-switch label:has(input:checked) { color:var(--fg); font-weight:600; }
 .transcript { margin:0; padding:.3rem; list-style:none; border:1px solid var(--line);
               border-radius:8px; background:var(--card); max-height:26rem; overflow-y:auto; }
 .transcript li { display:grid; grid-template-columns:2.9rem 1fr; gap:.5rem; align-items:baseline;

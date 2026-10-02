@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from pathlib import Path
 
 from ..shared.commands import _app_anchor, runtime_html
@@ -117,22 +118,46 @@ def video_verdict_html(rel: str, out_dir: Path) -> str:
     return '<div class="vidverdict" role="alert">' + "".join(parts) + "</div>"
 
 
-def cloned_film(rel: str, out_dir: Path) -> tuple[str, str] | None:
-    """(src, label) of the same film in the cloned voice, when the recorder cut one.
+def voice_films(rel: str, out_dir: Path) -> list[tuple[str, str, str]]:
+    """(key, src, label) of the same film in each cloned voice the recorder cut.
 
-    `record-feature-video.sh` writes `<film>.cloned.json` beside `<film>.cloned.webm` only
-    when every spoken cue got the second voice, and deletes both on a run that had no key —
-    so the switch exists exactly when pressing it is heard, and never offers a voice the
-    film does not have."""
-    meta = out_dir / rel.replace(".webm", ".cloned.json")
+    `record-feature-video.sh` lists in `<film>.voices.json` only the voices every spoken cue
+    got, and deletes the list on a run that had no key — so each radio button under the
+    player is heard when pressed, and never offers a voice the film does not have. A film
+    recorded before there were several voices left a single `<film>.cloned.json` instead;
+    that one is the 🐘."""
+    films = []
     try:
-        doc = json.loads(meta.read_text(encoding="utf-8"))
+        films = json.loads((out_dir / rel.replace(".webm", ".voices.json"))
+                           .read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None
-    src = str(Path(rel).parent / str(doc.get("video") or ""))
-    if not doc.get("video") or not (out_dir / src).is_file():
-        return None
-    return src, str(doc.get("label") or "cloned voice")
+        try:
+            old = json.loads((out_dir / rel.replace(".webm", ".cloned.json"))
+                             .read_text(encoding="utf-8"))
+            films = [{"key": "trump", "label": old.get("label") or "🐘",
+                      "video": old.get("video")}]
+        except (OSError, ValueError, AttributeError):
+            pass
+    out = []
+    for f in films if isinstance(films, list) else []:
+        src = str(Path(rel).parent / str(f.get("video") or ""))
+        if f.get("video") and f.get("key") and (out_dir / src).is_file():
+            out.append((str(f["key"]), src, str(f.get("label") or f["key"])))
+    return out
+
+
+def voice_switch(rel: str, voices: list[tuple[str, str, str]]) -> str:
+    """The radio buttons under the player: the offline voice first, then each cloned one."""
+    if not voices:
+        return ""
+    name = "voice-" + re.sub(r"[^A-Za-z0-9]+", "-", rel)
+    opts = [("", rel, "standard")] + voices
+    return ('<div class="voice-switch" role="radiogroup" aria-label="Narration voice">'
+            + "".join(f'<label><input type="radio" name="{html.escape(name)}" '
+                      f'value="{html.escape(key)}" data-src="{html.escape(src)}"'
+                      f'{" checked" if not key else ""}> {html.escape(label)}</label>'
+                      for key, src, label in opts)
+            + "</div>")
 
 
 def video_html(s, out_dir: Path) -> str:
@@ -149,15 +174,12 @@ def video_html(s, out_dir: Path) -> str:
     cues = json.loads(cues_path.read_text(encoding="utf-8")) if cues_path.is_file() else []
     rt = s.get("runtime") or {}
     items, unplaced = _link_captions(cues, s.get("appLinks", []), bool(rt.get("drive")))
-    cloned = cloned_film(rel, out_dir) if (out_dir / rel).is_file() else None
-    # The same take, cue for cue, so caption.js swaps the source and keeps the second the
-    # reader was at; the transcript and its timestamps are shared by both films.
-    # It rides at the far end of the "Deployed app" row, top right of the player: the
-    # one row of controls over the film. A page with no such row gets it on its own.
-    switch = (f'<label class="voice-switch"><input type="checkbox"> '
-              f'{html.escape(cloned[1])} voice 😂</label>' if cloned else "")
-    alt = f' data-voice-alt="{html.escape(cloned[0])}"' if cloned else ""
-    player = (f'<video controls preload="metadata" src="{html.escape(rel)}"{alt}></video>'
+    voices = voice_films(rel, out_dir) if (out_dir / rel).is_file() else []
+    # The same take, cue for cue, in every voice, so caption.js swaps the source and keeps
+    # the second the reader was at; the transcript and its timestamps are shared by all.
+    # The radio buttons sit right under the player they switch.
+    switch = voice_switch(rel, voices)
+    player = (f'<video controls preload="metadata" src="{html.escape(rel)}"></video>'
               if (out_dir / rel).is_file() else
               f'<p class="embedded-note"><b>Not filmed.</b> <code>{html.escape(rel)}</code> '
               'was not produced by this run, so there is no player here — the narration '
@@ -180,8 +202,9 @@ def video_html(s, out_dir: Path) -> str:
     # two-column grid, so a band emitted as one of its children takes a column and stands
     # next to the picture instead of across the top of it. What it contradicts is the
     # picture, so it has to be the thing read first, full width.
-    head = (runtime_html(rt, switch) if rt else
-            f'<div class="voice-row">{switch}</div>' if switch else "")
+    head = runtime_html(rt) if rt else ""
+    if switch:
+        player = f'<div class="vidcol">{player}{switch}</div>'
     return (head + video_verdict_html(rel, out_dir)
             + f'<div class="vidwrap">{player}<ol class="transcript">{items}</ol></div>')
 

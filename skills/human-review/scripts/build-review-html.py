@@ -169,7 +169,8 @@ from hrbuild.tabs.tests import (
     _API_MARKERS, _cov_cat, coverage_tests, coverage_gaps, _load_test_changes
 )
 from hrbuild.tabs.demo import (
-    cloned_film, embed_html, VERDICT_FACE, video_html, VIDEO_VERDICT, video_verdict_html,
+    voice_films, voice_switch, embed_html, VERDICT_FACE, video_html, VIDEO_VERDICT,
+    video_verdict_html,
     _link_captions
 )
 from hrbuild.tabs.city import (

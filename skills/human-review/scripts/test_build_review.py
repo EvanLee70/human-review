@@ -308,6 +308,27 @@ def test_a_recorded_video_gets_a_player(tmp_path):
     assert out.count("<li ") == 3
 
 
+def test_each_voice_the_recorder_cut_is_a_radio_button_under_the_player(tmp_path):
+    s = _video_dir(tmp_path, filmed=True)
+    for key in ("trump", "discovery"):
+        (tmp_path / "assets" / f"f.voice-{key}.webm").write_bytes(b"\x1aE\xdf\xa3")
+    (tmp_path / "assets" / "f.voices.json").write_text(json.dumps([
+        {"key": "trump", "label": "🐘", "video": "f.voice-trump.webm"},
+        {"key": "discovery", "label": "Discovery", "video": "f.voice-discovery.webm"},
+        {"key": "ghost", "label": "Ghost", "video": "f.voice-ghost.webm"}]), encoding="utf-8")
+    out = build.video_html(s, tmp_path)
+    radios = re.findall(r'<input type="radio"[^>]*data-src="([^"]+)"[^>]*> ([^<]+)</label>', out)
+    assert radios == [("assets/f.webm", "standard"), ("assets/f.voice-trump.webm", "🐘"),
+                      ("assets/f.voice-discovery.webm", "Discovery")], \
+        "a voice whose film is not on disk is never offered"
+    assert out.index("<video") < out.index('class="voice-switch"') < out.index("transcript")
+    assert re.search(r'value=""[^>]* checked>', out), "the standard voice is the one playing"
+
+
+def test_a_film_with_no_cloned_voice_has_no_voice_switch(tmp_path):
+    assert "voice-switch" not in build.video_html(_video_dir(tmp_path, filmed=True), tmp_path)
+
+
 def test_an_unrecorded_video_gets_a_notice_and_keeps_its_transcript(tmp_path):
     """The first bug this page ever shipped: a <video> pointing at a file no step wrote —
     a black rectangle at 0:00 with nothing to say the film was missing rather than broken."""

@@ -7,26 +7,31 @@ document.querySelectorAll('.vidwrap').forEach(function (wrap) {
   // may throw, or the scripts after it never run.
   if (!video) return;
 
-  // The voice switch: the same take in the cloned voice. Both films share one cue clock, so the
-  // swap keeps the second the reader was at, and playing stays playing. The choice is
-  // remembered per browser — whoever turned the voice on once wants it on the next review.
-  // It sits in the "Deployed app" row above the player, not inside this wrap.
-  var voice = (wrap.closest('.panel') || document).querySelector('.voice-switch input');
-  if (voice) {
-    var plain = video.getAttribute('src'), cloned = video.getAttribute('data-voice-alt');
-    var swap = function () {
+  // The voice switch: the same take in another voice, one radio button per film under the
+  // player. All the films share one cue clock, so the swap keeps the second the reader was
+  // at, and playing stays playing. The choice is remembered per browser — whoever picked a
+  // voice once wants it on the next review too.
+  var radios = Array.prototype.slice.call(wrap.querySelectorAll('.voice-switch input'));
+  if (radios.length) {
+    var swap = function (radio) {
       var t = video.currentTime, playing = !video.paused;
-      video.src = voice.checked ? cloned : plain;
+      video.src = radio.dataset.src;
       video.addEventListener('loadedmetadata', function once() {
         video.removeEventListener('loadedmetadata', once);
         video.currentTime = t;
         if (playing) video.play();
       });
-      try { localStorage.setItem('hr-cloned-voice', voice.checked ? '1' : ''); } catch (e) {}
+      try { localStorage.setItem('hr-voice', radio.value); } catch (e) {}
     };
-    voice.addEventListener('change', swap);
+    radios.forEach(function (r) {
+      r.addEventListener('change', function () { if (r.checked) swap(r); });
+    });
     try {
-      if (localStorage.getItem('hr-cloned-voice')) { voice.checked = true; swap(); }
+      // 'hr-cloned-voice' is what the old 🐘 checkbox remembered.
+      var kept = localStorage.getItem('hr-voice');
+      if (kept === null && localStorage.getItem('hr-cloned-voice')) kept = 'trump';
+      var pick = kept && radios.filter(function (r) { return r.value === kept; })[0];
+      if (pick) { pick.checked = true; swap(pick); }
     } catch (e) {}
   }
   items.forEach(function (li) {
