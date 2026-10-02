@@ -57,5 +57,12 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
    trailers, and writes and checks the PR comments. A harness that needs its own
    attribution adds `--commit-trailer "Co-authored-by: <who>"` (repeatable); a harness
    other than Claude Code names itself with `--harness <name>`. Commit nothing yourself.
-6. Stop. Do not push (prepare already did, for CI), do not open a PR, do not build a
-   review page.
+6. `RR ci --push` — pushes the `[auto-fix]` commit and waits for CI **on that commit**.
+   The review is not done until it is green: CI on the implementation commit may have
+   failed early (a Spectral error) and never reached SonarCloud, so your fixes are
+   unanalysed until now. Exit 0 is green. Exit 1 lists findings (`source: CI`): fix
+   each, add it under Fixed in review-points.md, `RR finish` again (a new `[auto-fix]`
+   commit), and `RR ci --push` again — **three rounds at most**; still red after the
+   third, stop and say so in one line, naming what is left. Exit 2 (no run, or not
+   finished in time) is not red: say so and stop.
+7. Stop. Do not open a PR, do not build a review page.

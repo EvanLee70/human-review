@@ -159,3 +159,26 @@ def test_a_declared_copilot_harness_does_not_inherit_the_parent_claude_session(m
     assert rr.harness("copilot-cli") == "copilot-cli"
     assert rr.session_id("claude-code") == "parent-claude"
     assert rr.session_id() == "parent-claude"
+
+
+@pytest.mark.parametrize("conclusion,code", [("success", 0), ("failure", 1)])
+def test_ci_exits_red_so_the_review_loop_knows_it_is_not_done(tmp_path, conclusion, code):
+    """`RR ci` printed findings and exited 0 either way, so nothing could loop on it."""
+    repo = tmp_path / "r"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True, env=ENV)
+    (repo / "a.txt").write_text("a\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, env=ENV)
+    subprocess.run(["git", "commit", "-qm", "a"], cwd=repo, check=True, env=ENV)
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    gh = bin_ / "gh"
+    gh.write_text("#!/bin/sh\n"
+                  "case \"$2\" in list) echo '[{\"databaseId\":1,\"name\":\"CI\","
+                  f"\"status\":\"completed\",\"conclusion\":\"{conclusion}\"}}]';; "
+                  "*) echo 'Spectral ##[error] bad';; esac\n")
+    gh.chmod(0o755)
+    env = {**ENV, "PATH": f"{bin_}:{os.environ['PATH']}"}
+    r = subprocess.run([sys.executable, str(RR), "ci", "--wait-minutes", "0.1"],
+                       cwd=repo, capture_output=True, text=True, env=env)
+    assert r.returncode == code, r.stdout + r.stderr

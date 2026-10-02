@@ -363,7 +363,8 @@ def finish(args) -> int:
                            capture_output=True, text=True)
         out = (r.stdout + r.stderr).strip().splitlines()
         print("pr comments     " + (out[0] if out else f"exit {r.returncode}"))
-    print("Done. Nothing was pushed. /human-review builds the page when the human wants it.")
+    print("Next: `record-review.py ci --push` — the review is done when CI is green on this "
+          "commit.")
     return 0
 
 
@@ -397,11 +398,31 @@ def sonar_issues(repo: Path, branch: str) -> list[str]:
 
 
 def ci(args) -> int:
-    """Wait for CI on HEAD — the commit, never the branch — and print why it failed."""
+    """Wait for CI on HEAD — the commit, never the branch — and print why it failed.
+
+    Exit 0 green · 1 red (a failed run, or a SonarCloud BUG/VULNERABILITY on new code) ·
+    2 no verdict (no run registered, or not finished in time). The exit code is the loop's
+    condition: the review is not done until CI is green on the `[auto-fix]` commit itself.
+    Run once on the implementation commit, a CI that fails early (Spectral) never reaches
+    Sonar, the fixes go in unanalysed, and /human-review's preflight then stops on a Sonar
+    BUG the review could have fixed — hr-try-3, a wasted page run.
+
+    `--push` sends HEAD first, so the run is the one for this commit."""
     import time
     repo = root()
     os.chdir(repo)
     sha = git("rev-parse", "HEAD")
+    if getattr(args, "push", False):
+        pushed = subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"],
+                                capture_output=True, text=True)
+        if pushed.returncode != 0:
+            lines = [l for l in (pushed.stdout + pushed.stderr).splitlines() if l.strip()]
+            keep = [l for l in lines if re.search(r"\berror\b|❌|rejected|denied|fatal", l, re.I)]
+            print("push            FAILED — each line is a finding (`source: pre-push hook`):")
+            for l in (keep or lines[-5:])[:12]:
+                print("    " + l.strip()[:200])
+            return 1
+        print(f"pushed          {sha[:8]} — waiting for its CI")
     deadline = time.time() + args.wait_minutes * 60
     runs: list = []
     while time.time() < deadline:
@@ -415,12 +436,16 @@ def ci(args) -> int:
     else:
         print(f"CI              not finished on {sha[:8]} after {args.wait_minutes} min"
               if runs else f"CI              no run registered for {sha[:8]}")
-        return 0
+        return 2
     failed = [r for r in runs if r["conclusion"] not in ("success", "skipped", "neutral")]
-    if not failed:
-        print(f"CI              green on {sha[:8]}")
-        return 0
     branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    sonar = sonar_issues(repo, branch)
+    blocking = [i for i in sonar if i.startswith(("BUG", "VULNERABILITY"))]
+    if not failed and not blocking:
+        print(f"CI              green on {sha[:8]}")
+        for issue in sonar:
+            print("  sonar " + issue)
+        return 0
     print(f"CI              FAILED on {sha[:8]} — each line is a finding (`source: CI`):")
     for r in failed:
         log = subprocess.run(["gh", "run", "view", str(r["databaseId"]), "--log-failed"],
@@ -431,9 +456,9 @@ def ci(args) -> int:
         print(f"  {r['name']}:")
         for e in errors[-6:]:
             print("    " + e.strip()[:200])
-    for issue in sonar_issues(repo, branch):
+    for issue in sonar:
         print("  sonar " + issue)
-    return 0
+    return 1
 
 
 def main(argv=None) -> int:
@@ -450,6 +475,8 @@ def main(argv=None) -> int:
                    "(default: claude-code when its session id is set)")
     c = sub.add_parser("ci")
     c.add_argument("--wait-minutes", type=float, default=20)
+    c.add_argument("--push", action="store_true",
+                   help="push HEAD first, so CI runs on this commit (after finish)")
     f = sub.add_parser("finish")
     f.add_argument("--subject", required=True)
     f.add_argument("--reviewers", default="")
