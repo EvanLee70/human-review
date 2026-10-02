@@ -114,3 +114,20 @@ def problems(doc, schema: dict | None = None) -> list[str]:
     out: list[str] = []
     _check(doc, schema, schema, "$", out)
     return out
+
+
+#: The other contract `/record-review` writes: what the change cost before its page existed
+#: (`review-cost.json`, committed beside review-points.md). Same checker, its own schema —
+#: the cost has a different reader (`review-cost.py --ledger`) and a different lifetime
+#: (rewritten on every CI round), so it is not a key of the review-points report.
+COST_SCHEMA_PATH = SCHEMA_PATH.parent / "review-cost.schema.json"
+
+
+@lru_cache(maxsize=1)
+def load_cost_schema() -> dict:
+    return json.loads(COST_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+
+def cost_problems(doc) -> list[str]:
+    """`problems()` against `reference/review-cost.schema.json`."""
+    return problems(doc, load_cost_schema())

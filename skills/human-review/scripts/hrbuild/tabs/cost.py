@@ -121,8 +121,11 @@ def _cost_inputs(root: Path, out_dir: Path, tab_ids: list[str], base: str) -> st
     h = hashlib.blake2b(digest_size=16)
     h.update(f"{base}\0{','.join(tab_ids)}\0".encode())
     script = HERE / "review-cost.py"
+    # The two cost records the runs wrote of themselves (`harness_cost.py`): the committed
+    # `review-cost.json` (rows 1–3) and `report-cost.json` (row 4, plus every refresh).
     for f in (script, out_dir / ".steps.json", out_dir / ".session",
-              out_dir / "phases.json"):
+              out_dir / "phases.json", root / "review-cost.json",
+              out_dir / "report-cost.json", HERE / "harness_cost.py"):
         try:
             st = f.stat()
             h.update(f"{f.name}\0{st.st_mtime_ns}\0{st.st_size}\0".encode())
@@ -437,6 +440,21 @@ def cost_ledger_html(led: dict | None, tabs: list[dict]) -> str:
     """
     if not led:
         return ""
+    four = components_html(led.get("components"))
+    if four:
+        # The four components lead; the Claude-only cut below is their detail, folded:
+        # the same dollars counted a second way, which is why it is not a second total on
+        # the face of the tab.
+        rest = _legacy_ledger_html(led, tabs)
+        if not rest:
+            return four
+        return (four + '<details class="costdetail"><summary>Claude transcripts, phase by '
+                'phase and tab by tab</summary>' + rest + '</details>')
+    return _legacy_ledger_html(led, tabs)
+
+
+def _legacy_ledger_html(led: dict, tabs: list[dict]) -> str:
+    """The ledger as it was before the four components: Claude transcripts only."""
     # Nothing measured anywhere — no transcript for the run, and no conversation on disk
     # that wrote the code — is an absence, and the page carries no tab for it. A pill
     # reading `$0` is a claim that this change was free, which is the one thing the
@@ -622,3 +640,145 @@ def _cost_tab_rows(costs: dict, tabs: list[dict]) -> str:
                     f'<td>{_cost_tokens(resid.get("tokens") or 0)}</td>'
                     f'<td>{_cost_money(resid.get("cost") or 0.0)}</td></tr>')
     return out
+
+
+# --------------------------------------------------------------------------------------- #
+# The four components (`harness_cost.py`): implementation, review, auto-fixes, this guide —
+# whichever harness spent each one. Recorded by the runs themselves where they could
+# (`review-cost.json` by /record-review, `report-cost.json` by /human-review), derived from
+# the stores otherwise, and every row says which.
+# --------------------------------------------------------------------------------------- #
+
+_HARNESS = {"claude-code": "Claude Code", "copilot-cli": "Copilot CLI",
+            "vscode-copilot": "VS Code Copilot Chat"}
+
+
+def _aic(n: float) -> str:
+    return f"{n:,.1f} AIC" if n < 100 else f"{n:,.0f} AIC"
+
+
+def _component_money(c: dict, rate: float) -> str:
+    """Claude in dollars (list price), Copilot in credits with GitHub's billed dollars
+    under them — the two are different kinds of price, and each says which it is."""
+    usd, aic = c.get("usd"), c.get("aic")
+    if aic is not None and usd is None:
+        return (f'{_aic(aic)}<span class="costsub">≈ {_cost_money(aic * rate)} billed'
+                '</span>')
+    if aic is not None:
+        return (f'{_cost_money((usd or 0) + aic * rate)}<span class="costsub">'
+                f'{_cost_money(usd or 0)} + {_aic(aic)}</span>')
+    return _cost_money(usd or 0.0)
+
+
+def _minutes(secs) -> str:
+    if secs is None:
+        return ""
+    m = secs / 60
+    return f"{m:.0f} min" if m >= 1 else f"{secs:.0f} s"
+
+
+def _entry_line(e: dict) -> str:
+    who = _HARNESS.get(e.get("harness"), e.get("harness") or "?")
+    sid = str(e.get("session") or "")
+    sid = (f' <code>{html.escape(sid[:8])}</code>' if sid and not sid.startswith("claude -p")
+           else (f" {html.escape(sid)}" if sid else ""))
+    win = e.get("window") or [None, None]
+    when = (f"{_when(win[0])} &rarr; {_when(win[1])}" if len(win) == 2 and _when(win[0])
+            else "")
+    bits = [f"{html.escape(who)}{sid}", html.escape(str(e.get("what") or "")), when]
+    money = (_aic(e["aic"]) if e.get("aic") is not None
+             else (_cost_money(e["usd"]) if e.get("usd") is not None else ""))
+    if money and e.get("what"):
+        bits.append(money)
+    if e.get("note"):
+        bits.append(html.escape(str(e["note"])))
+    return " &middot; ".join(b for b in bits if b)
+
+
+COMPONENT_HINTS = {
+    "implementation": "writing the code, up to /record-review",
+    "review": "the reviewers finding — prepare → reviewers done",
+    "autofix": "taking the review's advice — the [auto-fix] commit, every CI round",
+    "guide": "this page's own model work: the /human-review run, the requirements↔tests "
+             "mapping, the film script",
+}
+
+
+def components_html(comp: dict | None) -> str:
+    """The four rows the cost tab leads with, or "" when nothing at all was measured."""
+    rows = [r for r in (comp or {}).get("rows") or [] if isinstance(r, dict)]
+    if not rows or not any(r.get("measured") for r in rows):
+        return ""
+    rate = float((comp or {}).get("aicUsd") or 0.01)
+    out = []
+    for r in rows:
+        label = html.escape(str(r.get("label") or r.get("key")))
+        hint = COMPONENT_HINTS.get(r.get("key"), "")
+        if not r.get("measured"):
+            why = html.escape(str(r.get("reason") or "not measured"))
+            out.append(f'<tr class="costquiet" data-component="{html.escape(r["key"])}">'
+                       f'<td>{label}<span class="costsub">unmeasured — {why}</span></td>'
+                       '<td>—</td><td>—</td></tr>')
+            continue
+        lines = [_entry_line(e) for e in r.get("entries") or []]
+        if r.get("key") == "guide":
+            wall = (comp or {}).get("wallclock") or {}
+            took = _minutes(wall.get("seconds"))
+            if took:
+                model = wall.get("modelSeconds")
+                extra = (comp or {}).get("refreshSeconds") or 0
+                lines.append(f"took {took}" + (f", of which model {_minutes(model)}"
+                                                if model else "")
+                             + (f"; plus {_minutes(extra)} of refreshes, no model"
+                                if extra else ""))
+        if r.get("source") == "derived":
+            lines.append("derived from the session stores — this branch predates the "
+                         "record" if r.get("key") != "guide" else
+                         "derived — the run recorded no report-cost.json")
+        sub = "".join(f'<span class="costsub">{l}</span>' for l in [html.escape(hint)] + lines
+                      if l)
+        models: dict = {}
+        for e in r.get("entries") or []:
+            for k, v in (e.get("models") or {}).items():
+                models[k] = models.get(k, 0) + v
+        out.append(f'<tr data-component="{html.escape(r["key"])}"><td>{label}{sub}</td>'
+                   f'<td>{_cost_tokens(r.get("tokens") or 0, models)}</td>'
+                   f'<td>{_component_money(r, rate)}</td></tr>')
+    usd, aic = comp.get("usd") or 0.0, comp.get("aic") or 0.0
+    total = usd + aic * rate
+    parts = []
+    if usd:
+        parts.append(f"Claude {_cost_money(usd)} at API list price")
+    if aic:
+        parts.append(f"Copilot {_aic(aic)} = {_cost_money(aic * rate)} at GitHub's "
+                     f"${rate:.2f} per AI credit")
+    sub = " + ".join(parts)
+    if usd and aic:
+        sub += " — two kinds of price, added"
+    if comp.get("unmeasured"):
+        sub += (" · not counted: " + ", ".join(comp["unmeasured"])
+                if sub else "not counted: " + ", ".join(comp["unmeasured"]))
+    foot = (f'<tr class="costtotal"><td>total<span class="costsub">{html.escape(sub)}'
+            f'</span></td><td>{_cost_tokens(sum(r.get("tokens") or 0 for r in rows if r.get("measured")))}</td>'
+            f'<td>{_cost_money(total)}</td></tr>')
+    return ('<table class="costtab costledger costfour">'
+            '<caption>What this change cost, in four parts, whichever harness ran each. '
+            'Claude is priced at API list price — nobody on a subscription is billed it; '
+            'Copilot in AI credits, its own unit, with what GitHub bills for them.</caption>'
+            '<thead><tr><th scope="col">component</th><th scope="col">tokens</th>'
+            '<th scope="col">cost</th></tr></thead>'
+            f'<tbody>{"".join(out)}</tbody><tfoot>{foot}</tfoot></table>')
+
+
+def cost_pill_label(led: dict) -> str:
+    """The tab's label: the four components' total when they were measured, else the
+    ledger's own — with `?` when a part of the bill is not on this disk."""
+    comp = led.get("components") or {}
+    if components_html(comp):
+        label = f'${comp.get("usdEquivalent") or 0.0:,.0f}'
+        return label + ("?" if comp.get("unmeasured") else "")
+    phase_total = (led.get("phases") or {}).get("cost")
+    label = f'${(phase_total if phase_total is not None and phase_rows_html(led.get("phases")) else (led.get("total") or 0.0)):,.0f}'
+    if (led.get("writing") or {}).get("otherAgents"):
+        label += "?"
+    return label

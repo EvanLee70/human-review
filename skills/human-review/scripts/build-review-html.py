@@ -188,7 +188,9 @@ from hrbuild.tabs.cost import (
     COST_CACHE, cost_chip, cost_ledger_html, cost_ledger_report, COST_TAB_ID, PASS_ROWS,
     PHASE_ROWS, phase_rows_html, RESIDUAL_ROWS, tab_cost_report, TOTAL_FORMULA,
     _cost_env, _cost_inputs, _cost_money, cost_session,
-    _cost_tab_rows, _cost_tokens, _when, components_html, cost_pill_label
+    _cost_tab_rows, _cost_tokens, _when, components_html, cost_pill_label,
+    _legacy_ledger_html, _HARNESS, _aic, _component_money, _minutes, _entry_line,
+    COMPONENT_HINTS
 )
 
 

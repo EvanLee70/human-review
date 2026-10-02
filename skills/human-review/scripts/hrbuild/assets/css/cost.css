@@ -36,3 +36,7 @@ table.costtab tr.costquiet td, table.costtab tr.costquiet td:last-child {
 table.costtab tfoot td { border-bottom:0; }
 table.costtab tfoot tr.costtotal td { border-top:1px solid var(--line);
              padding-top:.35rem; font-weight:700; }
+/* The Claude-only cut under the four components: their detail, folded, because it is the
+   same money counted a second way and must not read as a second bill. */
+details.costdetail { margin-top:1.4rem; max-width:64rem; }
+details.costdetail > summary { cursor:pointer; color:var(--muted); font-size:.85rem; }

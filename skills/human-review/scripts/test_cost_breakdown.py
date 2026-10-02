@@ -480,7 +480,11 @@ def test_the_tab_is_labelled_with_the_money_and_no_cents(built_page):
     click away, in the table it opens."""
     btn = re.search(r'<button[^>]*id="tabbtn-cost"[^>]*>(.*?)</button>', built_page, re.S)
     assert btn, "no cost tab on the strip"
-    assert btn.group(1).strip() == "$1"
+    # `?` when a component of the bill is not on this disk — and only then: the panel
+    # must say which one, in words.
+    label = btn.group(1).strip()
+    assert label in ("$1", "$1?")
+    assert (label.endswith("?")) == ("unmeasured —" in _panel(built_page))
     assert "$0.93" in _panel(built_page), "the cents are in the table, not on the pill"
 
 
@@ -949,9 +953,14 @@ def test_the_tab_pill_says_what_the_table_says():
     """A `$703` pill over a `$207` table is the footer's contradiction again, read first
     and by everyone — the pill is the only part of this tab a reader sees without opening
     it."""
-    src = (HERE / "build-review-html.py").read_text(encoding="utf-8")
-    i = src.index("cost_label = f'$")
-    assert "phase_total" in src[i - 400:i + 200]
+    assert "cost_label = cost_pill_label(led)" in (
+        HERE / "build-review-html.py").read_text(encoding="utf-8")
+    src = (HERE / "hrbuild" / "tabs" / "cost.py").read_text(encoding="utf-8")
+    i = src.index("def cost_pill_label")
+    body = src[i:i + 1200]
+    # The four components' total when they were measured — the table's own footer — and
+    # the phases' total under the older Claude-only cut.
+    assert "usdEquivalent" in body and "phase_total" in body
 
 
 def test_the_ledger_is_read_for_the_pinned_session_not_the_one_running_the_build(

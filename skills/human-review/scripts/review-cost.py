@@ -2203,14 +2203,33 @@ def ledger(session: str | None, since: "dt.datetime | None", steps_path: Path,
     # inside `run`. See `pass_costs` for why that distinction is kept rather than assumed.
     earlier = sum(g.get("earlier") or 0.0 for g in (passes.get("groups") or {}).values())
     total = (writing.get("cost") or 0.0) + (run.get("cost") or 0.0) + earlier
-    return {"writing": writing, "run": run, "passes": passes, "tabs": tabs_report,
+    phases = load_phases(root / phases_file)
+    return {"components": four_components(root, base, Path(steps_path).parent, phases),
+            "writing": writing, "run": run, "passes": passes, "tabs": tabs_report,
             "passes_added": earlier, "total": total,
             "total_tokens": (writing.get("tokens") or 0) + (run.get("tokens") or 0),
             # A view *inside* the same money, cut by phase of the work rather than by piece
             # of the page. Not added to `total`: implementation + review + fixes is the same
             # bill as writing + run, counted a second way, and a table that summed both
             # would double every dollar on it.
-            "phases": load_phases(root / phases_file)}
+            "phases": phases}
+
+
+def four_components(root: Path, base: str, review: Path, phases: dict) -> dict:
+    """Implementation, review, auto-fixes and this guide, whichever harness spent each —
+    `harness_cost.components`, read from `review-cost.json` and `report-cost.json` where
+    the runs recorded themselves, derived from the stores where they predate that. Never
+    raises: a component that cannot be read is a row that says why."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import harness_cost
+        try:
+            commits = json.loads((Path(review) / "review-commits.json").read_text())
+        except (OSError, ValueError):
+            commits = {}
+        return harness_cost.components(Path(root), base, Path(review), phases, commits)
+    except Exception as exc:  # noqa: BLE001
+        return {"rows": [], "error": f"{type(exc).__name__}: {exc}"}
 
 
 def _resolve_since(since_file: str, since_raw: str | None) -> "dt.datetime | None":

@@ -1,0 +1,83 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/victorrentea/human-review/blob/main/skills/human-review/reference/review-cost.schema.json",
+ "title": "review-cost record",
+ "description": "What the change cost before its review page existed, measured by /record-review in the harness that ran it: writing the code, the review (finding), and the auto-fixes (taking the review's advice, every CI round included). Written by record-review.py finish as review-cost.json beside review-points.md and committed with the [auto-fix] commit; read by review-cost.py --ledger for the $ tab's first three rows. Validated where it is written and where it is read (scripts/review_points_schema.py).",
+ "type": "object",
+ "additionalProperties": false,
+ "required": ["schema", "harness", "recordedAt", "rounds", "aicUsd", "components"],
+ "properties": {
+  "schema": {"const": "review-cost/1"},
+  "harness": {
+   "type": "string",
+   "description": "The harness that ran /record-review: claude-code, copilot-cli or vscode-copilot (another name is kept, and its rows say they cannot be read)."
+  },
+  "recordedAt": {"$ref": "#/$defs/stamp"},
+  "base": {"type": ["string", "null"]},
+  "implementation": {"type": ["string", "null"]},
+  "rounds": {
+   "type": "array",
+   "items": {"$ref": "#/$defs/stamp"},
+   "minItems": 1,
+   "description": "Every finish, oldest first: the first is the review commit, the rest are CI-fix rounds. The auto-fix row runs to the last."
+  },
+  "aicUsd": {
+   "type": "number",
+   "minimum": 0,
+   "description": "Dollars per Copilot AI credit used to state Copilot rows in $ (GitHub's billing rate)."
+  },
+  "components": {
+   "type": "array",
+   "minItems": 3,
+   "items": {"$ref": "#/$defs/component"}
+  }
+ },
+ "$defs": {
+  "stamp": {"type": "string", "minLength": 10, "pattern": "^\\d{4}-\\d\\d-\\d\\dT"},
+  "maybeStamp": {"type": ["string", "null"]},
+  "component": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": ["key", "label", "measured", "reason", "source", "window", "harnesses",
+                "entries", "tokens", "usd", "aic", "modelSeconds"],
+   "properties": {
+    "key": {"enum": ["implementation", "review", "autofix", "guide"]},
+    "label": {"type": "string", "minLength": 1},
+    "measured": {"type": "boolean"},
+    "reason": {
+     "type": ["string", "null"],
+     "description": "Why nothing was measured. Never null on an unmeasured row: $0.00 and 'nobody could see this' must not read alike."
+    },
+    "source": {"type": "string", "minLength": 1},
+    "window": {"type": "array", "items": {"$ref": "#/$defs/maybeStamp"}},
+    "harnesses": {"type": "array", "items": {"type": "string"}},
+    "entries": {"type": "array", "items": {"$ref": "#/$defs/entry"}},
+    "tokens": {"type": "integer", "minimum": 0},
+    "usd": {"type": ["number", "null"], "minimum": 0},
+    "aic": {"type": ["number", "null"], "minimum": 0},
+    "modelSeconds": {"type": "number", "minimum": 0}
+   }
+  },
+  "entry": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": ["harness", "session", "what", "window", "tokens", "models", "usd", "aic",
+                "calls", "modelSeconds"],
+   "properties": {
+    "harness": {"enum": ["claude-code", "copilot-cli", "vscode-copilot"]},
+    "session": {"type": "string"},
+    "what": {"type": "string"},
+    "window": {"type": "array", "items": {"$ref": "#/$defs/maybeStamp"}},
+    "tokens": {"type": "integer", "minimum": 0},
+    "models": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "usd": {"type": ["number", "null"], "minimum": 0,
+            "description": "Claude: list-price equivalent. Null on a Copilot entry."},
+    "aic": {"type": ["number", "null"], "minimum": 0,
+            "description": "Copilot: AI credits, its native unit. Null on a Claude entry."},
+    "calls": {"type": "integer", "minimum": 0},
+    "modelSeconds": {"type": "number", "minimum": 0},
+    "note": {"type": "string"}
+   }
+  }
+ }
+}

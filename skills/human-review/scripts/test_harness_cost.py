@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""The four components of the bill, read from each harness's own store.
+
+hr-try-3 is the case this exists for: the code was written in VS Code Copilot Chat, the
+review recorded by the Copilot CLI, the page built by the Copilot CLI — and the only
+conversation the `$` tab could see was the Claude session that orchestrated all three,
+which wrote none of it. Every store here is a fixture: a temp SQLite shaped like
+`~/.copilot/session-store.db` and a temp VS Code `workspaceStorage` with an op-log chat.
+
+Run with:  python3 -m pytest test_harness_cost.py
+"""
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+import harness_cost as hc  # noqa: E402
+import review_points_schema as schema  # noqa: E402
+
+ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+       "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+COPILOT_SCHEMA = """
+CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT, repository TEXT, host_type TEXT,
+  branch TEXT, summary TEXT, created_at TEXT, updated_at TEXT);
+CREATE TABLE turns (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, turn_index INTEGER,
+  user_message TEXT, assistant_response TEXT, timestamp TEXT);
+CREATE TABLE assistant_usage_events (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT,
+  turn_index INTEGER, agent_id TEXT, parent_tool_call_id TEXT, model TEXT, input_tokens INTEGER,
+  output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER,
+  reasoning_tokens INTEGER, total_nano_aiu INTEGER, request_multiplier REAL,
+  duration_ms INTEGER, initiator TEXT, created_at TEXT, copilot_usage_model TEXT);
+CREATE TABLE session_files (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT,
+  file_path TEXT, tool_name TEXT, turn_index INTEGER, first_seen_at TEXT);
+"""
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True,
+                          text=True, env=ENV).stdout.strip()
+
+
+def commit(repo: Path, msg: str, when: str) -> str:
+    env = {**ENV, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", msg], check=True, env=env)
+    return git(repo, "rev-parse", "HEAD")
+
+
+class Copilot:
+    """A session store, written the way the CLI writes it."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        con = sqlite3.connect(path)
+        con.executescript(COPILOT_SCHEMA)
+        con.commit()
+        con.close()
+
+    def session(self, sid: str, cwd: Path, summary: str, branch: str = "feat") -> None:
+        con = sqlite3.connect(self.path)
+        con.execute("INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?)",
+                    (sid, str(cwd), "o/r", "github", branch, summary, "2026-10-02T10:00:00Z",
+                     "2026-10-02T10:00:00Z"))
+        con.commit()
+        con.close()
+
+    def call(self, sid: str, when: str, aic: float, agent: str | None = None,
+             tokens: int = 1000) -> None:
+        con = sqlite3.connect(self.path)
+        con.execute("INSERT INTO assistant_usage_events (session_id, agent_id, model, "
+                    "input_tokens, output_tokens, total_nano_aiu, duration_ms, initiator, "
+                    "created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (sid, agent, "claude-sonnet-5", tokens, 10, int(aic * 1e9), 2000,
+                     "sub-agent" if agent else "agent", when))
+        con.commit()
+        con.close()
+
+    def wrote(self, sid: str, path: Path) -> None:
+        con = sqlite3.connect(self.path)
+        con.execute("INSERT INTO session_files (session_id, file_path, tool_name) "
+                    "VALUES (?,?,?)", (sid, str(path), "edit"))
+        con.commit()
+        con.close()
+
+
+def ms(iso: str) -> int:
+    return int(hc.parse(iso).timestamp() * 1000)
+
+
+def vscode_chat(user: Path, repo: Path, name: str, requests: list[dict],
+                edits: list[Path] = ()) -> Path:
+    """An op-log chat: a snapshot line, then one append per request, as VS Code writes."""
+    ws = user / "workspaceStorage" / f"h-{name}"
+    (ws / "chatSessions").mkdir(parents=True, exist_ok=True)
+    (ws / "workspace.json").write_text(json.dumps({"folder": f"file://{repo}"}))
+    lines = [{"kind": 0, "v": {"sessionId": name, "customTitle": f"chat {name}",
+                               "requests": []}}]
+    for i, r in enumerate(requests):
+        resp = ([{"kind": "textEditGroup", "uri": {"fsPath": str(p)}} for p in edits]
+                if i == 0 else [])
+        lines.append({"kind": 2, "k": ["requests"], "v": [{
+            "requestId": f"{name}-{i}", "message": {"text": r["text"]},
+            "timestamp": ms(r["end"]) - 60_000, "responseTimestamp": ms(r["end"]),
+            "elapsedMs": 60_000, "copilotCredits": r["aic"], "modelId": "copilot/auto",
+            "promptTokens": 5000, "completionTokens": 100, "response": resp}]})
+    f = ws / "chatSessions" / f"{name}.jsonl"
+    f.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+    return f
+
+
+@pytest.fixture
+def world(tmp_path, monkeypatch):
+    """A branch written in VS Code, reviewed and paged by the Copilot CLI, isolated from
+    this machine's real stores."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.delenv("COPILOT_AGENT_SESSION_ID", raising=False)
+    db = tmp_path / "session-store.db"
+    monkeypatch.setenv("HUMAN_REVIEW_COPILOT_DB", str(db))
+    user = tmp_path / "Code" / "User"
+    monkeypatch.setenv("HUMAN_REVIEW_VSCODE_USER", str(user))
+
+    repo = (tmp_path / "repo").resolve()
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    (repo / ".gitignore").write_text(".human-review/\n")
+    (repo / "README").write_text("x\n")
+    base = commit(repo, "base", "2026-10-01T20:00:00Z")
+    git(repo, "checkout", "-qb", "feat")
+    (repo / "app.py").write_text("def f():\n    return 1\n")
+    impl = commit(repo, "impl", "2026-10-02T05:00:00Z")
+    return {"repo": repo, "base": base, "impl": impl, "db": Copilot(db), "user": user}
+
+
+def test_session_kind_reads_what_the_session_was_for():
+    assert hc.session_kind("Run the human-review skill … after /record-review") == "human-review"
+    assert hc.session_kind("You are continuing a /record-review that ran") == "record-review"
+    assert hc.session_kind("/record-review\n\nContext") == "record-review"
+    assert hc.session_kind("add pagination to owners") == "other"
+
+
+def test_harness_names_from_prose_are_one_vocabulary():
+    assert hc.normalize_harness("Copilot CLI") == hc.COPILOT_CLI
+    assert hc.normalize_harness("copilot -p") == hc.COPILOT_CLI
+    assert hc.normalize_harness("VS Code Copilot Chat") == hc.VSCODE
+    assert hc.normalize_harness("claude-code") == hc.CLAUDE
+    assert hc.normalize_harness("") == ""
+
+
+def test_vscode_chat_writes_the_implementation_and_its_fork_is_not_billed_twice(world):
+    repo, user = world["repo"], world["user"]
+    reqs = [{"text": "add pagination", "end": "2026-10-02T04:30:00Z", "aic": 30.0},
+            {"text": "go", "end": "2026-10-02T04:50:00Z", "aic": 200.0},
+            # After the implementation commit, and a review prompt: neither is writing.
+            {"text": "/record-review", "end": "2026-10-02T06:00:00Z", "aic": 9.0}]
+    vscode_chat(user, repo, "orig", reqs, edits=[repo / "app.py"])
+    # VS Code's "fork chat" copies the parent's requests, credits and timestamps included,
+    # under new request ids. Counted once.
+    vscode_chat(user, repo, "fork", reqs[:2], edits=[repo / "app.py"])
+    # A chat that touched nothing in the change set is not an author.
+    vscode_chat(user, repo, "chatter", [{"text": "hi", "end": "2026-10-02T04:40:00Z",
+                                         "aic": 0.5}])
+    c = hc.measure_implementation(repo, "main", hc.fork_time(repo, "main"),
+                                  hc.committed_at(repo, world["impl"]))
+    assert c["measured"]
+    assert c["aic"] == pytest.approx(230.0)
+    assert c["usd"] is None, "Copilot is in credits, never priced as Claude"
+    assert {e["harness"] for e in c["entries"]} == {hc.VSCODE}
+
+
+def copilot_review(world, *, ci_round: bool = True):
+    db, repo = world["db"], world["repo"]
+    db.session("rr", repo, "Run the record-review skill from the human-review plugin")
+    db.call("rr", "2026-10-02T10:00:00Z", 5.0)
+    for agent in ("a1", "a2"):
+        db.call("rr", "2026-10-02T10:01:00Z", 20.0, agent)
+    db.call("rr", "2026-10-02T10:05:00Z", 30.0, "a2")       # the reviewers' last call
+    db.call("rr", "2026-10-02T10:06:00Z", 7.0)               # deciding, fixing
+    db.call("rr", "2026-10-02T10:20:00Z", 3.0)
+    if ci_round:
+        db.session("ci", repo, "You are continuing a /record-review: CI is red")
+        db.call("ci", "2026-10-02T11:00:00Z", 4.0)
+    # Not this repository; and a page run, which is the fourth component's, not these.
+    db.session("elsewhere", repo.parent, "Run the record-review skill")
+    db.call("elsewhere", "2026-10-02T10:02:00Z", 99.0)
+    db.session("page", repo, "Run the human-review skill from the human-review plugin")
+    db.call("page", "2026-10-02T12:00:00Z", 40.0)
+    db.call("page", "2026-10-02T12:10:00Z", 60.0, "matrix")
+
+
+def test_a_copilot_review_is_split_at_the_reviewers_last_call(world):
+    copilot_review(world)
+    review, fixes = hc.measure_review_fixes(world["repo"], hc.COPILOT_CLI, [],
+                                            "2026-10-02T09:59:00Z", None,
+                                            "2026-10-02T11:30:00Z", "feat")
+    assert review["aic"] == pytest.approx(5 + 20 + 20 + 30)
+    # Half-open: the reviewers' last call is the review's and not the fixes' as well.
+    assert fixes["aic"] == pytest.approx(7 + 3 + 4), "the CI round's session is a fix too"
+    assert {e["session"] for e in fixes["entries"]} == {"rr", "ci"}
+    assert "elsewhere" not in {e["session"] for e in review["entries"] + fixes["entries"]}
+
+
+def test_a_branch_recorded_before_the_record_is_derived_from_the_stores(world):
+    """hr-try-3's shape: no review-cost.json, a front-matter that says `Copilot CLI`."""
+    repo = world["repo"]
+    copilot_review(world)
+    vscode_chat(world["user"], repo, "impl", [{"text": "write it", "end":
+                                               "2026-10-02T04:30:00Z", "aic": 100.0}],
+                edits=[repo / "app.py"])
+    (repo / "review-points.md").write_text(
+        f"---\nimplementation: {world['impl']}\nharness: Copilot CLI\n---\n## Fixed\n")
+    review_sha = commit(repo, "[auto-fix] x", "2026-10-02T11:01:00Z")
+    hr = repo / ".human-review"
+    hr.mkdir()
+    (hr / ".started").write_text("2026-10-02T12:00:30+00:00\n")
+    (hr / ".session").write_text("\n")                       # blank: not a Claude run
+    (hr / ".steps.json").write_text(json.dumps([
+        {"tabs": ["guide"], "label": "assemble", "start": "2026-10-02T12:05:00+00:00",
+         "end": "2026-10-02T12:15:00+00:00"}]))
+    doc = hc.components(repo, "main", hr, None,
+                        {"implementation": world["impl"], "review": review_sha})
+    rows = {r["key"]: r for r in doc["rows"]}
+    assert [r["key"] for r in doc["rows"]] == ["implementation", "review", "autofix", "guide"]
+    assert rows["implementation"]["aic"] == pytest.approx(100.0)
+    assert rows["review"]["aic"] == pytest.approx(75.0)
+    assert rows["autofix"]["aic"] == pytest.approx(14.0)
+    assert rows["guide"]["aic"] == pytest.approx(100.0), "the page run and its subagent"
+    assert all(r["source"] == "derived" for r in doc["rows"])
+    assert doc["usdEquivalent"] == pytest.approx((100 + 75 + 14 + 100) * hc.AIC_USD)
+    assert doc["wallclock"]["seconds"] == pytest.approx(14 * 60 + 30)
+
+
+def test_the_record_is_what_finish_commits_and_it_passes_its_schema(world):
+    copilot_review(world, ci_round=False)
+    state = {"base": world["base"], "implementation": world["impl"],
+             "reviewStartedAt": "2026-10-02T09:59:00Z",
+             "reviewersDoneAt": "2026-10-02T10:05:30Z"}
+    doc = hc.record(world["repo"], "main", state, hc.COPILOT_CLI, at="2026-10-02T10:30:00Z")
+    assert schema.cost_problems(doc) == []
+    comps = {c["key"]: c for c in doc["components"]}
+    assert comps["review"]["aic"] == pytest.approx(75.0)
+    assert comps["autofix"]["aic"] == pytest.approx(10.0)
+    assert not comps["implementation"]["measured"]
+    assert "edited these files" in comps["implementation"]["reason"], \
+        "unmeasured says why, never $0"
+
+
+def test_a_review_without_a_start_stamp_is_unmeasured_not_the_whole_session(world):
+    copilot_review(world)
+    doc = hc.record(world["repo"], "main", {"base": world["base"],
+                                            "implementation": world["impl"]},
+                    hc.COPILOT_CLI, at="2026-10-02T10:30:00Z")
+    comps = {c["key"]: c for c in doc["components"]}
+    assert not comps["review"]["measured"] and "start" in comps["review"]["reason"]
+    assert schema.cost_problems(doc) == []
+
+
+def test_the_run_records_itself_once_and_a_refresh_adds_time_never_money(world):
+    copilot_review(world)
+    hr = world["repo"] / ".human-review"
+    hr.mkdir()
+    (hr / ".started").write_text("2026-10-02T11:59:00+00:00\n")
+    (hr / ".session").write_text("")
+    (hr / ".model-runs.json").write_text(json.dumps({"runs": [
+        {"when": "2026-10-02T12:08:00+00:00", "model": "sonnet", "cost": 0.42,
+         "seconds": 90},
+        {"when": "2026-09-01T00:00:00+00:00", "model": "sonnet", "cost": 9.0,
+         "seconds": 90}]}))
+    first = hc.record_run(world["repo"], hr, "copilot-cli", at="2026-10-02T12:20:00Z")
+    g = first["guide"]
+    assert g["aic"] == pytest.approx(100.0)
+    assert g["usd"] == pytest.approx(0.42), "the mapping run inside the window, not last month's"
+    assert first["wallclock"]["seconds"] == 21 * 60
+    hc.note_refresh(hr, 12.5, "static")
+    again = hc.record_run(world["repo"], hr, "copilot-cli", at="2026-10-02T13:00:00Z")
+    assert again["guide"] == g, "a second call for the same run does not re-bill it"
+    assert [r["seconds"] for r in again["refreshes"]] == [12.5]
+
+
+def test_the_tab_leads_with_four_rows_and_says_it_adds_two_kinds_of_price():
+    sys.path.insert(0, str(HERE))
+    from hrbuild.tabs import cost
+    comp = {"rows": [
+        hc.component("implementation", [hc.entry(hc.VSCODE, "v1", "chat", aic=404.48)]),
+        hc.component("review", [hc.entry(hc.CLAUDE, "c1abcdef", "reviewers", usd=5.98)]),
+        hc.component("autofix", [], "the reviewers' end was not stamped"),
+        hc.component("guide", [hc.entry(hc.COPILOT_CLI, "p1", "page", aic=424.8)]),
+    ], "usd": 5.98, "aic": 829.3, "usdEquivalent": 14.27, "aicUsd": 0.01,
+        "unmeasured": ["autofix"], "wallclock": {"seconds": 1412, "modelSeconds": 891},
+        "refreshSeconds": 30}
+    out = cost.components_html(comp)
+    assert out.count("data-component=") == 4
+    assert "404 AIC" in out and "≈ $4.04 billed" in out
+    assert "unmeasured — the reviewers&#x27; end was not stamped" in out
+    assert "two kinds of price, added" in out
+    assert "took 24 min, of which model 15 min; plus 30 s of refreshes, no model" in out
+    assert cost.cost_pill_label({"components": comp}) == "$14?"
+    assert cost.components_html({"rows": [hc.component("guide", [], "x")]}) == ""
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-v"]))

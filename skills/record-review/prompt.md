@@ -16,7 +16,8 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
    only the content of its brief file. In Claude Code you may run `/code-review high`
    instead. Do NOT pass --fix and never let a reviewer edit: you decide every finding.
    If you can pick the reviewers' model, pick one other than yours.
-   When the reviewers are done, run `RR ci`: it waits for that CI run and prints what
+   When the reviewers are done, run `RR ci` — at once: it stamps the reviewers' end,
+   which is where the review's cost stops and the fixes' starts. It waits for CI and prints what
    failed — SonarCloud's new issues included — as findings with `source: CI`. A BUG or
    VULNERABILITY line fails the quality gate, so /human-review stops on it: fix it or
    decline it in the record. Code smells are yours to judge.
@@ -61,7 +62,10 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
    as `[auto-fix] …` with the Review-Points:, Implements:, Audited: and Claude-Session:
    trailers, and writes and checks the PR comments. A harness that needs its own
    attribution adds `--commit-trailer "Co-authored-by: <who>"` (repeatable); a harness
-   other than Claude Code names itself with `--harness <name>`. Commit nothing yourself.
+   other than Claude Code names itself with `--harness <name>` (`copilot-cli`,
+   `vscode-copilot`). It also measures what the implementation, the review and the fixes
+   cost, in your harness's own logs, and commits it as `review-cost.json` — nothing for
+   you to write. Commit nothing yourself.
 6. `RR ci --push` — pushes the `[auto-fix]` commit and waits for CI **on that commit**.
    The review is not done until it is green: CI on the implementation commit may have
    failed early (a Spectral error) and never reached SonarCloud, so your fixes are

@@ -182,3 +182,72 @@ def test_ci_exits_red_so_the_review_loop_knows_it_is_not_done(tmp_path, conclusi
     r = subprocess.run([sys.executable, str(RR), "ci", "--wait-minutes", "0.1"],
                        cwd=repo, capture_output=True, text=True, env=env)
     assert r.returncode == code, r.stdout + r.stderr
+
+
+def test_the_review_records_its_own_cost_in_the_harness_that_ran_it(tmp_path):
+    """`prepare` stamps the review's start, the first `ci` the reviewers' end, `finish` the
+    fixes' end — and commits the three components as review-cost.json. A Copilot CLI run
+    is found in its session store by cwd, branch and time, and named on the commit."""
+    import datetime as dt
+    import time
+    from test_harness_cost import Copilot
+
+    home = tmp_path / "home"
+    home.mkdir()
+    db = tmp_path / "store.db"
+    store = Copilot(db)
+    env = {**ENV, "HOME": str(home), "HUMAN_REVIEW_COPILOT_DB": str(db),
+           "HUMAN_REVIEW_VSCODE_USER": str(tmp_path / "none")}
+    r = (tmp_path / "repo").resolve()
+    r.mkdir()
+    git(r, "init", "-q", "-b", "main")
+    (r / ".gitignore").write_text(".human-review/\n")
+    (r / "README").write_text("x\n")
+    git(r, "add", "-A")
+    git(r, "commit", "-q", "-m", "base")
+    base = git(r, "rev-parse", "HEAD")
+    git(r, "checkout", "-qb", "feat")
+    (r / "app.py").write_text("def total(xs):\n    return sum(xs)\n")
+    git(r, "add", "-A")
+    git(r, "commit", "-q", "-m", "feature")
+
+    def run(*args):
+        p = subprocess.run([sys.executable, str(RR), *args], cwd=r, capture_output=True,
+                           text=True, env=env)
+        return p
+
+    def stamp(offset_s=0.0):
+        return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=offset_s)) \
+            .isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    store.session("cop", r, "Run the record-review skill from the human-review plugin")
+    assert run("prepare", "--base", base, "--no-ci", "--harness", "copilot-cli") \
+        .returncode == 0
+    time.sleep(1.1)
+    store.call("cop", stamp(), 10.0, agent="reviewer-1")
+    time.sleep(1.1)
+    run("ci", "--wait-minutes", "0")                   # after the reviewers: stamps their end
+    state = json.loads((r / ".human-review/review/state.json").read_text())
+    assert state["reviewStartedAt"] < state["reviewersDoneAt"]
+    time.sleep(1.1)
+    store.call("cop", stamp(), 3.0)                    # deciding and fixing
+    (r / "review-points.md").write_text(POINTS)
+    done = run("finish", "--subject", "s", "--harness", "copilot-cli")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "cost            review-cost.json" in done.stdout
+
+    assert "review-cost.json" in git(r, "show", "--name-only", "--format=", "HEAD")
+    doc = json.loads((r / "review-cost.json").read_text())
+    assert schema.cost_problems(doc) == []
+    comps = {c["key"]: c for c in doc["components"]}
+    assert comps["review"]["aic"] == 10.0 and comps["autofix"]["aic"] == 3.0
+    assert "Copilot-Session: cop" in git(r, "log", "-1", "--format=%B")
+
+    # A CI round: the fixes run on, and the record is rewritten with one more round.
+    time.sleep(1.1)
+    store.call("cop", stamp(), 2.0)
+    (r / "app.py").write_text("def total(xs):\n    return sum(xs or [])\n")
+    assert run("finish", "--subject", "ci round", "--harness", "copilot-cli").returncode == 0
+    doc = json.loads((r / "review-cost.json").read_text())
+    assert len(doc["rounds"]) == 2
+    assert {c["key"]: c for c in doc["components"]}["autofix"]["aic"] == 5.0

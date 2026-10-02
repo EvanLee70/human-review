@@ -19,6 +19,19 @@ comments. Every one of those has exactly one right answer, so a program gives it
       and the trailers (plus any --commit-trailer), then derives and checks the PR
       comments.
 
+  record-review.py ci [--push]
+      Waits for CI on HEAD. Run first right after the reviewers — which also stamps the
+      moment they were done — then with --push after each finish.
+
+What the review cost is measured here too, by the harness that ran it, because only now
+are its boundaries known rather than guessed: `prepare` stamps the start of the review,
+the first `ci` the reviewers' end, `finish` the end of the fixes. `finish` writes the
+three components — implementation (everything up to prepare, in any harness), review,
+auto-fixes — to `review-cost.json` beside review-points.md, checked against
+reference/review-cost.schema.json and committed with the fixes; every later `finish` (a CI
+round) rewrites it with the auto-fix window run on to that round. /human-review reads it
+and adds the fourth component, the guide itself (scripts/harness_cost.py).
+
 What stays with the agent is what only it can do: run the reviewers on the briefs, accept or
 decline each finding, write the assumptions it made, and edit the code it accepts.
 
@@ -44,6 +57,9 @@ WORK = ".human-review/review"
 POINTS = "review-points.md"
 #: The structured record the Review tab is rendered from (reference/review-points.schema.json).
 REPORT = ".human-review/review-points.json"
+#: What the change cost up to this commit, committed beside POINTS
+#: (reference/review-cost.schema.json, written by scripts/harness_cost.py:record).
+COST = "review-cost.json"
 DEFAULT_GENERATED = ["**/generated/**", "docs/generated/**", "openapi.yaml",
                      "**/*.genseq.*", "**/api-types.ts", "**/*.drawio*"]
 
@@ -85,6 +101,42 @@ first, and only ones you can anchor. Answer with nothing but this, one block per
 
 If you find nothing worth reporting, answer `none`.
 """
+
+
+def _now() -> str:
+    import datetime as dt
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def _cost_modules():
+    """`harness_cost` and the schema checker, from the human-review skill beside this one."""
+    if str(SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS))
+    import harness_cost
+    import review_points_schema
+    return harness_cost, review_points_schema
+
+
+def record_cost(repo: Path, state: dict, harness_name: str) -> tuple[dict | None, str]:
+    """Measure the three components and write COST. Never stops the commit: a measurement
+    that fails is a row that says so, and the review it measures is still recorded."""
+    try:
+        hc, schema = _cost_modules()
+        doc = hc.record(repo, state.get("base") or resolve_base(None), state,
+                        hc.normalize_harness(harness_name))
+    except Exception as exc:  # noqa: BLE001 — the cost must never cost the review
+        return None, f"not measured ({type(exc).__name__}: {exc})"
+    bad = schema.cost_problems(doc)
+    if bad:
+        return None, "not written — " + "; ".join(bad[:3])
+    (repo / COST).write_text(json.dumps(doc, indent=1) + "\n")
+    parts = []
+    for c in doc["components"]:
+        money = " + ".join(x for x in (
+            f"${c['usd']:.2f}" if c.get("usd") is not None else "",
+            f"{c['aic']:.1f} AIC" if c.get("aic") is not None else "") if x)
+        parts.append(f"{c['label']} {money or 'unmeasured'}")
+    return doc, " · ".join(parts)
 
 
 def git(*args: str, check: bool = True) -> str:
@@ -261,8 +313,12 @@ def prepare(args) -> int:
     # now) and what implements the feature — by default the same, but not when the
     # branch tip is housekeeping that landed after the feature (`--implements <sha>`).
     implementation = rev(args.implements) or head
+    # `reviewStartedAt` is the boundary between writing the code and reviewing it — the
+    # one moment only this command knows. `review-cost.json` is cut at it.
     state = {"base": base, "auditedHead": head, "implementation": implementation,
-             "session": session_id(args.harness), "harness": harness(args.harness)}
+             "session": session_id(args.harness), "harness": harness(args.harness),
+             "reviewStartedAt": _now(),
+             "sessions": [s for s in [session_id(args.harness)] if s]}
     (work / "state.json").write_text(json.dumps(state, indent=2) + "\n")
 
     print(f"base            {base[:8]}  ({args.base or 'merge-base with origin/main'})")
@@ -322,6 +378,17 @@ def finish(args) -> int:
     head = git("rev-parse", "HEAD")
     implementation = rev(args.implements) or state["implementation"]
     audited_head = state.get("auditedHead") or state["implementation"]
+    # A CI round may run in a new conversation; its session is the auto-fixes' too.
+    sid = session_id(args.harness or state.get("harness"))
+    if sid and sid not in state.setdefault("sessions", []):
+        state["sessions"].append(sid)
+    cost, cost_line = record_cost(repo, {**state, "implementation": implementation},
+                                  args.harness or state.get("harness") or "")
+    # The Copilot sessions the measurement found, by id, on the commit: the CLI exports no
+    # session id, so the match by cwd, branch and time is made once, here, while it is
+    # fresh, and kept where a rebase keeps it.
+    copilot = sorted({e["session"] for c in (cost or {}).get("components", [])[1:]
+                      for e in c.get("entries", []) if e.get("harness") == "copilot-cli"})
     # The structured record's provenance: four commits a reviewer must not confuse.
     # `review-commit` is not among them on purpose — this commit cannot name itself; the
     # report derives it from the commit that recorded the file.
@@ -347,16 +414,19 @@ def finish(args) -> int:
     msg = f"[auto-fix] {args.subject}\n\n" + "\n".join(filter(None, [trailers(**{
         "Review-Points": POINTS, "Implements": implementation,
         "Audited": f"{state['base']}..{audited_head}",
-        "Claude-Session": state.get("session", "")}), *extra]))
+        "Claude-Session": state.get("session", "")}),
+        *[f"Copilot-Session: {c}" for c in copilot], *extra]))
     git("commit", "-q", "-m", msg)
     sha = git("rev-parse", "HEAD")
     state["reviewCommit"] = sha
+    state.setdefault("finishes", []).append((cost or {}).get("recordedAt") or _now())
     (repo / WORK).mkdir(parents=True, exist_ok=True)
     (repo / WORK / "state.json").write_text(json.dumps(state, indent=2) + "\n")
     print(f"committed       {sha[:8]} [auto-fix] {args.subject}")
     print(f"provenance      audited {state['base'][:8]}..{audited_head[:8]} · implements "
           f"{implementation[:8]} · head {head[:8]} · recorded in {sha[:8]}")
     print(f"report          {REPORT} (validated against review-points.schema.json)")
+    print(f"cost            {COST}: {cost_line}")
 
     for extra in (["--from-review-points"], ["--check", "--base", state["base"]]):
         r = subprocess.run([sys.executable, str(SCRIPTS / "push-pr-comments.py"), *extra],
@@ -412,6 +482,17 @@ def ci(args) -> int:
     repo = root()
     os.chdir(repo)
     sha = git("rev-parse", "HEAD")
+    if not getattr(args, "push", False):
+        # The first `ci` comes right after the reviewers: that is the end of the review,
+        # and the start of deciding and fixing. Stamped once.
+        try:
+            st_path = repo / WORK / "state.json"
+            state = json.loads(st_path.read_text())
+            if state.get("reviewStartedAt") and not state.get("reviewersDoneAt"):
+                state["reviewersDoneAt"] = _now()
+                st_path.write_text(json.dumps(state, indent=2) + "\n")
+        except (OSError, ValueError):
+            pass
     if getattr(args, "push", False):
         pushed = subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"],
                                 capture_output=True, text=True)
