@@ -73,20 +73,22 @@ ISSUES_URL = f"{HOME_URL}/issues/new/choose"
 # link, so the whole action is the one thing the eye lands on. What each one costs the
 # reader stays in the hover.
 #
+# 2 Oct 2026, Victor's wording: the provenance sentence moved in here, so every page says
+# where it came from in the same words — "Built by <the repo>." — instead of whatever a
+# content file wrote ("Report built by /human-review from db27oct."), and the docker link
+# went: one place to look, the repo, and one to see it working, the online demo.
+#
 # Online first: it is free, instant, and the only one of the two a reader can act on from
 # a phone in the back of a room. And a closing invitation after both links, not between the
 # provenance sentence and them: by the time the reader has been told where to find this
 # page and how to run it, the only thing left to say is that it is theirs to change.
 TAKEAWAY = (
     '<span class="takeaway">'
-    f'<a href="{DEMO_PAGES_URL}" target="_blank" rel="noopener" '
+    f'Built by <a href="{HOME_URL}" target="_blank" rel="noopener">{HOME_URL}</a>. '
+    f'Browse it <a href="{DEMO_PAGES_URL}" target="_blank" rel="noopener" '
     'data-tip="The demo report on GitHub Pages — the live page, diagrams, '
-    'Code City and the feature video. Nothing to install.">Browse it online</a> or '
-    f'<a href="{DEMO_DOCKER_URL}" target="_blank" rel="noopener" '
-    'data-tip="The same pages as a container: docker run --rm -p 8642:80 '
-    'ghcr.io/victorrentea/human-review:&lt;snapshot&gt; — served rather than off disk, '
-    'so the page behaves the way it does here.">run it locally</a>. '
-    'Then adapt it to your liking. Something missing or broken? '
+    'Code City and the feature video. Nothing to install.">here</a> online. '
+    'Adopt what you like in your project. Bug or idea → '
     f'<a href="{ISSUES_URL}" target="_blank" rel="noopener" '
     'data-tip="Anyone with a GitHub account can open one — a bug, an idea, a question. '
     'No need to have installed it.">Open an issue</a>.'
@@ -115,6 +117,11 @@ FOOTER_BOILERPLATE = re.compile(
 # reader who cannot run the thing has no use for the distinction. Out, and the room it
 # leaves goes to the one sentence a stranger holding this page can act on.
 RUNNING_STACK = re.compile(r"\s+against the running stack", re.I)
+
+#: The content file's own provenance sentence — "Report built by /human-review from
+#: db27oct." and every older spelling. The build says it now, in TAKEAWAY, the same way on
+#: every page; the copy in the content file would be the same fact said twice.
+PROVENANCE = re.compile(r"^\s*(?:Report\s+)?built\s+by\s+/human-review\b[^.]*\.?\s*", re.I)
 
 # Nothing. The footer line is the address the page came from and the date it was built,
 # and that is all it is for.
@@ -153,12 +160,9 @@ def _link_home(footer: str) -> str:
     same reason the boilerplate is stripped here.
     """
     footer = RUNNING_STACK.sub("", FOOTER_BOILERPLATE.sub("", footer or "")).strip()
+    footer = PAST_INVITATIONS.sub("", PROVENANCE.sub("", footer)).strip()
     if not footer or "/human-review" not in footer or 'human-review"' in footer:
         return footer
-    # "Built by" -> "Report built by": idempotent, so a footer already carrying the new
-    # wording (an older build's output re-used as a content file) is not doubled.
-    if footer.startswith("Built by") and not footer.startswith("Report built by"):
-        footer = "Report built by" + footer[len("Built by"):]
     linked = footer.replace(
         "/human-review",
         f'<a href="{HOME_URL}" target="_blank" rel="noopener">{HOME_URL}</a>', 1)

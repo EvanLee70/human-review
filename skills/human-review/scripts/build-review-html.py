@@ -112,7 +112,7 @@ from hrbuild.shared.masthead import (
 )
 from hrbuild.shared.footer import (
     DEMO_DOCKER_URL, DEMO_PAGES_URL, DEMO_ZIP_URL, FOOTER_BOILERPLATE, HOME_URL, INVITATION,
-    ISSUES_URL, PAST_INVITATIONS, RUNNING_STACK, TAKEAWAY, _link_home
+    ISSUES_URL, PAST_INVITATIONS, PROVENANCE, RUNNING_STACK, TAKEAWAY, _link_home
 )
 from hrbuild.shared.tabstrip import (
     check_tab_enumeration, NUMBER_WORDS, spelled, TAB_COUNT_TOKEN
