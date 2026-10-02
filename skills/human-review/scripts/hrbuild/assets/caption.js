@@ -7,10 +7,11 @@ document.querySelectorAll('.vidwrap').forEach(function (wrap) {
   // may throw, or the scripts after it never run.
   if (!video) return;
 
-  // The 🐘 switch: the same take in the cloned voice. Both films share one cue clock, so the
+  // The voice switch: the same take in the cloned voice. Both films share one cue clock, so the
   // swap keeps the second the reader was at, and playing stays playing. The choice is
   // remembered per browser — whoever turned the voice on once wants it on the next review.
-  var voice = wrap.querySelector('.voice-switch input');
+  // It sits in the "Deployed app" row above the player, not inside this wrap.
+  var voice = (wrap.closest('.panel') || document).querySelector('.voice-switch input');
   if (voice) {
     var plain = video.getAttribute('src'), cloned = video.getAttribute('data-voice-alt');
     var swap = function () {

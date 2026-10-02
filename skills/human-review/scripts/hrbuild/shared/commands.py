@@ -658,7 +658,7 @@ def _app_anchor(href: str) -> str:
     return f'<a data-app="{html.escape(href)}" href="{html.escape(href)}">'
 
 
-def runtime_html(rt) -> str:
+def runtime_html(rt, tail: str = "") -> str:
     """The app the walkthrough was filmed against: start it, open it, stop it, reset it.
 
     This page is a file on disk that outlives the branch it describes, so it cannot hold a
@@ -703,6 +703,8 @@ def runtime_html(rt) -> str:
     """
     if not rt:
         return ""
+    # `tail` is what the section adds at the far end of the row (the Demo tab's voice switch):
+    # one row of controls over the player, not a second one under it.
     cmd = rt.get("command", "")
     fallback = rt.get("base", "")
 
@@ -777,4 +779,4 @@ def runtime_html(rt) -> str:
             f'{f' data-reset="{html.escape(rt["reset"])}"' if rt.get("reset") else ""}'
             f'{f' data-drive="{html.escape(rt["drive"])}"' if rt.get("drive") else ""}>'
             '<div class="appenv-run"><span class="appenv-title">Deployed app</span>'
-            + at + controls + '</div></div>')
+            + at + controls + tail + '</div></div>')

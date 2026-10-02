@@ -152,11 +152,12 @@ def video_html(s, out_dir: Path) -> str:
     cloned = cloned_film(rel, out_dir) if (out_dir / rel).is_file() else None
     # The same take, cue for cue, so caption.js swaps the source and keeps the second the
     # reader was at; the transcript and its timestamps are shared by both films.
-    switch = (f'<label class="voice-switch"><input type="checkbox"> 🐘 '
-              f'{html.escape(cloned[1])} voice</label>' if cloned else "")
+    # It rides at the far end of the "Deployed app" row, top right of the player: the
+    # one row of controls over the film. A page with no such row gets it on its own.
+    switch = (f'<label class="voice-switch"><input type="checkbox"> '
+              f'{html.escape(cloned[1])} voice 😂</label>' if cloned else "")
     alt = f' data-voice-alt="{html.escape(cloned[0])}"' if cloned else ""
-    player = (f'<div class="vidplayer"><video controls preload="metadata" '
-              f'src="{html.escape(rel)}"{alt}></video>{switch}</div>'
+    player = (f'<video controls preload="metadata" src="{html.escape(rel)}"{alt}></video>'
               if (out_dir / rel).is_file() else
               f'<p class="embedded-note"><b>Not filmed.</b> <code>{html.escape(rel)}</code> '
               'was not produced by this run, so there is no player here — the narration '
@@ -179,7 +180,9 @@ def video_html(s, out_dir: Path) -> str:
     # two-column grid, so a band emitted as one of its children takes a column and stands
     # next to the picture instead of across the top of it. What it contradicts is the
     # picture, so it has to be the thing read first, full width.
-    return (runtime_html(rt) + video_verdict_html(rel, out_dir)
+    head = (runtime_html(rt, switch) if rt else
+            f'<div class="voice-row">{switch}</div>' if switch else "")
+    return (head + video_verdict_html(rel, out_dir)
             + f'<div class="vidwrap">{player}<ol class="transcript">{items}</ol></div>')
 
 
