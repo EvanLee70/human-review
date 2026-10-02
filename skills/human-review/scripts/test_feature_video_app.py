@@ -426,9 +426,17 @@ def test_the_schema_example_names_the_instance_and_not_the_ref():
 # another checkout is not visibly wrong the way a film is — it is a plausible picture of some
 # other code, drawn under this branch's name and *committed* to `generated/`.
 
+def _draws(monkeypatch):
+    """The traced run drew one diagram: the step tells what a run drew from what was
+    already committed by comparing two snapshots, and these fakes write no file."""
+    shots = iter([{}, {"generated/Drawn.genseq.puml": (1, 1)}])
+    monkeypatch.setattr(steps, "genseq_stamps", lambda: next(shots))
+
+
 def _steps_ctx(tmp_path, monkeypatch, cfg_steps):
     (tmp_path / ".human-review" / "assets").mkdir(parents=True)
     monkeypatch.chdir(tmp_path)
+    _draws(monkeypatch)
     sh = Recorder([("git rev-parse HEAD", 0, SHA + "\n"),
                    ("git rev-parse --short HEAD", 0, SHORT + "\n"),
                    ("start-docker.sh up", 0, "building\n   http://localhost:63241\n")])
@@ -528,9 +536,9 @@ def test_a_red_suite_keeps_the_diagrams_it_drew_and_puts_the_others_back(
                                       " M generated/Kept.genseq.puml\n"),
     ])
     monkeypatch.setattr(steps, "sh", sh)
-    # `has_genseq` asks git, and this fixture is a directory rather than a repository; the
-    # question it stands for here is "did anything survive the run", and something did.
-    monkeypatch.setattr(steps, "has_genseq", lambda: True)
+    # The question is "did this run draw anything", asked by comparing two snapshots of the
+    # diagrams on disk — and here the backend suite did redraw Kept.genseq.puml.
+    _draws(monkeypatch)
     ctx = steps.Ctx("origin/main", {"steps": {"sequence": {"commands": [
         "cd petclinic-test && ./run-tests-with-tracing.sh",
         "cd petclinic-backend && mvn -Pgenseq test",
@@ -547,6 +555,113 @@ def test_a_red_suite_keeps_the_diagrams_it_drew_and_puts_the_others_back(
     # and the page is told, so the guide cannot present a red run as a clean one
     assert any("RED" in n for n in ctx.notes)
     assert any("restored 1 diagram file" in n for n in ctx.notes)
+
+
+# ── a missing environment is a skip with a reason, never a red step ────────────────
+# hr-try-4 (2 Oct 2026): the tracing script found no collector and aborted before running
+# anything, Maven went red only because a Cucumber suite class matched no `genseq` tag, and
+# the step still reported `ran` with a RED note — because committed diagrams existed, and
+# "a diagram exists" was the question asked instead of "this run drew one".
+
+TRACING_ABORT = ("\x1b[1;33m[tracing]\x1b[0m The stack is not fully up. Start the missing "
+                 "pieces, then re-run:\n   • OTLP collector (:4318)    → ./start-grafana.sh\n"
+                 "\x1b[1;31m[tracing] aborting — nothing was started or stopped.\x1b[0m\n")
+MVN_NO_TESTS = (
+    "[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0 -- in x.AddVisitApiTest\n"
+    "[ERROR] Tests run: 1, Failures: 0, Errors: 1, Skipped: 0, Time elapsed: 0.007 s "
+    "<<< FAILURE! -- in x.functional.FunctionalCucumberTest\n"
+    "[ERROR] x.functional.FunctionalCucumberTest -- Time elapsed: 0.007 s <<< ERROR!\n"
+    "org.junit.platform.suite.engine.NoTestsDiscoveredException: Suite "
+    "[x.functional.FunctionalCucumberTest] did not discover any tests\n"
+    "[ERROR]   FunctionalCucumberTest » NoTestsDiscovered Suite "
+    "[x.functional.FunctionalCucumberTest] did not discover any tests\n"
+    "[INFO] BUILD FAILURE\n")
+HR_TRY_4 = ["cd petclinic-test && ./run-tests-with-tracing.sh",
+            "cd petclinic-backend && mvn -o -Pgenseq test -Dgroups=genseq",
+            "cd petclinic-test && GENSEQ_REFRESH=1 npm run trace:diagram"]
+
+
+def _committed_diagram(tmp_path):
+    gen = tmp_path / "generated"
+    gen.mkdir()
+    (gen / "Committed.genseq.puml").write_text("@startuml\n@enduml\n")
+
+
+def test_suites_that_could_not_start_are_skipped_with_their_reason_not_red(
+        tmp_path, monkeypatch):
+    (tmp_path / ".human-review" / "assets").mkdir(parents=True)
+    _committed_diagram(tmp_path)          # what made it "ran, RED" before
+    monkeypatch.chdir(tmp_path)
+    sh = Recorder([("run-tests-with-tracing.sh", 1, TRACING_ABORT),
+                   ("mvn -o -Pgenseq", 1, MVN_NO_TESTS),
+                   ("trace:diagram", 0, "📊 Generated 0 diagram(s)\n")])
+    monkeypatch.setattr(steps, "sh", sh)
+    ctx = steps.Ctx("origin/main", {"steps": {"sequence": {"commands": HR_TRY_4}}}, dry=False)
+
+    row = steps.run_step("sequence", None, "sequence", None, steps._sequence, ctx)
+
+    assert row["status"] == steps.SKIPPED, row
+    assert "aborting — nothing was started" in row["reason"]
+    assert "\x1b[" not in row["reason"]
+    assert "FunctionalCucumberTest discovered no tests under the tag filter" in row["reason"]
+    assert "collector" in row["reason"]
+    verdict = json.loads(Path(".human-review/assets/sequence.verdict.json").read_text())
+    assert verdict["state"] == "skipped"
+    assert [r["outcome"] for r in verdict["runs"]] == ["failed", "no-tests", "ran"]
+
+
+def test_a_tag_filter_that_matched_nothing_is_not_a_failure():
+    outcome, said = steps.suite_outcome(1, MVN_NO_TESTS)
+    assert outcome == steps.NO_TESTS
+    assert said == "FunctionalCucumberTest discovered no tests under the tag filter"
+    assert steps.suite_outcome(1, "Error: No tests found.\n")[0] == steps.NO_TESTS
+    # One real failure beside it and the command is red: an empty filter must not
+    # launder a broken test.
+    broken = MVN_NO_TESTS + ("[ERROR] x.AddVisitApiTest.adds -- Time elapsed: 1 s <<< FAILURE!\n"
+                             "org.opentest4j.AssertionFailedError: expected 1\n")
+    assert steps.suite_outcome(1, broken)[0] == steps.FAILED
+    assert steps.suite_outcome(0, "anything")[0] == steps.RAN
+
+
+def test_a_tag_filter_that_matched_nothing_beside_drawn_diagrams_is_a_note(
+        tmp_path, monkeypatch):
+    ctx, sh = _steps_ctx(tmp_path, monkeypatch, {"sequence": {"commands": HR_TRY_4[1:2]}})
+    monkeypatch.setattr(steps, "sh", Recorder([("mvn -o -Pgenseq", 1, MVN_NO_TESTS)]))
+    steps._sequence(ctx)                  # ran: no LookupError, no RED
+
+    assert not any("RED" in n for n in ctx.notes)
+    assert any("tag filter that matched nothing" in n for n in ctx.notes)
+    verdict = json.loads(Path(".human-review/assets/sequence.verdict.json").read_text())
+    assert verdict["state"] == "notests"
+
+
+def test_what_the_suites_require_is_probed_before_anything_runs(tmp_path, monkeypatch):
+    import socket
+    with socket.socket() as s:            # a port nothing listens on any more
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    (tmp_path / ".human-review" / "assets").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    sh = Recorder([])
+    monkeypatch.setattr(steps, "sh", sh)
+    ctx = steps.Ctx("origin/main", {"steps": {"sequence": {
+        "commands": HR_TRY_4,
+        "requires": [{"url": f"tcp://127.0.0.1:{port}", "what": "OTLP collector"}]}}},
+        dry=False)
+
+    with pytest.raises(LookupError, match="OTLP collector"):
+        steps._sequence(ctx)
+    assert sh.ran == [], "nothing is run against an environment known to be missing"
+    verdict = json.loads(Path(".human-review/assets/sequence.verdict.json").read_text())
+    assert verdict["missing"] == [f"OTLP collector (tcp://127.0.0.1:{port})"]
+
+
+def test_a_clean_run_takes_the_previous_runs_band_away(tmp_path, monkeypatch):
+    ctx, sh = _steps_ctx(tmp_path, monkeypatch, {"sequence": {"commands": ["npm run x"]}})
+    stale = Path(".human-review/assets/sequence.verdict.json")
+    stale.write_text('{"state": "red"}')
+    steps._sequence(ctx)
+    assert not stale.exists()
 
 
 def test_the_harness_never_calls_the_projects_own_api():

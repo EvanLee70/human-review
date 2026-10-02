@@ -315,8 +315,11 @@ def main(argv=None) -> int:
         spec = {}
     g = sc.gather(spec if isinstance(spec, dict) else {}, review, root)
     if g is None:
-        print("[model] no ticket resolved for this branch (pr.ticket in content.json, or "
-              "#N in the PR title) — there are no sentences to pair.", file=sys.stderr)
+        print("[model] no requirement text resolved for this branch — no GitHub issue "
+              "(review-points.md `ticket:`, pr.ticket in content.json, #N in the PR title, "
+              "the branch name), no `ticket:` text, no matching openspec/changes/<name>/, "
+              "no impl-conversation.md request 0 — so there are no sentences to pair.",
+              file=sys.stderr)
         return 2
     asked = sc.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"])
     decided = len(g["scripted"]["decided"])

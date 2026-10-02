@@ -324,6 +324,158 @@ def test_the_build_relays_a_scripted_matrix_without_rewording_its_card(tmp_path)
     assert T.COVCARD_WHO in out and T.CARD_WHO not in out
 
 
+# --- where the requirement text comes from ----------------------------------------------
+#
+# hr-try-4 had no PR and no `#N` anywhere, so the Tests tab was empty, although the branch
+# carried the human's own request in `impl-conversation.md`. A GitHub issue still wins
+# whenever one resolves; the page says which source it drew from.
+
+CONVERSATION = """# The implementation conversation, requests 0-1
+
+## Request 0 — the human:
+
+I want to add pagination to the Owners grid.
+
+Requirements:
+- The page-size options must be 5, 10, and 20 rows.
+
+### The agent:
+
+Question 1 of 8: client-side or server-side?
+
+## Request 1 — the human:
+
+Server-side.
+"""
+
+
+def _no_issue_repo(tmp_path, monkeypatch, gh=None):
+    """`_repo` with no `pr.ticket`, no cached issue, and GitHub answering only `gh`."""
+    root, review = _repo(tmp_path)
+    (review / "content.json").write_text(json.dumps(
+        {"pr": {"repo": "https://github.com/acme/clinic", "branch": "hr-try-4"},
+         "testChanges": "assets/test-changes.json"}), encoding="utf-8")
+    (review / "ticket-body.json").unlink()
+    asked = []
+
+    def fake(slug, number):
+        asked.append((slug, number))
+        return (gh or {}).get(number)
+    monkeypatch.setattr(S, "_gh_issue_full", fake)
+    monkeypatch.setattr(S, "_avatar", lambda login: "")
+    return root, review, asked
+
+
+ISSUE_25 = {"title": "Page the owners", "url": "https://github.com/acme/clinic/issues/25",
+            "author": {"login": "ana"}, "createdAt": "2026-09-01T10:00:00Z",
+            "body": "1. Owners come in pages of 10.\n"}
+
+
+def test_the_first_request_of_the_conversation_is_the_ticket_when_there_is_no_issue(
+        tmp_path, monkeypatch):
+    root, review, asked = _no_issue_repo(tmp_path, monkeypatch)
+    (review / "impl-conversation.md").write_text(CONVERSATION, encoding="utf-8")
+    t = S.fetch_ticket(S._spec(review), review, root)
+    assert t["source"] == "conversation" and t["number"] is None
+    assert "Owners grid" in t["body"] and "5, 10, and 20" in t["body"]
+    assert "client-side" not in t["body"] and "Server-side" not in t["body"]
+    assert "impl-conversation.md" in t["via"] and "not a GitHub issue" in t["via"]
+    # `hr-try-4` ends in a counter, not an issue: nobody asked GitHub for #4.
+    assert asked == []
+
+
+def test_the_page_says_which_source_the_ticket_came_from(tmp_path, monkeypatch):
+    root, review, _ = _no_issue_repo(tmp_path, monkeypatch)
+    (review / "impl-conversation.md").write_text(CONVERSATION, encoding="utf-8")
+    (review / S.MAPPING).write_text(json.dumps({"schema": "test-mapping/1", "sentences": []}),
+                                    encoding="utf-8")
+    assert S.write_fragment(S._spec(review), review, root)
+    frag = (review / S.FRAGMENT).read_text()
+    assert '<span class="rm-src">Requirement text: the implementation conversation' in frag
+    T = importlib.import_module("hrbuild.tabs.tests")
+    out = T.reqmap_layout(frag, S._spec(review), review, root)
+    assert "Requirement: the implementation conversation&#x27;s first request" in out
+
+
+def test_review_points_front_matter_names_the_issue(tmp_path, monkeypatch):
+    root, review, asked = _no_issue_repo(tmp_path, monkeypatch, gh={25: ISSUE_25})
+    (review / "impl-conversation.md").write_text(CONVERSATION, encoding="utf-8")
+    (root / "review-points.md").write_text("---\nticket: #25\nbase: abc\n---\n\n## Fixed\n")
+    t = S.fetch_ticket(S._spec(review), review, root)
+    # The issue wins over the conversation, and says where it was named.
+    assert (t["source"], t["number"], t["author"]) == ("github", 25, "ana")
+    assert "review-points.md" in t["via"] and "#25" in t["via"]
+    assert asked == [("acme/clinic", 25)]
+    # Written down: the next build does not ask again.
+    S.fetch_ticket(S._spec(review), review, root)
+    assert asked == [("acme/clinic", 25)]
+
+
+@pytest.mark.parametrize("value, slug", [
+    ("#25", "acme/clinic"), ("25", "acme/clinic"),
+    ("https://github.com/other/repo/issues/25", "other/repo"),
+    ("other/repo#25", "other/repo")])
+def test_a_ticket_value_names_an_issue_in_every_spelling(value, slug):
+    assert S._ticket_value(value, "acme/clinic") == ((25, slug), "")
+
+
+def test_a_ticket_value_that_is_text_is_the_requirement_text(tmp_path, monkeypatch):
+    root, review, _ = _no_issue_repo(tmp_path, monkeypatch)
+    (review / "impl-conversation.md").write_text(CONVERSATION, encoding="utf-8")
+    (root / "review-points.md").write_text(
+        "---\nticket: Owners come in pages of 5, 10 or 20.\n---\n")
+    t = S.fetch_ticket(S._spec(review), review, root)
+    assert t["source"] == "front-matter" and t["body"] == "Owners come in pages of 5, 10 or 20."
+
+
+def test_the_branch_name_names_the_issue(tmp_path, monkeypatch):
+    root, review, asked = _no_issue_repo(tmp_path, monkeypatch, gh={25: ISSUE_25})
+    spec = S._spec(review)
+    spec["pr"]["branch"] = "feature/25-page-owners"
+    t = S.fetch_ticket(spec, review, root)
+    assert t["number"] == 25 and "branch" in t["via"]
+
+
+@pytest.mark.parametrize("branch, number", [
+    ("25-page-owners", 25), ("feature/25-page-owners", 25), ("issue-25", 25),
+    ("gh-25-paging", 25), ("hr-try-4", None), ("main", None), ("release/2026.10", None)])
+def test_only_a_branch_that_carries_an_issue_names_one(branch, number):
+    assert S.branch_issue(branch) == number
+
+
+def test_an_openspec_change_matching_the_branch_beats_the_conversation(tmp_path, monkeypatch):
+    root, review, _ = _no_issue_repo(tmp_path, monkeypatch)
+    (review / "impl-conversation.md").write_text(CONVERSATION, encoding="utf-8")
+    spec = S._spec(review)
+    spec["pr"]["branch"] = "feature/page-owners"
+    d = root / "openspec" / "changes" / "page-owners" / "specs" / "owners"
+    d.mkdir(parents=True)
+    (d / "spec.md").write_text("## ADDED Requirements\n\n### Requirement: Paging\n"
+                               "The owners list SHALL come in pages.\n")
+    other = root / "openspec" / "changes" / "vet-visits" / "specs" / "visits"
+    other.mkdir(parents=True)
+    (other / "spec.md").write_text("Visits SHALL have a vet.\n")
+    t = S.fetch_ticket(spec, review, root)
+    assert t["source"] == "openspec" and "pages" in t["body"] and "vet" not in t["body"]
+    assert "page-owners" in t["via"]
+    # A change for some other branch is not this branch's text.
+    spec["pr"]["branch"] = "hr-try-4"
+    assert S.fetch_ticket(spec, review, root)["source"] == "conversation"
+
+
+def test_an_issue_github_cannot_answer_falls_back_to_the_conversation(tmp_path, monkeypatch):
+    root, review, asked = _no_issue_repo(tmp_path, monkeypatch, gh={})
+    (review / "impl-conversation.md").write_text(CONVERSATION, encoding="utf-8")
+    (root / "review-points.md").write_text("---\nticket: #25\n---\n")
+    t = S.fetch_ticket(S._spec(review), review, root)
+    assert asked == [("acme/clinic", 25)] and t["source"] == "conversation"
+
+
+def test_with_no_source_at_all_there_is_no_ticket(tmp_path, monkeypatch):
+    root, review, _ = _no_issue_repo(tmp_path, monkeypatch)
+    assert S.fetch_ticket(S._spec(review), review, root) is None
+
+
 # --- agreement with the paid run on the demo PR ------------------------------------------
 
 DEMO = Path.home() / "workspace" / "petclinic-pr"

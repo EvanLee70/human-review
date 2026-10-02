@@ -22,8 +22,11 @@
 # Regenerate the city first if the branch moved: petclinic-backend/docs/generate-codecity.sh
 #
 # Usage:
-#   scripts/capture-codecity.sh [out.png] [mode]
+#   scripts/capture-codecity.sh [out.png] [mode] [codecity.html]
 #     mode: highlight (default) | hide | off
+#     codecity.html: the page to shoot. Default: the copy beside the PNG
+#       (<dir of out.png>/codecity/codecity.html), which is where run-steps.py generates
+#       it; else the repository's committed one, for a hand run on an old checkout.
 set -euo pipefail
 
 # The project under review is where this was *invoked*, never where the script lives:
@@ -35,7 +38,13 @@ ROOT="$(git rev-parse --show-toplevel)"
 OUT="${1:-$ROOT/.human-review/assets/codecity.png}"
 MODE="${2:-highlight}"
 
-CITY="$ROOT/petclinic-backend/docs/generated/codecity/codecity.html"
+CITY_DIR="$(dirname "$OUT")/codecity"
+CITY="${3:-}"
+if [ -z "$CITY" ]; then
+  CITY="$CITY_DIR/codecity.html"
+  [ -f "$CITY" ] || CITY="$ROOT/petclinic-backend/docs/generated/codecity/codecity.html"
+fi
+case "$CITY" in /*) ;; *) CITY="$PWD/$CITY" ;; esac      # the page is opened as file://
 NODE_PATHS="$ROOT/petclinic-test/node_modules"
 
 [ -f "$CITY" ] || { echo "[codecity] $CITY missing — run petclinic-backend/docs/generate-codecity.sh" >&2; exit 2; }
@@ -126,8 +135,11 @@ const [city, out, mode] = process.argv.slice(1);
 # The guide is served with .human-review/ as the document root (see serve-review.py), and
 # SimpleHTTPRequestHandler collapses "..", so a link to ../petclinic-backend/... 404s. Copy
 # the live city in beside the PNG: the click-through works, and the folder survives being
-# zipped and mailed as one thing.
-CITY_DIR="$(dirname "$OUT")/codecity"
+# zipped and mailed as one thing. When the city was generated there in the first place
+# (run-steps.py does that now) there is nothing to copy — and `cp` onto itself is an error
+# that `set -e` would turn into a failed capture.
 mkdir -p "$CITY_DIR"
-cp "$CITY" "$CITY_DIR/codecity.html"
-echo "[codecity] copied the live view -> $CITY_DIR/codecity.html (link to assets/codecity/codecity.html)" >&2
+if [ "$(cd "$(dirname "$CITY")" && pwd)/$(basename "$CITY")" != "$(cd "$CITY_DIR" && pwd)/codecity.html" ]; then
+  cp "$CITY" "$CITY_DIR/codecity.html"
+  echo "[codecity] copied the live view -> $CITY_DIR/codecity.html (link to assets/codecity/codecity.html)" >&2
+fi

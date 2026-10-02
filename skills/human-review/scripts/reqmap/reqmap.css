@@ -57,6 +57,8 @@
 .reqmap .rm-av{width:24px;height:24px;border-radius:50%;flex:0 0 auto;display:block}
 .reqmap .rm-who{font-weight:600;color:var(--fg,#1c1c1c)}
 .reqmap .rm-when{color:var(--muted,#6b6b6b)}
+.reqmap .rm-src{color:var(--muted,#6b6b6b);min-width:0}
+.reqmap .rm-src code{font-size:12px}
 .reqmap .rm-issue{padding:16px}
 .reqmap .rm-issue > :last-child{margin-bottom:0}
 .reqmap *{box-sizing:border-box}

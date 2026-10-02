@@ -661,8 +661,11 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
         )
         parts.append('<div class="testpair">' + "\n".join(pieces) + "</div>")
 
+    band = sequence_verdict_html(out_dir)
     if not parts:
-        return "", 0, 0
+        # A tab with nothing on it but the reason it is empty is still worth its pill: an
+        # absent Sequence tab says nothing, and this one says what to start.
+        return (band, 1, 1) if band else ("", 0, 0)
     # `"title": ""` means no heading at all, and is worth having: every pair below already
     # names its own scenarios and carries its own source path, so a heading over them can
     # only restate what the tab label said — and it does it above the fold, where the
@@ -679,6 +682,86 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
         parts.append('<script type="application/json" id="hr-genseq">'
                      + json.dumps(index).replace("</", "<\\/") + "</script>")
     # Weight counts every exhibit; changes count only the manifest's rows. An unchanged
-    # pair is context, exactly as a `puml` block is, and must not un-strike the tab.
-    return ("\n".join(([head] if head else []) + parts) + "\n",
-            len(rows) + unchanged + stale + len(orphaned), len(rows))
+    # pair is context, exactly as a `puml` block is, and must not un-strike the tab —
+    # unless the suites were not re-traced: a strike says "this branch left the sequences
+    # alone", and a run that drew nothing cannot know that.
+    return (band + "\n".join(([head] if head else []) + parts) + "\n",
+            len(rows) + unchanged + stale + len(orphaned),
+            len(rows) or int(sequence_verdict_alarm(out_dir) is not None))
+
+
+#: What `run-steps.py` `_sequence` writes beside the diagrams whenever the traced suites did
+#: not simply pass — read here the way the Demo tab reads `feature.verdict.json`.
+SEQ_VERDICT = "assets/sequence.verdict.json"
+
+#: `state` -> (band class, headline, what it means for the pictures under it). The classes
+#: are the Review tab's bands (`.rband`, `review.css`): the same kind of statement — read
+#: everything below differently — in the same shape, rather than a second vocabulary.
+SEQ_VERDICT_FACE = {
+    "skipped": ("rband-warn", "Not re-traced on this run.",
+                "The traced suites drew no diagram, so every sequence on this tab is the "
+                "one committed on the branch — not evidence of this run, and possibly "
+                "stale against the code under review."),
+    "red": ("rband-alert", "The traced suite was red.",
+            "The diagrams below come from that run: a scenario that failed is drawn only "
+            "as far as it got."),
+    "notests": ("rband-none", "Part of the traced run found nothing to run.",
+                "A tag filter matched no test — not a failure, and the diagrams below are "
+                "this run's."),
+}
+
+#: `state` -> the words on the tab pill's accessible name when the band is an alarm.
+SEQ_VERDICT_ALARM = {"skipped": "not re-traced on this run", "red": "traced suite red"}
+
+
+def sequence_verdict(out_dir: Path) -> dict | None:
+    try:
+        doc = json.loads((Path(out_dir) / SEQ_VERDICT).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) and doc.get("state") in SEQ_VERDICT_FACE else None
+
+
+def sequence_verdict_alarm(out_dir: Path) -> str | None:
+    """The pill's label when the tab must be read as not this run's evidence, else None."""
+    return SEQ_VERDICT_ALARM.get((sequence_verdict(out_dir) or {}).get("state"))
+
+
+def sequence_verdict_html(out_dir: Path) -> str:
+    """Why the Sequence tab is empty, red or stale, said at its top — or nothing.
+
+    The reason used to exist only as a row of the producers' status table, which reached
+    the page if and when a model copied it into the guide, on the Review tab. The Sequence
+    tab itself was merely struck through, which reads as "this branch did not touch its
+    sequences" — while it was showing committed pictures nobody had re-traced."""
+    doc = sequence_verdict(out_dir)
+    if not doc:
+        return ""
+    cls, title, why = SEQ_VERDICT_FACE[doc["state"]]
+    parts = [f'<p><b>{html.escape(title)}</b> {html.escape(why)}</p>']
+    missing = [m for m in doc.get("missing") or [] if isinstance(m, str)]
+    if missing:
+        parts.append("<p class=\"rb-sub\">Nothing answers at: "
+                     + " · ".join(f"<code>{html.escape(m)}</code>" for m in missing)
+                     + ". Start them, or configure <code>steps.sequence.app</code>, and "
+                       "rerun this tab.</p>")
+    runs = [r for r in doc.get("runs") or [] if isinstance(r, dict)]
+    if runs:
+        def said(r):
+            outcome = r.get("outcome")
+            text = ("passed" if outcome == "ran" else str(r.get("detail") or "")
+                    if outcome == "no-tests" else f'exit {r.get("exit")} — {r.get("detail", "")}')
+            return (f'<li><code>{html.escape(str(r.get("command", "")))}</code>: '
+                    f'{html.escape(text)}</li>')
+        parts.append("<ul>" + "".join(said(r) for r in runs) + "</ul>")
+        log = [f'$ {r.get("command", "")}\n' + "\n".join(map(str, r.get("log") or []))
+               for r in runs if r.get("outcome") != "ran" and r.get("log")]
+        if log:
+            # Folded, like the recorder's last words over the film: the answer for whoever
+            # is fixing the environment, furniture for everybody else.
+            parts.append('<details class="toolcommits"><summary>the suites’ last words'
+                         '</summary><pre>' + html.escape("\n\n".join(log)) + "</pre></details>")
+    elif doc.get("reason") and not missing:
+        parts.append(f'<p class="rb-sub">{html.escape(str(doc["reason"]))}</p>')
+    role = "alert" if doc["state"] in SEQ_VERDICT_ALARM else "status"
+    return f'<div class="rband {cls} seqverdict" role="{role}">' + "".join(parts) + "</div>"

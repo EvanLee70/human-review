@@ -135,6 +135,7 @@ from hrbuild.tabs.review import (
     review_tab_badge, ASSUMPTION_BADGE, _decided_by, own_review_tab, pile_intro, PILE_TITLES,
     REVIEW_TAB_TIP,
     reset_list, resolve_refs, resolve_review_points, REVIEW_POINTS_JSON, scope_chip_face,
+    _points_parser, unglue_refs,
     SCOPE_CHIP_MAX_LEN, SEVERITIES, _aftermath_commit, _aftermath_files_tip,
     _assumptions_block, _code_totals, _confidence_chip, _finding_refs, _finding_source, _fold_note_lists,
     grade_reasons, grade_reasons_html, _first_clause, _CLAUSE_END, PILE_ROUND, _round_kicker,
@@ -150,7 +151,9 @@ from hrbuild.tabs.sequence import (
     SEQ_UI_DRIVERS, SRCBAR, STALE, TEST_CATS, TEST_RUNNERS, _badge_as_glyph, _cat_chip,
     _fold_over, _folded_pair, _line_spans, _moved_since_base, _narrowed, _pair_cat,
     _pair_runner, _scenario_extents, _scenarios_drawn, _share_excerpts, _spans_for,
-    _stale_sequence, _unchanged_sequence, _unquoted_note
+    _stale_sequence, _unchanged_sequence, _unquoted_note,
+    SEQ_VERDICT, SEQ_VERDICT_ALARM, SEQ_VERDICT_FACE, sequence_verdict,
+    sequence_verdict_alarm, sequence_verdict_html
 )
 from hrbuild.tabs.tests import (
     LEDGER_TAB, render_requirements, render_test_ledger, render_tests, render_traces,
@@ -159,6 +162,7 @@ from hrbuild.tabs.tests import (
     SEMCOV_LABEL, semcov_switch, SILENCED_LABEL,
     test_index, TEST_STATES,
     TICKET_CACHE, ticket_head, ticket_ref, tests_chip, _append_inside, _element, _find,
+    drawn_ticket,
     CARD_WHO, CARD_WHEN, CARD_AI_TIP, card_head,
     SEMCOV, COV_NOT_MEASURED_SCRIPTED, _semcov_module, scripted_reqmap,
     RUN_TESTS_ACTION, run_tests_steps, declare_run_tests_rerun, run_tests_button,
@@ -809,6 +813,12 @@ def main(argv=None) -> int:
         if kind == "testpairs":
             rows = [r for r in select_rows(manifest_rows, block) if r["kind"] == "sequence"]
             placed.update(r["name"] for r in rows)
+            # Amber pill, the CODEOWNERS way, when the traced suites were not re-run or were
+            # red: the band inside the tab says why, the colour says to open it.
+            alarm = sequence_verdict_alarm(out_dir)
+            if alarm:
+                auto_badge["tabClass"] = "warn"
+                auto_badge["label"] = alarm
             return render_testpairs(block, dspec, manifest_rows, root, out_dir)
         if kind == "logging":
             return logging_fragment(block, root)

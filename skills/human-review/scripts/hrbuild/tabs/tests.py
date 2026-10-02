@@ -967,6 +967,19 @@ def _load_test_changes(spec: dict, out_dir: Path) -> dict | None:
         return None
 
 
+def drawn_ticket(frag: str) -> dict | None:
+    """The ticket a `semcov.py` matrix was drawn against (its data blob's `ticket`), or
+    None — an older fragment, or a model's. The title row then names the same text the
+    left column shows, whichever source `semcov.fetch_ticket` took it from."""
+    m = re.search(r'<script type="application/json" class="rm-data">(.*?)</script>',
+                  frag, re.S)
+    try:
+        got = json.loads(m.group(1).replace("<\\/", "</")).get("ticket") if m else None
+    except (ValueError, AttributeError):
+        return None
+    return got if isinstance(got, dict) and (got.get("title") or got.get("number")) else None
+
+
 def ticket_head(ref: dict | None) -> str:
     """The ticket's title over its frame — the issue's own, never the PR's.
 
@@ -975,11 +988,16 @@ def ticket_head(ref: dict | None) -> str:
     away from the "Issue" it belongs to. The whole of it is the link; half a title being
     clickable is a target nobody aims at. With no ticket resolved the row is still there,
     empty, so both columns under it keep starting level."""
-    if ref:
+    if ref and ref.get("number") is None and ref.get("title"):
+        # Not an issue — the requirement text came from the conversation, an OpenSpec
+        # change or the front-matter, and the heading says so rather than invent a number.
+        face = f'Requirement: {html.escape(ref["title"])}'
+        title = f'<span class="rm-title">{face}</span>'
+    elif ref and ref.get("number") is not None:
         # "Issue" first, so the heading says what it names before it names it: over the
         # ticket's own frame, a bare title read as the PR's.
         face = (f'Issue <span class="rm-num">#{ref["number"]}</span>: '
-                f'{html.escape(ref["title"])}')
+                f'{html.escape(ref.get("title") or "")}')
         title = (f'<a class="rm-title" href="{html.escape(ref["url"])}">{face}</a>'
                  if ref.get("url") else f'<span class="rm-title">{face}</span>')
     else:
@@ -1235,7 +1253,8 @@ def reqmap_layout(frag: str, spec: dict, out_dir: Path, root: Path | None = None
     side_col = coverage_side(side_col, frag, spec, out_dir,
                              root if root is not None else out_dir.resolve().parent,
                              generated=generated)
-    body = (m.group(0) + ticket_head(ticket_ref(spec, out_dir))
+    ref = (generated and drawn_ticket(frag)) or ticket_ref(spec, out_dir)
+    body = (m.group(0) + ticket_head(ref)
             + text_col + cats_filter(cats) + side_col + "</div>")
     out = frag[:a] + body + frag[b:]
     doc = load_coverage(out_dir, spec)

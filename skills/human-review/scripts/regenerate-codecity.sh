@@ -13,7 +13,8 @@
 #   regenerate-codecity.sh --out … --baseline … --write-baseline
 #
 #   --repo DIR            checkout to analyse (default: git toplevel of $PWD)
-#   --out DIR             where codecity.html is written, repo-relative
+#   --out DIR             where codecity.html is written, repo-relative or absolute;
+#                         run-steps.py passes .human-review/assets/codecity
 #   --title TEXT          page heading; pinned by the caller, never derived from the
 #                         folder name, so a contributor whose checkout is called
 #                         something else still regenerates a byte-identical page
@@ -67,7 +68,14 @@ elif [ -z "$NO_PULL" ]; then
   git -C "$TOOL_DIR" pull --ff-only --quiet
 fi
 
-ABS_OUT="$REPO/$OUT"
+# Repo-relative or absolute. A review passes its own `.human-review/assets/codecity`, so the
+# page lands beside the review and the committed copy in the repository is never rewritten
+# — a run that did leave the working tree dirty after every review, for a pre-push gate to
+# then demand the by-product be committed.
+case "$OUT" in
+  /*) ABS_OUT="$OUT" ;;
+  *)  ABS_OUT="$REPO/$OUT" ;;
+esac
 mkdir -p "$ABS_OUT"
 
 # CRAP and coverage need a JaCoCo report, which needs the tests to have RUN. Running them

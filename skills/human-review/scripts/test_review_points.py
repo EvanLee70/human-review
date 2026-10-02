@@ -192,6 +192,109 @@ def test_captioning_a_whole_file_is_refused_because_there_is_no_card_to_caption(
     assert "names no lines" in str(bad.value)
 
 
+def test_two_refs_glued_with_a_comma_are_two_refs(tmp_path):
+    """hr-try-4: `- file: a.ts:92, a.ts:288` passed `--check` as ONE ref, and the build
+    then aborted on a file called `a.ts:92, a.ts`. Both parts are refs, so both are kept."""
+    doc = _doc(tmp_path, "## Fixed\n### t\n- file: src/a.ts:92, src/b.ts:288\n"
+                         "- fixed-in: HEAD\n- observation: x.\n")
+    item = doc["autofixes"][0]
+    assert item["refs"] == ["src/a.ts:92", "src/b.ts:288"]
+    assert item["snippets"] == [{"ref": "src/a.ts:92"}, {"ref": "src/b.ts:288"}]
+    assert [d["path"] for d in item["diffs"]] == ["src/a.ts", "src/b.ts"]
+
+
+def test_line_numbers_after_a_comma_stay_on_their_file(tmp_path):
+    """`a.py:89,93-95` is one ref with two spans — `extract-snippet.py` quotes it as one
+    card — with or without a space after the comma."""
+    for value in ("a.py:89,93-95", "a.py:89, 93-95"):
+        doc = _doc(tmp_path, f"## Ignored\n### t\n- file: {value}\n")
+        assert doc["findings"][0]["refs"] == ["a.py:89,93-95"]
+        assert doc["findings"][0]["snippets"] == [{"ref": "a.py:89,93-95"}]
+
+
+@pytest.mark.parametrize("value, says", [
+    ("a.ts:12, the guard clause", "is not a path"),
+    ("a.ts:12 b.ts:30", "glued together"),
+    ("a.ts:12,, b.ts:3", "empty ref between its commas"),
+    ("a.ts, 12", "line number with no file before it"),
+    ("a.ts:12, b.ts:30 | both guards", "a caption belongs to one snippet card"),
+])
+def test_a_file_value_that_is_not_refs_is_refused_and_says_why(tmp_path, value, says):
+    with pytest.raises(rp.Unparseable) as bad:
+        _doc(tmp_path, f"## Ignored\n### t\n- file: {value}\n")
+    assert says in str(bad.value)
+
+
+def _git_repo_with(tmp_path: Path, files: dict[str, int]) -> Path:
+    root = tmp_path / "repo"
+    for rel, n in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("".join(f"line {i}\n" for i in range(1, n + 1)))
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "a"]):
+        subprocess.run(["git", "-C", str(root), *args], check=True, env=env,
+                       capture_output=True)
+    return root
+
+
+def _build():
+    spec = importlib.util.spec_from_file_location("build_review_rp", HERE / "build-review-html.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+ACCEPTED = ["src/a.ts:12, src/b.ts:30", "src/a.ts:3-5", "src/a.ts:3,7-9", "src/b.ts",
+            "src/a.ts:2 | captioned", "src/a.ts:40, src/b.ts"]
+
+
+def test_the_renderer_draws_every_ref_the_parser_accepts(tmp_path):
+    """The guarantee bug 5 broke: whatever `--check` lets through, the page renders —
+    the refs resolve and every snippet card is cut — instead of aborting the build."""
+    build = _build()
+    root = _git_repo_with(tmp_path, {"src/a.ts": 50, "src/b.ts": 50})
+    body = "## Ignored\n" + "".join(f"### t{i}\n- file: {v}\n" for i, v in enumerate(ACCEPTED))
+    doc = rp.document(_write(tmp_path, body), "review-points.md")
+    for item in doc["findings"]:
+        assert all(rp.split_refs(r) == ([r], []) for r in item["refs"]), item["refs"]
+        build.resolve_refs(item["refs"], root)
+        for s in item.get("snippets", []):
+            assert "srcbar" in build.snippet_html(s["ref"], s.get("caption"), root)
+
+
+def test_a_report_with_a_glued_ref_from_an_older_parser_still_renders(tmp_path, capsys):
+    """hr-try-4's `review-points.json` was written before the parser split commas. The
+    build splits such a ref itself, and drops (with a warning) one it cannot read, rather
+    than abort the page on a file named `a.ts:92, b.ts`."""
+    build = _build()
+    root = _git_repo_with(tmp_path, {"src/a.ts": 300, "src/b.ts": 300})
+    out_dir = root / ".human-review"
+    out_dir.mkdir()
+    doc = rp.document(_write(tmp_path, "## Fixed\n### t\n- file: src/a.ts:9\n"
+                                       "- fixed-in: HEAD\n- observation: x.\n"
+                                       "## Ignored\n### u\n- file: src/a.ts:1\n"),
+                      "review-points.md")
+    glued = "src/a.ts:92, src/b.ts:288"
+    doc["autofixes"][0].update(refs=[glued], snippets=[{"ref": glued, "caption": "c"}],
+                               diffs=[{"path": "src/a.ts:92, src/b.ts", "base": "x"}])
+    doc["findings"][0].update(refs=["src/a.ts:1, the guard"])
+    (out_dir / "review-points.json").write_text(json.dumps(doc), encoding="utf-8")
+    spec = {"findings": {"auto": "review-points"}, "autofixes": {"auto": "review-points"},
+            "assumptions": {"auto": "review-points"}}
+    build.resolve_review_points(spec, out_dir)
+    fix = spec["autofixes"][0]
+    assert fix["refs"] == ["src/a.ts:92", "src/b.ts:288"]
+    assert fix["snippets"] == [{"ref": "src/a.ts:92", "caption": "c"}, {"ref": "src/b.ts:288"}]
+    assert [d["path"] for d in fix["diffs"]] == ["src/a.ts", "src/b.ts"]
+    assert spec["findings"][0]["refs"] == []
+    assert "dropped" in capsys.readouterr().err
+    for item in spec["autofixes"] + spec["findings"]:
+        build.resolve_refs(item["refs"], root)
+        for s in item.get("snippets", []):
+            build.snippet_html(s["ref"], s.get("caption"), root)
+
+
 def test_fixed_in_becomes_a_diff_based_at_the_implementation_commit(tmp_path):
     doc = _doc(tmp_path, FULL)
     assert doc["autofixes"][0]["diffs"] == [{"path": "db/seed/R__seed.sql",

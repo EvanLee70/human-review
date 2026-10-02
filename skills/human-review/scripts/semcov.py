@@ -130,30 +130,22 @@ def _avatar(login: str) -> str:
         return ""
 
 
-def fetch_ticket(spec: dict, out_dir: Path) -> dict | None:
-    """`{number, title, url, author, avatar, createdAt, body}` of the ticket, or None.
-
-    Which ticket is `tests.py:ticket_ref`'s answer (the content file's `pr.ticket`, else
-    the number in the PR title). Its body is asked of GitHub once and written down; the
-    build must not need a network to draw a column it drew yesterday."""
-    T = _tests_tab()
-    ref = T.ticket_ref(spec, out_dir)
-    if not ref:
-        return None
+def _issue(number: int, slug: str, out_dir: Path, title: str = "",
+           url: str = "") -> dict | None:
+    """Issue `number`'s body, author and avatar: from `ticket-body.json` when it is that
+    issue, else asked of GitHub once and written down. None when GitHub does not answer."""
     cache = out_dir / TICKET_BODY_CACHE
     try:
         got = json.loads(cache.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         got = {}
-    if got.get("number") != ref["number"] or "body" not in got:
-        pr = spec.get("pr") or {}
-        slug = re.sub(r"^https?://github\.com/", "", pr.get("repo") or "").strip("/")
-        raw = _gh_issue_full(slug, ref["number"])
+    if got.get("number") != number or "body" not in got:
+        raw = _gh_issue_full(slug, number)
         if raw is None:
             return None
         login = ((raw.get("author") or {}).get("login")) or ""
-        got = {"number": ref["number"], "title": raw.get("title") or ref["title"],
-               "url": raw.get("url") or ref.get("url") or "", "author": login,
+        got = {"number": number, "title": raw.get("title") or title,
+               "url": raw.get("url") or url or "", "author": login,
                "avatar": _avatar(login), "createdAt": raw.get("createdAt") or "",
                "body": raw.get("body") or ""}
         try:
@@ -161,8 +153,204 @@ def fetch_ticket(spec: dict, out_dir: Path) -> dict | None:
         except OSError:
             pass
     # The content file's title and link outrank the cache, as they do over the heading.
-    return {**got, "title": ref.get("title") or got.get("title", ""),
-            "url": ref.get("url") or got.get("url", "")}
+    return {**got, "title": title or got.get("title", ""), "url": url or got.get("url", "")}
+
+
+def _repo_slug(spec: dict) -> str:
+    pr = spec.get("pr") or {}
+    return re.sub(r"^https?://github\.com/", "", pr.get("repo") or "").strip("/")
+
+
+def front_matter(path: Path) -> dict:
+    """The `key: value` lines between the `---` fences at the top of `path`, or {}."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    m = re.match(r"---\r?\n(.*?)\r?\n---\s*(?:\n|$)", text, re.S)
+    if not m:
+        return {}
+    out = {}
+    for k, v in re.findall(r"^([A-Za-z][\w-]*):[ \t]*(.*?)\s*$", m.group(1), re.M):
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        out[k] = v
+    return out
+
+
+#: An issue number in a ticket value: `#25`, `25`, `GH-25`, `issue 25` (and, below, a
+#: github.com issue URL or `owner/repo#25`).
+_BARE_ISSUE = re.compile(r"^\s*(?:#|gh-?|issue\s*#?)?\s*(\d+)\s*$", re.I)
+_GH_ISSUE_URL = re.compile(r"^https?://github\.com/([^/\s]+/[^/\s]+)/issues/(\d+)\b", re.I)
+
+
+def _ticket_value(value: str, slug: str) -> tuple[tuple[int, str] | None, str]:
+    """`((number, slug) or None, text or "")` out of a front-matter `ticket:` value.
+
+    `#25`, `25` and a github.com issue URL name an issue; a URL that is not one names
+    nothing this script can read; anything else is the requirement text itself (and a
+    `#25` inside it is tried as an issue first)."""
+    v = (value or "").strip()
+    if not v:
+        return None, ""
+    m = _BARE_ISSUE.match(v)
+    if m:
+        return (int(m.group(1)), slug), ""
+    m = _GH_ISSUE_URL.match(v)
+    if m:
+        return (int(m.group(2)), m.group(1)), ""
+    m = re.match(r"^([\w.-]+/[\w.-]+)#(\d+)$", v)
+    if m:
+        return (int(m.group(2)), m.group(1)), ""
+    if re.match(r"^https?://\S+$", v):
+        return None, ""
+    m = re.search(r"(?<![\w&])#(\d+)\b", v)
+    return ((int(m.group(1)), slug) if m else None), v
+
+
+def branch_name(spec: dict, root: Path) -> str:
+    """The branch under review: the content file's `pr.branch`, else the checkout's."""
+    b = ((spec.get("pr") or {}).get("branch") or "").strip()
+    if b:
+        return b
+    try:
+        out = subprocess.run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+                             capture_output=True, text=True, timeout=10)
+    except Exception:                             # noqa: BLE001 - no git is no branch
+        return ""
+    b = out.stdout.strip() if out.returncode == 0 else ""
+    return "" if b == "HEAD" else b
+
+
+def branch_issue(branch: str) -> int | None:
+    """The issue a branch name carries — `25-paging`, `feature/25-paging`, `issue-25`,
+    `gh-25`, `#25` — or None. A number at the end of a name (`hr-try-4`) is a counter,
+    not an issue: reading it as #4 would draw some other ticket's matrix."""
+    if re.match(r"^(?:release|hotfix|v\d)", branch, re.I):
+        return None                               # a version, not an issue
+    tail = branch.rsplit("/", 1)[-1]
+    m = (re.match(r"^#?(\d+)(?:[-_]|$)", tail)
+         or re.search(r"(?:^|[-_/])(?:issue|issues|gh|ticket)[-_#]?(\d+)(?:[-_]|$)", branch,
+                      re.I))
+    return int(m.group(1)) if m else None
+
+
+def openspec_change(root: Path, branch: str, number: int | None) -> tuple[str, list[Path]]:
+    """`(change name, its spec files)` of the OpenSpec change this branch implements, or
+    `("", [])`: `openspec/changes/<name>/specs/**/spec.md`, where `<name>` is the branch's
+    last segment, is contained in it, or carries the ticket's number. Archived changes are
+    done and are never the requirement text of a branch under review."""
+    changes = root / "openspec" / "changes"
+    if not changes.is_dir():
+        return "", []
+    tail = branch.rsplit("/", 1)[-1].lower()
+    for d in sorted(p for p in changes.iterdir() if p.is_dir() and p.name != "archive"):
+        name = d.name.lower()
+        hit = (bool(tail) and (name == tail or (len(name) >= 4 and name in tail)
+                               or (len(tail) >= 4 and tail in name)))
+        if not hit and number is not None:
+            hit = bool(re.search(rf"(?:^|[-_]){number}(?:[-_]|$)", name))
+        specs = sorted((d / "specs").rglob("spec.md")) if (d / "specs").is_dir() else []
+        if hit and specs:
+            return d.name, specs
+    return "", []
+
+
+#: Where the implementation conversation is exported, relative to the review directory.
+IMPL_CONVERSATION = "impl-conversation.md"
+
+
+def first_request(path: Path) -> str:
+    """The human's first request (`## Request 0 …`) of an exported implementation
+    conversation, up to the agent's answer or the next request; "" when there is none."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    out: list[str] | None = None
+    for ln in lines:
+        if out is None:
+            if re.match(r"^#{1,6}\s+Request\s+0\b", ln, re.I):
+                out = []
+            continue
+        if re.match(r"^#{1,6}\s+(?:Request\s+\d+\b|The agent\b)", ln, re.I):
+            break
+        out.append(ln)
+    return "\n".join(out or []).strip()
+
+
+def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | None:
+    """The requirement text the matrix is drawn against, or None when there is none.
+
+    `{number, title, url, author, avatar, createdAt, body, source, via}`: `source` is
+    `github` for an issue (`number` set), else `front-matter`, `openspec` or
+    `conversation` (`number` None); `via` says, in words, where it was found — the page
+    shows it, because a matrix over a chat transcript must not pass for one over an issue.
+
+    A GitHub issue wins whenever one resolves, named — in this order — by review-points.md's
+    `ticket:` front-matter, the content file's `pr.ticket` (or the PR title's `#N`, which is
+    `tests.py:ticket_ref`'s answer), or the branch name. Its body is asked of GitHub once
+    and written down; the build must not need a network to draw a column it drew yesterday.
+    Without one: the `ticket:` value when it is text, an OpenSpec change matching the
+    branch or ticket, then the implementation conversation's first request."""
+    root = Path(root) if root is not None else out_dir.resolve().parent
+    slug = _repo_slug(spec)
+    fm_value = front_matter(root / "review-points.md").get("ticket", "")
+    fm_issue, fm_text = _ticket_value(fm_value, slug)
+    branch = branch_name(spec, root)
+    number = None
+
+    if fm_issue:
+        got = _issue(fm_issue[0], fm_issue[1], out_dir)
+        if got:
+            return {**got, "source": "github",
+                    "via": f"GitHub issue #{got['number']}, named by review-points.md "
+                           f"`ticket: {fm_value}`"}
+        number = fm_issue[0]
+    ref = _tests_tab().ticket_ref(spec, out_dir)
+    if ref:
+        got = _issue(ref["number"], slug, out_dir, ref.get("title") or "", ref.get("url") or "")
+        if got:
+            pr = spec.get("pr") or {}
+            declared = (pr.get("ticket") or pr.get("issue") or spec.get("ticket")
+                        or spec.get("issue"))
+            return {**got, "source": "github",
+                    "via": f"GitHub issue #{got['number']}, named by "
+                           + ("content.json `pr.ticket`" if declared else "the PR title")}
+        number = number or ref["number"]
+    b_issue = branch_issue(branch) if branch else None
+    if b_issue is not None:
+        got = _issue(b_issue, slug, out_dir)
+        if got:
+            return {**got, "source": "github",
+                    "via": f"GitHub issue #{got['number']}, named by the branch `{branch}`"}
+        number = number or b_issue
+
+    plain = {"number": None, "url": "", "author": "", "avatar": "", "createdAt": ""}
+    if fm_text:
+        return {**plain, "title": "the ticket text in review-points.md", "body": fm_text,
+                "source": "front-matter",
+                "via": "the `ticket:` text in review-points.md's front-matter — not a "
+                       "GitHub issue"}
+    name, specs = openspec_change(root, branch, number)
+    if specs:
+        body = "\n\n".join(p.read_text(encoding="utf-8") for p in specs)
+        rel = ", ".join(f"`{p.relative_to(root)}`" for p in specs)
+        return {**plain, "title": f"OpenSpec change {name}", "body": body,
+                "source": "openspec", "via": f"the OpenSpec change `{name}` ({rel}) — not a "
+                                             "GitHub issue"}
+    conv = out_dir / IMPL_CONVERSATION
+    body = first_request(conv)
+    if body:
+        try:
+            where = conv.resolve().relative_to(root.resolve())
+        except ValueError:
+            where = conv
+        return {**plain, "title": "the implementation conversation's first request",
+                "body": body, "source": "conversation",
+                "via": f"the implementation conversation's first request (`{where}`, "
+                       "request 0) — not a GitHub issue"}
+    return None
 
 
 _OUT_OF_SCOPE = re.compile(r"\bout of scope\b|\bnon[- ]?goals?\b|\bnot in scope\b|"
@@ -937,9 +1125,13 @@ def _ticket_html(ticket: dict, blocks: list[dict], entries: dict) -> str:
           if ticket.get("avatar") else
           f'<span class="rm-av rm-av-ai" aria-hidden="true">'
           f'{html.escape((login[:1] or "?").upper())}</span>')
-    return ('<div class="rm-ticket"><div class="rm-tkhead">' + av
-            + f'<span class="rm-who">{html.escape(login)}</span>'
+    head = (av + f'<span class="rm-who">{html.escape(login)}</span>'
             + f'<span class="rm-when">{html.escape(_when(ticket.get("createdAt", "")))}</span>'
+            if login or ticket.get("number") is not None else "")
+    # Where the left column's text came from, said on the frame that holds it.
+    if ticket.get("via"):
+        head += f'<span class="rm-src">Requirement text: {_inline(ticket["via"])}</span>'
+    return ('<div class="rm-ticket"><div class="rm-tkhead">' + head
             + '</div><div class="rm-issue">' + "".join(body) + "</div></div>")
 
 
@@ -984,7 +1176,10 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
                           "status": r["status"], "parts": [part] if part else []}
     data = {"cats": CATS, "tests": tests,
             "sentences": {e["id"]: _sentence_data(e, rows_by) for e in entries
-                          if e["coverage"] != "n/a"}}
+                          if e["coverage"] != "n/a"},
+            # For the layout's title row (`tests.py:reqmap_layout`): the ticket this matrix
+            # was drawn against, so the heading never names a different one.
+            "ticket": {k: ticket.get(k) for k in ("number", "title", "url", "source", "via")}}
     blob = json.dumps(data, ensure_ascii=False, sort_keys=False).replace("</", "<\\/")
     who = ("Tests that cover files modified in this PR" if measured
            else "Tests this branch added or changed")
@@ -1007,7 +1202,7 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
 
 def gather(spec: dict, out_dir: Path, root: Path) -> dict | None:
     """Everything the matrix is drawn from, or None when there is no ticket to draw."""
-    ticket = fetch_ticket(spec, out_dir)
+    ticket = fetch_ticket(spec, out_dir, root)
     if ticket is None:
         return None
     blocks = parse_ticket(ticket.get("body") or "")

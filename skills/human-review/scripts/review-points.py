@@ -111,7 +111,7 @@ FRONT_LINE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*)$")
 # A ref with a line or a line range on the end — the difference between "this file" and a
 # card showing those lines. `path:12` and `path:12-30` count; a bare path does not, and
 # neither does a Windows drive letter or a URL, which is why the tail has to be all digits.
-RANGED = re.compile(r":\d+(?:-\d+)?$")
+RANGED = re.compile(r":\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$")   # `path:89,93-95` too: one card
 CODE_SPAN = re.compile(r"`([^`]+)`")
 
 
@@ -201,6 +201,47 @@ def split_ref(value: str) -> tuple[str, str | None]:
     return value.strip(), None
 
 
+# Only line numbers: what follows the comma in `path:89,93-95` — more spans of the same
+# file, which `extract-snippet.py` quotes as one card — rather than a second ref.
+SPANS_ONLY = re.compile(r"^\d+(?:-\d+)?$")
+# A line tail with more text after it: `a.ts:12 b.ts:30`, two refs glued with a space.
+GLUED_BY_SPACE = re.compile(r":\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*\s+\S")
+# One part of a comma-split `file:`: no whitespace, and a path (a `/` or a `.`) or lines.
+PATHLIKE = re.compile(r"^(?=\S*[./]|\S*:\d)[^\s|]+$")
+
+
+def split_refs(text: str) -> tuple[list[str], list[str]]:
+    """`a.ts:12, b.ts:30` → `(["a.ts:12", "b.ts:30"], [])`: one `file:` value as the refs
+    it names, and what is wrong with any of them.
+
+    A comma between two refs is how a model writes two places on one line, and the build
+    used to take the pair as one path — `a.ts:12, b.ts` — and abort on a file that does
+    not exist. A part that is only line numbers stays on the ref before it (`a.py:89,93-95`
+    is one ref with two spans). Every part is held to what a single ref is held to."""
+    parts = [p.strip() for p in text.split(",")]
+    refs: list[str] = []
+    bad: list[str] = []
+    for part in parts:
+        if refs and SPANS_ONLY.match(part) and RANGED.search(refs[-1]):
+            refs[-1] += "," + part
+        elif not part:
+            bad.append(f"{text!r} has an empty ref between its commas")
+        elif SPANS_ONLY.match(part):
+            bad.append(f"{text!r}: `{part}` is a line number with no file before it")
+        else:
+            refs.append(part)
+    for ref in refs:
+        if GLUED_BY_SPACE.search(ref):
+            bad.append(f"`{ref}` is more than one ref glued together — write one "
+                       "`- file:` line per ref")
+        elif len(refs) > 1 and not PATHLIKE.match(ref):
+            # Split on a comma, each part has to look like a ref on its own; otherwise the
+            # comma was prose (`a.ts:12, the guard`), and guessing which is worse than asking.
+            bad.append(f"{text!r} reads as {len(refs)} refs, and `{ref}` is not a path — "
+                       "write one `- file:` line per ref, prose goes in the body")
+    return refs, bad
+
+
 def build_item(title: str, fields: list[tuple[str, str]], body: str, pile: str,
                front: dict, problems: list[str], warnings: list[str], where: int) -> dict:
     """One `### …` block as the renderer wants it.
@@ -225,17 +266,27 @@ def build_item(title: str, fields: list[tuple[str, str]], body: str, pile: str,
             continue
         seen.add(key)
         if key == "file":
-            ref, caption = split_ref(value)
-            if not ref:
+            text, caption = split_ref(value)
+            if not text:
                 problems.append(f"line {where}: {title[:40]!r} has an empty `file:`")
                 continue
-            refs.append(ref)
-            if RANGED.search(ref):
-                snippets.append({"ref": ref, **({"caption": caption} if caption else {})})
-            elif caption:
-                problems.append(f"line {where}: {title[:40]!r} captions `{ref}`, which "
-                                "names no lines — a caption belongs to a snippet card, "
-                                "and a whole-file ref does not get one")
+            parts, bad = split_refs(text)
+            if bad:
+                problems.extend(f"line {where}: {title[:40]!r} `file:` — {b}" for b in bad)
+                continue
+            if caption and len(parts) > 1:
+                problems.append(f"line {where}: {title[:40]!r} captions `{text}`, which is "
+                                f"{len(parts)} refs — a caption belongs to one snippet card; "
+                                "give each ref its own `- file:` line")
+                continue
+            for ref in parts:
+                refs.append(ref)
+                if RANGED.search(ref):
+                    snippets.append({"ref": ref, **({"caption": caption} if caption else {})})
+                elif caption:
+                    problems.append(f"line {where}: {title[:40]!r} captions `{ref}`, which "
+                                    "names no lines — a caption belongs to a snippet card, "
+                                    "and a whole-file ref does not get one")
         elif key == "severity":
             sev = value.strip().lower()
             if pile == "assumptions":

@@ -100,3 +100,7 @@ details.testpair > summary:hover > .testcat { color:var(--tc); }
   .testcat[data-cat=api]  { --tc:#d2b4ff; }
   .testcat[data-cat=unit] { --tc:#87e4e4; }
 }
+/* The suites' own last lines, folded inside the band that says why this tab was not
+   re-traced. Wrapped rather than scrolled sideways: a Maven line is wider than any panel. */
+.seqverdict pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.76rem;
+  line-height:1.5; max-height:18rem; overflow-y:auto; margin:.45rem 0 0; }

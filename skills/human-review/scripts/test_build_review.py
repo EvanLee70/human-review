@@ -3844,6 +3844,77 @@ def test_a_sequence_the_branch_deleted_gets_no_frame(tmp_path):
     assert out == "" and weight == 0 and changes == 0
 
 
+# ── the Sequence tab says why it was not re-traced ──────────────────────────────────
+# hr-try-4 (Copilot CLI, 2 Oct 2026): the traced suites need a trace collector and the
+# dev stack, which were not up, so nothing was drawn — and the tab showed the committed
+# diagrams, struck through, as though the branch had left its sequences alone. The reason
+# lived in the status table and nowhere on the tab.
+
+def _seq_verdict(review_dir: Path, **doc) -> None:
+    (review_dir / "assets").mkdir(parents=True, exist_ok=True)
+    (review_dir / "assets" / "sequence.verdict.json").write_text(
+        json.dumps(doc), encoding="utf-8")
+
+
+HR_TRY_4_RUNS = [
+    {"command": "cd petclinic-test && ./run-tests-with-tracing.sh", "exit": 1,
+     "outcome": "failed", "detail": "[tracing] aborting — nothing was started or stopped.",
+     "log": ["   • OTLP collector (:4318)    → ./start-grafana.sh",
+             "[tracing] aborting — nothing was started or stopped."]},
+    {"command": "cd petclinic-backend && mvn -o -Pgenseq test -Dgroups=genseq", "exit": 1,
+     "outcome": "no-tests",
+     "detail": "FunctionalCucumberTest discovered no tests under the tag filter",
+     "log": ["FunctionalCucumberTest » NoTestsDiscovered"]},
+]
+
+
+def test_a_tab_that_was_not_re_traced_says_so_even_when_it_has_nothing_else(tmp_path):
+    review = tmp_path / ".human-review"
+    _seq_verdict(review, state="skipped", reason="drew nothing", runs=HR_TRY_4_RUNS)
+    out, weight, changes = build.render_testpairs({"title": ""}, {}, [], tmp_path, review)
+    assert "Not re-traced on this run." in out and 'class="rband rband-warn' in out
+    assert "./run-tests-with-tracing.sh</code>: exit 1" in out
+    assert "discovered no tests under the tag filter" in out, \
+        "a tag filter that matched nothing is named as such, not as a red suite"
+    assert "<details" in out and "OTLP collector (:4318)" in out, "the last words, folded"
+    # On the page, and not struck: a strike says the branch left its sequences alone,
+    # which a run that drew nothing cannot know.
+    assert weight == 1 and changes == 1
+
+
+def test_the_band_names_what_did_not_answer_before_anything_ran(tmp_path):
+    review = tmp_path / ".human-review"
+    _seq_verdict(review, state="skipped", reason="x",
+                 missing=["OTLP collector (tcp://127.0.0.1:4318)"])
+    band = build.sequence_verdict_html(review)
+    assert "<code>OTLP collector (tcp://127.0.0.1:4318)</code>" in band
+    assert "steps.sequence.app" in band
+
+
+def test_a_red_suite_is_an_alarm_and_a_tag_filter_alone_is_not(tmp_path):
+    review = tmp_path / ".human-review"
+    _seq_verdict(review, state="red", reason="x", runs=HR_TRY_4_RUNS)
+    assert 'rband-alert' in build.sequence_verdict_html(review)
+    assert build.sequence_verdict_alarm(review) == "traced suite red"
+    _seq_verdict(review, state="notests", reason="", runs=HR_TRY_4_RUNS[1:])
+    assert 'rband-none' in build.sequence_verdict_html(review)
+    assert build.sequence_verdict_alarm(review) is None
+    (review / "assets" / "sequence.verdict.json").unlink()
+    assert build.sequence_verdict_html(review) == "", "a clean run draws nothing"
+
+
+def test_a_tab_not_re_traced_wears_an_amber_pill_on_the_whole_page(tmp_path):
+    _seq_verdict(tmp_path, state="skipped", reason="drew nothing", runs=HR_TRY_4_RUNS)
+    page, _ = _build(tmp_path, {**BARE, "tabs": BARE["tabs"] + [
+        {"id": "sequence", "label": "Sequence",
+         "blocks": [{"type": "testpairs", "title": ""}]}]})
+    pill = re.search(r'<button[^>]*id="tabbtn-sequence"[^>]*>', page).group(0)
+    assert "warn" in pill and "quiet" not in pill
+    assert 'aria-label="Sequence — not re-traced on this run"' in pill
+    panel = page[page.index('<section class="panel" id="sequence"'):]
+    assert "Not re-traced on this run." in panel[:panel.index("</section>")]
+
+
 # ── the three piles, read off the branch instead of out of the content file ─────────
 # `{"auto": "review-points"}` is the point at which content.json stops being the
 # judgement. What is checked here is the part a reader cannot check: that an absent

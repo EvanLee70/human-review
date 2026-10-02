@@ -43,6 +43,7 @@ import os
 import shutil
 import re
 import shlex
+import socket
 import subprocess
 import threading
 import sys
@@ -471,15 +472,42 @@ def _sequence(ctx: Ctx):
     """
     cfg = ctx.step_cfg("sequence")
     commands = cfg.get("commands") or []
-    failed = []
+    verdict = SEQ_VERDICT
+    # Asked first, and only when the step will not start the stack itself: with `app` the
+    # addresses do not exist until `up` creates them (the same reasoning `_dsaudit_prereq`
+    # has). In the step and not in its prerequisite because the Sequence tab has to say why
+    # it was not re-traced, and the verdict file is the only thing the tab reads.
+    if not cfg.get("app") and not ctx.dry:
+        down = unmet_requires(cfg.get("requires"))
+        if down:
+            reason = ("the traced suites need " + ", ".join(down) + " and nothing answers "
+                      "there, so nothing was run. Start them — or configure "
+                      "`steps.sequence.app` to have this step start them — and re-run "
+                      "--only sequence")
+            write_seq_verdict("skipped", reason, missing=down)
+            raise LookupError(reason)
+    before = {} if ctx.dry else genseq_stamps()
+    runs = []
     with app_instance(ctx, cfg.get("app"), _app_slots(ctx)) as app:
         if app.started:
             ctx.notes.append(f"the traced suites ran against {app.base}, started by this run "
                              "from the commit under review — not whatever was already listening")
         for cmd in commands:
-            r = sh(f"{app.env}{cmd}", ctx, check=False)
-            if r.returncode != 0:
-                failed.append(f"{cmd} (exit {r.returncode})")
+            r = sh(f"{app.env}{cmd}", ctx, check=False, capture=True)
+            out = (r.stdout or "") + (r.stderr or "")
+            print(out, end="", flush=True)
+            outcome, detail = suite_outcome(r.returncode, out)
+            runs.append({"command": cmd, "exit": r.returncode, "outcome": outcome,
+                         "detail": detail, "log": _tail(out)})
+    # Before the restore below, which rewrites the files it puts back and would otherwise
+    # read as diagrams this run drew.
+    drawn = [] if ctx.dry else sorted(p for p, st in genseq_stamps().items()
+                                      if before.get(p) != st)
+    failed = [f"{r['command']} (exit {r['exit']})" for r in runs if r["outcome"] == FAILED]
+    for r in runs:
+        if r["outcome"] == NO_TESTS:
+            ctx.notes.append(f"{r['command']}: {r['detail']} — a tag filter that matched "
+                             "nothing, not a red suite")
 
     # ALWAYS, and this is the whole reason the loop above does not raise. These commands
     # sweep `generated/` before they regenerate it, so a suite that dies in the middle
@@ -496,20 +524,140 @@ def _sequence(ctx: Ctx):
                          "without regenerating; say in the guide that the suite could not run")
         sh("git checkout -- " + " ".join(deleted), ctx, check=False)
     sh(f"{HERE}/puml-diff.sh {ctx.base} {ART}/diagrams", ctx)
+    if ctx.dry:
+        return
 
-    if failed and has_genseq():
+    # "Drew something THIS run", never "a diagram exists": the committed ones always do,
+    # and asking `has_genseq()` here turned a suite that could not even start into a "ran"
+    # step with a RED note — on every run of a machine without the trace collector up, and
+    # the tab kept showing the committed pictures as if they were this branch's.
+    if not drawn:
+        said = "; ".join(f"{r['command']} — " + (
+            f"exit {r['exit']}: {r['detail']}" if r["outcome"] == FAILED
+            else r["detail"] if r["outcome"] == NO_TESTS else "passed, drew nothing")
+            for r in runs) or "no commands configured"
+        reason = ("the traced suites drew no diagram on this run, so the Sequence tab shows "
+                  "the committed ones, not this branch re-traced: " + said)
+        if failed:
+            reason += (". It needs the whole stack listening — a trace collector, the "
+                       "database, the backend started AFTER the collector so its agent "
+                       "attaches, and the front end. Configure `steps.sequence.app` to have "
+                       "this step start them itself (or `steps.sequence.requires` to have it "
+                       "say so before running anything), or start them by hand and re-run "
+                       "this step")
+        write_seq_verdict("skipped", reason, runs=runs)
+        raise LookupError(reason)
+    if failed:
         # A red suite is a finding for the review to carry, not a reason to lose the tab —
         # the same call `_city` makes. The pictures a passing part of the run did draw are
         # still pictures of this branch.
         ctx.notes.append("the traced suite was RED (" + "; ".join(failed)
                          + "); the diagrams below are of that run, and the guide has to say so")
-    elif failed:
-        raise LookupError(
-            "the traced suite could not run and drew nothing: " + "; ".join(failed)
-            + ". It needs the whole stack listening — a trace collector, the database, the "
-            "backend started AFTER the collector so its agent attaches, and the front end. "
-            "Configure `steps.sequence.app` to have this step start them itself, or start "
-            "them by hand and re-run this step")
+        write_seq_verdict("red", "; ".join(failed), runs=runs, drawn=drawn)
+    elif any(r["outcome"] == NO_TESTS for r in runs):
+        write_seq_verdict("notests", "", runs=runs, drawn=drawn)
+    else:
+        # A verdict left behind by the previous run would draw a band over diagrams that
+        # are now fine — the same reason `_video` deletes its own.
+        verdict.unlink(missing_ok=True)
+
+
+#: What `_sequence` leaves beside its diagrams whenever the run did not simply pass, for the
+#: Sequence tab to draw as a band (`hrbuild/tabs/sequence.py`, `sequence_verdict_html`) —
+#: the arrangement `_video` has with `feature.verdict.json`. The status table's reason used
+#: to be the only record, and it reached the page only if a model copied it into the
+#: guide, on the Review tab, while the Sequence tab itself was just struck through.
+SEQ_VERDICT = ART / "sequence.verdict.json"
+
+#: The two outcomes of a traced command besides passing. `NO_TESTS` is not a failure: a
+#: JUnit suite class whose tag filter matched nothing (`-Dgroups=genseq` on a Cucumber
+#: suite with no such scenario) throws NoTestsDiscovered and turns Maven red, and that is a
+#: statement about the filter, not about the code under review.
+NO_TESTS = "no-tests"
+_NO_TESTS_RX = re.compile(r"NoTestsDiscovered|did not discover any tests|No tests to run"
+                          r"|No tests were executed|No tests found", re.I)
+_UNDISCOVERED = re.compile(r"Suite \[([^\]]+)\] did not discover any tests")
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _tail(text: str, n: int = 14) -> list[str]:
+    lines = [_ANSI.sub("", l).rstrip() for l in text.splitlines()]
+    return [l for l in lines if l.strip()][-n:]
+
+
+def suite_outcome(code: int, output: str) -> tuple[str, str]:
+    """`(RAN | NO_TESTS | FAILED, what to say)` for one traced command.
+
+    NO_TESTS only when every test the runner reports as broken is a suite that discovered
+    nothing (or the runner said it found no test at all): one real failure beside it makes
+    the command FAILED, because a filter that matched nothing must not launder a red test.
+    """
+    if code == 0:
+        return RAN, "passed"
+    lines = [_ANSI.sub("", l) for l in output.splitlines()]
+    broken = [i for i, l in enumerate(lines)
+              if re.search(r"<<< (?:FAILURE|ERROR)!", l) and "Tests run:" not in l]
+    empty = sorted(set(_UNDISCOVERED.findall(output)))
+    only_empty = all(any(_NO_TESTS_RX.search(x) for x in lines[i + 1:i + 3]) for i in broken)
+    if _NO_TESTS_RX.search(output) and only_empty:
+        named = ", ".join(s.rsplit(".", 1)[-1] for s in empty)
+        return NO_TESTS, (f"{named} discovered no tests under the tag filter" if named
+                          else "the runner found no test to run")
+    last = _tail(output, 1)
+    return FAILED, last[0].strip()[:240] if last else f"exit {code}"
+
+
+def genseq_stamps() -> dict[str, tuple[int, int]]:
+    """`{path: (mtime_ns, size)}` of every traced diagram on disk, tracked or not.
+
+    What a run drew is what changed between two of these. Asked of git where there is one
+    (so node_modules costs nothing), and of the directory where there is not."""
+    got = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard",
+                          "*.genseq.puml"], capture_output=True, text=True)
+    paths = (got.stdout.split("\n") if got.returncode == 0 else
+             [str(p) for p in Path(".").rglob("*.genseq.puml")
+              if "node_modules" not in p.parts and not _is_review_dir(str(p))])
+    out = {}
+    for p in filter(None, paths):
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue                   # tracked, and deleted by the run's own sweep
+        out[p] = (st.st_mtime_ns, st.st_size)
+    return out
+
+
+def unmet_requires(requires) -> list[str]:
+    """What `steps.sequence.requires` names that nothing answers at.
+
+    Each entry is an http(s) URL (any HTTP status counts, as in `answers`), a
+    `tcp://host:port`, or either of those as `{"url": …, "what": "Grafana"}`. The traced
+    suites need things the app's own stack does not carry — a collector, a trace store —
+    and a project that lists them here gets "nothing listening on :4318" before a single
+    command runs, instead of a red step after all of them did."""
+    down = []
+    for item in requires or []:
+        url, what = (item.get("url", ""), item.get("what", "")) if isinstance(item, dict) \
+            else (str(item), "")
+        m = re.match(r"tcp://([^:/]+):(\d+)", url)
+        if m:
+            try:
+                socket.create_connection((m.group(1), int(m.group(2))), timeout=2).close()
+                continue
+            except OSError:
+                pass
+        elif answers(url):
+            continue
+        down.append(f"{what} ({url})" if what else url)
+    return down
+
+
+def write_seq_verdict(state: str, reason: str, *, missing=(), runs=(), drawn=()) -> None:
+    SEQ_VERDICT.parent.mkdir(parents=True, exist_ok=True)
+    SEQ_VERDICT.write_text(json.dumps({
+        "state": state, "reason": reason, "missing": list(missing),
+        "runs": list(runs), "drawn": list(drawn), "at": _stamp(),
+    }, indent=1) + "\n", encoding="utf-8")
 
 
 def _c2(ctx: Ctx):
@@ -566,20 +714,62 @@ def _city(ctx: Ctx):
     # baseline with the branch's own coverage would replace the very numbers the
     # comparison needs. That belongs to a merge into the default branch
     # (regenerate-codecity.sh --write-baseline), nowhere else.
+    #
+    # Wherever the page is generated, it is generated into the REVIEW directory —
+    # `assets/codecity/codecity.html`, the very file the tab links to — and never over the
+    # repository's own committed copy. `out` used to be passed straight through as the
+    # output folder, so every run rewrote `docs/generated/codecity/codecity.html` in the
+    # working tree: a dirty checkout after every review, and a pre-push gate on the project
+    # demanding that the review's by-product be committed. `out` is now only the switch
+    # that says "use the built-in generator"; the committed copy is the project's business.
     city = ctx.step_cfg("city")
     regen, out = city.get("regenerate"), city.get("out")
+    page = ART / "codecity" / "codecity.html"
     if regen:
-        sh(regen, ctx, check=False)
+        # A project's own command may only know how to write in place. `html` says where,
+        # and the original bytes are put back after the new page has been copied out.
+        inplace = city.get("html")
+        with bytes_restored([inplace] if inplace else []):
+            sh(regen, ctx, check=False)
+            if inplace and Path(inplace).is_file() and not ctx.dry:
+                page.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(inplace, page)
+        if not inplace:
+            ctx.notes.append("city.regenerate ran with no city.html saying where it writes "
+                             "the page, so nothing guards the working tree against it — "
+                             "check `git status` after this run")
     elif out:
         baseline = f' --baseline "{city["baseline"]}"' if city.get("baseline") else ""
         acceptance = f' --acceptance "{city["acceptance"]}"' if city.get("acceptance") else ""
-        sh(f'{HERE}/regenerate-codecity.sh --out "{out}" '
+        sh(f'{HERE}/regenerate-codecity.sh --out "{page.parent}" '
            f'--title "{city.get("title", "Code City")}"{baseline}{acceptance}', ctx, check=False)
-    r = sh(f"{HERE}/capture-codecity.sh {ART}/codecity.png highlight", ctx, capture=True)
+    r = sh(f"{HERE}/capture-codecity.sh {ART}/codecity.png highlight {page}", ctx, capture=True)
     lit = (r.stdout or "").strip().splitlines()
     if lit:
         ctx.notes.append(f"codecity lit: {lit[-1]} (put this measured number under the "
                          "image; never type one)")
+
+
+@contextlib.contextmanager
+def bytes_restored(paths):
+    """Put each path back exactly as it was when the block began — bytes, or absence.
+
+    For a generator that can only write in place over a committed file: copy the original
+    out, let it run, and copy the original back, so the review leaves the working tree as
+    it found it. Never `git checkout`: the file may carry somebody's uncommitted edit, and
+    the bytes on disk are the only copy of that."""
+    held = {}
+    for p in paths:
+        path = Path(p)
+        held[path] = path.read_bytes() if path.is_file() else None
+    try:
+        yield
+    finally:
+        for path, data in held.items():
+            if data is None:
+                path.unlink(missing_ok=True)
+            elif not path.is_file() or path.read_bytes() != data:
+                path.write_bytes(data)
 
 
 #: A loopback URL in a command's output. `start-docker.sh up` ends by printing the port

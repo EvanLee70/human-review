@@ -36,6 +36,62 @@ REVIEW_POINTS_JSON = "review-points.json"
 POINTS_PILES = {"autofixes": "Fixed", "findings": "Ignored", "assumptions": "Assumptions"}
 
 
+def _points_parser():
+    """`review-points.py` — hyphenated, so loaded by path, once."""
+    import importlib.util
+    name = "hr_review_points_parser"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(
+            name, Path(review_points_schema.__file__).with_name("review-points.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules[name] = mod
+    return sys.modules[name]
+
+
+def unglue_refs(item: dict) -> None:
+    """Split, in place, any ref of a report item that is two refs glued with a comma.
+
+    The parser splits `- file: a.ts:12, b.ts:30` now; a report written before it did —
+    or edited by hand — carries `a.ts:12, b.ts:30` as one path, and the build used to abort
+    the whole page on a file by that name not existing. A ref the parser's own check still
+    refuses is dropped with a warning instead: one card missing, not the page."""
+    rp = _points_parser()
+    title = re.sub(r"<[^>]+>", "", str(item.get("title") or ""))[:60]
+
+    def parts(ref: str) -> list[str]:
+        got, bad = rp.split_refs(str(ref))
+        if bad:
+            print(f"[review] WARNING: {title!r}: ref {ref!r} dropped — "
+                  + "; ".join(bad), file=sys.stderr)
+            return []
+        return got
+
+    if isinstance(item.get("refs"), list):
+        item["refs"] = [p for ref in item["refs"] for p in parts(ref)]
+    if isinstance(item.get("snippets"), list):
+        out = []
+        for s in item["snippets"]:
+            if not isinstance(s, dict) or "ref" not in s:
+                out.append(s)
+                continue
+            for i, p in enumerate(parts(s["ref"])):
+                if rp.RANGED.search(p):
+                    one = {**s, "ref": p}
+                    if i:
+                        one.pop("caption", None)
+                    out.append(one)
+        item["snippets"] = out
+    if isinstance(item.get("diffs"), list):
+        out = []
+        for d in item["diffs"]:
+            if not isinstance(d, dict) or "path" not in d:
+                out.append(d)
+                continue
+            out.extend({**d, "path": re.sub(rp.RANGED, "", p)} for p in parts(d["path"]))
+        item["diffs"] = out
+
+
 def resolve_review_points(spec: dict, out_dir: Path) -> dict | None:
     """Fill the piles the content file delegated to `review-points.md`, in place.
 
@@ -118,6 +174,9 @@ def resolve_review_points(spec: dict, out_dir: Path) -> dict | None:
     for key in asked:
         items = doc.get(key)
         spec[key] = items if isinstance(items, list) else []
+        for item in spec[key]:
+            if isinstance(item, dict):
+                unglue_refs(item)
     for warning in doc.get("warnings") or []:
         print(f"[review] review-points: {warning}", file=sys.stderr)
     spec["_reviewPoints"] = {
@@ -1503,8 +1562,11 @@ def resolve_refs(items, root: Path):
     out = []
     missing = []
     for ref in items:
-        rel, _, pos = ref.rpartition(":")
-        start = pos.split("-")[0]
+        # `path`, `path:12`, `path:12-30`, `path:89,93-95`. A whole-file ref has no line
+        # to cut off: `rpartition(":")` on one left an empty path, and the build aborted on
+        # every `- file: b.py` review-points.py has always accepted.
+        m = re.match(r"^(.*):(\d+)(?:-\d+)?(?:,\d+(?:-\d+)?)*$", ref)
+        rel, start = (m.group(1), m.group(2)) if m else (ref, "1")
         target = (root / rel).resolve()
         if not target.is_file():
             missing.append(ref)
