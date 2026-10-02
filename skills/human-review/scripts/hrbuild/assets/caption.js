@@ -6,6 +6,28 @@ document.querySelectorAll('.vidwrap').forEach(function (wrap) {
   // would be. There is nothing to seek, so the captions stay plain text — and nothing here
   // may throw, or the scripts after it never run.
   if (!video) return;
+
+  // The 🐘 switch: the same take in the cloned voice. Both films share one cue clock, so the
+  // swap keeps the second the reader was at, and playing stays playing. The choice is
+  // remembered per browser — whoever turned the voice on once wants it on the next review.
+  var voice = wrap.querySelector('.voice-switch input');
+  if (voice) {
+    var plain = video.getAttribute('src'), cloned = video.getAttribute('data-voice-alt');
+    var swap = function () {
+      var t = video.currentTime, playing = !video.paused;
+      video.src = voice.checked ? cloned : plain;
+      video.addEventListener('loadedmetadata', function once() {
+        video.removeEventListener('loadedmetadata', once);
+        video.currentTime = t;
+        if (playing) video.play();
+      });
+      try { localStorage.setItem('hr-cloned-voice', voice.checked ? '1' : ''); } catch (e) {}
+    };
+    voice.addEventListener('change', swap);
+    try {
+      if (localStorage.getItem('hr-cloned-voice')) { voice.checked = true; swap(); }
+    } catch (e) {}
+  }
   items.forEach(function (li) {
     li.addEventListener('click', function (ev) {
       // Captions carry links to the pages they describe. A click on one opens that page

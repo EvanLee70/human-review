@@ -25,7 +25,10 @@
 # time it takes to say it — so every pause() is now a MINIMUM, stretched when the narration
 # needs longer. Set NARRATION=off to film silently; NARRATION_VOICE / NARRATION_RATE pick the
 # voice (`say -v "?"` lists them) and its speed. With a Fish Audio key (see narrate-cue.py) the
-# cues are spoken by a cloned voice instead, and without one by the offline voice as before.
+# cues are ALSO spoken by a cloned voice, and a second film is cut from the same take
+# (<out>.cloned.webm) — the Demo tab offers it behind a checkbox, and has no checkbox without
+# it. Every shot lasts as long as the LONGER of the two sentences, so both films fit one take.
+# NARRATION_FISH=off skips the second voice.
 #
 # The film OPENS ON A TITLE CARD — "Demo" over the name of the change being reviewed — and it
 # is filmed, not spliced on afterwards. Splicing was the obvious build: render a card, concat
@@ -54,7 +57,9 @@
 #                    spoken .wav and the time of every word in it), so the guide can build a
 #                    transcript that seeks the player
 #   <out>.raw.webm   the same film without the annotations or the voice
-#   <out>.narration/ one .wav per cue, kept so the film can be re-annotated without re-filming,
+#   <out>.cloned.webm  the same film in the cloned voice, plus <out>.cloned.json naming it —
+#                    only when every spoken cue got one; a run without a key deletes both
+#   <out>.narration/ one .wav per cue (and fish/, the cloned ones), kept so the film can be re-annotated without re-filming,
 #                    plus `lead` — how long the title card holds the screen, which is the one
 #                    number annotate-feature-video.py cannot recover from the footage and the
 #                    reason a re-annotation does not print the first caption over the card
@@ -141,8 +146,10 @@ else
   echo "[video] ⚠ listening there. Configure steps.video.app to have the run own the stack." >&2
 fi
 
-mkdir -p "$(dirname "$OUT")" "$VOICEDIR"
-rm -f "$VOICEDIR"/*.wav "$LEADFILE"
+CLONED="${OUT%.webm}.cloned.webm"
+CLONED_META="${OUT%.webm}.cloned.json"
+mkdir -p "$(dirname "$OUT")" "$VOICEDIR/fish"
+rm -f "$VOICEDIR"/*.wav "$VOICEDIR"/fish/*.wav "$LEADFILE" "$CLONED" "$CLONED_META"
 # The flow being filmed belongs to the PROJECT, not to this skill. The skill owns the
 # harness — launching, narrating, timing the cues, spotlighting, annotating — and the
 # project owns the twenty lines that say what to click. Before this split the narration
@@ -252,15 +259,18 @@ const speechRate = process.env.NARRATION_RATE || "0.5";
 // The synthesizer is deliberately run BEFORE the cue is timestamped: it takes a fraction of a
 // second, and a fraction of a second of frozen screen belongs to the shot that just ended, not
 // to the one about to be narrated.
-const speak = (text, wav) => {
+const speak = (text, wav, engine = "macos") => {
   if (!narrationOn) return null;
   try {
     const out = execFileSync("python3", [narrator, "--text", text, "--out", wav,
-        "--voice", voice, "--rate", speechRate], {encoding: "utf8"});
+        "--voice", voice, "--rate", speechRate, "--engine", engine], {encoding: "utf8"});
     const res = JSON.parse(out);
     return res.error ? null : res;
   } catch (e) { return null; }
 };
+// The cloned voice is tried until it fails once: with no key it fails on the first cue, and a
+// second film missing a sentence halfway is worse than no second film.
+let fishOn = narrationOn && process.env.NARRATION_FISH !== "off";
 
 // The card is one screen of the same browser at the same size — which is the whole reason it
 // is filmed rather than spliced — so it is styled straight out of the guide stylesheet it has
@@ -353,7 +363,11 @@ const get = async (url) => {
     const box = target ? await target.boundingBox() : null;
     // The warning glyph is a caption device, not something to read out loud.
     const wav = path.join(voiceDir, `cue${String(cues.length).padStart(2, "0")}.wav`);
-    const speech = speak(text.replace(/^⚠\s*/, ""), wav);
+    const said = text.replace(/^⚠\s*/, "");
+    const speech = speak(said, wav);
+    const fishWav = path.join(voiceDir, "fish", path.basename(wav));
+    const alt = speech && fishOn ? speak(said, fishWav, "fish") : null;
+    if (speech && fishOn && !alt) fishOn = false;
     const cue = {t: (Date.now() - t0) / 1000, text};
     if (box) {
       cue.box = {
@@ -369,6 +383,11 @@ const get = async (url) => {
       cue.speech = speech.duration;
       cue.words = speech.words;
       spokenUntil = Date.now() + speech.duration * 1000;
+    }
+    if (alt) {
+      cue.alt = {audio: path.basename(voiceDir) + "/fish/" + path.basename(fishWav),
+          speech: alt.duration, words: alt.words, voice: alt.voice};
+      spokenUntil = Math.max(spokenUntil, Date.now() + alt.duration * 1000);
     }
     cues.push(cue);
   };
@@ -430,6 +449,29 @@ if [ "$RC" != 0 ] && [ "$RC" != 3 ]; then exit "$RC"; fi
 # recording is — so old footage re-annotates exactly as it always did.
 LEAD="$(cat "$LEADFILE" 2>/dev/null || echo 0)"
 python3 "$SCRIPT_DIR/annotate-feature-video.py" "$RAW" "$CUES" "$OUT" --lead "${LEAD:-0}"
+
+# The second film: same footage, same cue clock, the cloned voice and its own word times.
+# Only when EVERY spoken cue has one — the switch in the Demo tab promises the whole film.
+if python3 - "$CUES" "$TMP/cloned.cues.json" <<'PY'
+import json, sys
+cues = json.load(open(sys.argv[1]))
+spoken = [c for c in cues if c.get("audio")]
+if not spoken or not all(c.get("alt") for c in spoken):
+  sys.exit(1)
+for c in spoken:
+  c.update(audio=c["alt"]["audio"], speech=c["alt"]["speech"], words=c["alt"]["words"])
+json.dump(cues, open(sys.argv[2], "w"))
+PY
+then
+  # The annotator resolves each .wav against the folder of its OUTPUT, which is this one.
+  python3 "$SCRIPT_DIR/annotate-feature-video.py" "$RAW" "$TMP/cloned.cues.json" "$CLONED" \
+      --lead "${LEAD:-0}"
+  printf '{"video": "%s", "label": "%s"}\n' "$(basename "$CLONED")" \
+      "${NARRATION_FISH_LABEL:-Trump}" > "$CLONED_META"
+  echo "[video] cloned voice -> $CLONED" >&2
+else
+  echo "[video] cloned voice: none (no Fish Audio key, NARRATION_FISH=off, or a cue failed)" >&2
+fi
 
 if command -v ffprobe >/dev/null 2>&1; then
   echo "[video] $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT")s, $(du -h "$OUT" | cut -f1)" >&2

@@ -117,6 +117,24 @@ def video_verdict_html(rel: str, out_dir: Path) -> str:
     return '<div class="vidverdict" role="alert">' + "".join(parts) + "</div>"
 
 
+def cloned_film(rel: str, out_dir: Path) -> tuple[str, str] | None:
+    """(src, label) of the same film in the cloned voice, when the recorder cut one.
+
+    `record-feature-video.sh` writes `<film>.cloned.json` beside `<film>.cloned.webm` only
+    when every spoken cue got the second voice, and deletes both on a run that had no key —
+    so the switch exists exactly when pressing it is heard, and never offers a voice the
+    film does not have."""
+    meta = out_dir / rel.replace(".webm", ".cloned.json")
+    try:
+        doc = json.loads(meta.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    src = str(Path(rel).parent / str(doc.get("video") or ""))
+    if not doc.get("video") or not (out_dir / src).is_file():
+        return None
+    return src, str(doc.get("label") or "cloned voice")
+
+
 def video_html(s, out_dir: Path) -> str:
     """The player and its transcript — or, when the recording failed, the transcript alone.
 
@@ -131,7 +149,14 @@ def video_html(s, out_dir: Path) -> str:
     cues = json.loads(cues_path.read_text(encoding="utf-8")) if cues_path.is_file() else []
     rt = s.get("runtime") or {}
     items, unplaced = _link_captions(cues, s.get("appLinks", []), bool(rt.get("drive")))
-    player = (f'<video controls preload="metadata" src="{html.escape(rel)}"></video>'
+    cloned = cloned_film(rel, out_dir) if (out_dir / rel).is_file() else None
+    # The same take, cue for cue, so caption.js swaps the source and keeps the second the
+    # reader was at; the transcript and its timestamps are shared by both films.
+    switch = (f'<label class="voice-switch"><input type="checkbox"> 🐘 '
+              f'{html.escape(cloned[1])} voice</label>' if cloned else "")
+    alt = f' data-voice-alt="{html.escape(cloned[0])}"' if cloned else ""
+    player = (f'<div class="vidplayer"><video controls preload="metadata" '
+              f'src="{html.escape(rel)}"{alt}></video>{switch}</div>'
               if (out_dir / rel).is_file() else
               f'<p class="embedded-note"><b>Not filmed.</b> <code>{html.escape(rel)}</code> '
               'was not produced by this run, so there is no player here — the narration '
