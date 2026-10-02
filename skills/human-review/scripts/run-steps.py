@@ -720,8 +720,11 @@ def _video(ctx: Ctx):
 
     lines = [l for l in tail.splitlines() if l.strip()]
     note = next((l for l in reversed(lines) if "changed screens filmed" in l), "")
+    # Only exit 3 carries a film's own account of what it missed. Exit 2's output is the
+    # recorder's help text, which *explains* the marker — and read for it, that text put
+    # a false "Never reached: …`, which is the string run-steps.py reads back…" on the page.
     missed = []
-    for label in ("FAILED to reach: ", "not filmable: "):
+    for label in ("FAILED to reach: ", "not filmable: ") if r.returncode == 3 else ():
         for line in lines:
             if label in line:
                 missed += [p.strip() for p in line.split(label, 1)[1].split(";") if p.strip()]

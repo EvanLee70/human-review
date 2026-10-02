@@ -321,3 +321,11 @@ def test_the_base_the_check_asks_about_is_the_one_the_producers_use(tmp_path, mo
                                                 encoding="utf-8")
     assert refresh.config_base(None) == "origin/release"
     assert refresh.config_base("HEAD~3") == "HEAD~3", "the flag wins"
+
+
+def test_the_skill_still_asks_for_the_film_script():
+    """Cutting SKILL.md from 2333 lines to 782 dropped the one line asking the model to
+    write `.human-review/feature-script.js`; every run since filmed nothing (exit 2)."""
+    skill = _skill()
+    assert ".human-review/feature-script.js" in skill
+    assert "reference/feature-script.md" in skill
