@@ -6,6 +6,8 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
 
 1. `RR prepare [--base <ref>]` — pass `--impl-subject "<what it implements>"` if it says
    the implementation is uncommitted, and `--ticket "<the ticket text>"` if you have it.
+   `--base` is the base of the range you actually review, not the widest one; if HEAD is
+   housekeeping that landed after the feature, pass `--implements <feature sha>`.
    It prints the base, the implementation commit, the diff (code, tests), four briefs, and
    whether the repository's own pre-push checks pass. A failing **push gate** is a finding
    you must fix (`source: pre-push hook`): /human-review cannot run until it passes.
@@ -42,13 +44,18 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
                    conversation is not your assumption — give it `source: human` and
                    confidence 1.0, or leave it out.
    Every entry names a file:line. An unanchored entry is dropped by the build.
+   On an assumption, `source:` is only `human` (the human chose it here) or left out;
+   the page labels every one `assumption`, so do not invent a label of your own.
 
    `confidence:` is what you actually think, in [0, 1]: 1.0 no other reading, 0.5 a coin
    flip, below 0.3 you expect to be corrected. **0.9 on everything is a lie the page will
    show** — the one call you were unsure about must stand out from the ones you were not.
 5. `RR finish --subject "<what the fixes do>" --reviewers "<how the review ran>"` — it
-   checks the file (fix what it names and re-run), commits the fixes with it as
-   `[auto-fix] …` with the Review-Points:, Implements: and Claude-Session: trailers, and
-   writes and checks the PR comments. Commit nothing yourself.
+   turns the file into the structured report the page is built from, validated against
+   `review-points.schema.json` (fix what it names and re-run), commits the fixes with it
+   as `[auto-fix] …` with the Review-Points:, Implements:, Audited: and Claude-Session:
+   trailers, and writes and checks the PR comments. A harness that needs its own
+   attribution adds `--commit-trailer "Co-authored-by: <who>"` (repeatable); a harness
+   other than Claude Code names itself with `--harness <name>`. Commit nothing yourself.
 6. Stop. Do not push (prepare already did, for CI), do not open a PR, do not build a
    review page.

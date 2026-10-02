@@ -13,6 +13,10 @@ from ..shared.actions import ACTIONS, declare_action, RERUN_ACTION
 from ..shared.bands import _lede_above, _flush_top_bands
 from ..shared.commands import command_html
 
+# The report's contract lives next to the scripts, beside the parser that writes it: the
+# directory this package sits in is on sys.path whenever the package is importable.
+import review_points_schema
+
 SEVERITIES = {
     "high": ("sev-high", "must look"),
     "medium": ("sev-med", "worth a look"),
@@ -61,15 +65,36 @@ def resolve_review_points(spec: dict, out_dir: Path) -> dict | None:
     """
     asked = {k for k in POINTS_PILES
              if isinstance(spec.get(k), dict) and spec[k].get("auto") == "review-points"}
+    path = out_dir / (spec.get("reviewPoints") or REVIEW_POINTS_JSON)
+    doc = None
+    if path.is_file():
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as bad:
+            raise SystemExit(f"[review] {path} is not JSON ({bad}) — regenerate it with "
+                             "run-steps.py --only reviewpoints")
+        # The report is the Review tab's only source, so its shape is checked before a
+        # single pile renders — loudly, as `review-points.py` checks it on the way out. A
+        # report from before the schema has no `schema` key and is refused the same way:
+        # the reviewpoints step regenerates it from the committed file in a second.
+        bad = review_points_schema.problems(doc)
+        if bad:
+            raise SystemExit(
+                f"[review] {path} does not match "
+                f"{review_points_schema.SCHEMA_PATH.name} — regenerate it with "
+                "run-steps.py --only reviewpoints (or review-points.py):\n  "
+                + "\n  ".join(bad[:20]))
+        # When the branch carries a report, it is the Review tab: all three piles come
+        # from it whatever the content file says. A content file that typed its own
+        # piles beside a report is the old two-sources page, and the record wins.
+        for key in POINTS_PILES:
+            if isinstance(spec.get(key), list) and spec[key]:
+                print(f"[review] WARNING: content.json writes its own `{key}`, ignored — "
+                      f"the Review tab is rendered from {path.name} only", file=sys.stderr)
+        asked = set(POINTS_PILES)
     if not asked:
         spec["_reviewPoints"] = None
         return None
-    path = out_dir / (spec.get("reviewPoints") or REVIEW_POINTS_JSON)
-    doc = None
-    try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        doc = None
     if not isinstance(doc, dict):
         for key in asked:
             spec[key] = []
@@ -88,6 +113,7 @@ def resolve_review_points(spec: dict, out_dir: Path) -> dict | None:
               "reviewed is a real state.", file=sys.stderr)
         spec["_reviewPoints"] = {"missing": True, "asked": asked, "sections": {},
                                  "path": path.name}
+        own_review_tab(spec)
         return spec["_reviewPoints"]
     for key in asked:
         items = doc.get(key)
@@ -98,9 +124,67 @@ def resolve_review_points(spec: dict, out_dir: Path) -> dict | None:
         "missing": False, "asked": asked, "sections": doc.get("sections") or {},
         "source": doc.get("source") or "review-points.md",
         "fixed_in": doc.get("fixed_in"), "meta": doc.get("meta") or {},
+        "provenance": doc.get("provenance") or {},
         "note": doc.get("note") if isinstance(doc.get("note"), dict) else None,
         "path": path.name}
+    own_review_tab(spec)
     return spec["_reviewPoints"]
+
+
+#: What each pile is called and what its intro says. The builder's, not the content
+#: file's: a model writing content.json used to name the piles itself, and one run called
+#: them "Candidates retained for human judgement", "Corrections from the recorded audit"
+#: and "Implementation decisions" — the same three piles, unrecognisable from one page to
+#: the next. With the piles read off the report, their titles are fixed here.
+PILE_TITLES = {"assumptions": "Implementation assumptions",
+               "findings": "Open review issues", "autofixes": "Auto-fixed"}
+
+#: The tab's hover, owned for the same reason as the titles.
+REVIEW_TAB_TIP = ("What the coding agent left open, fixed and assumed — its own "
+                  "record, committed with the code.")
+
+
+def pile_intro(kind: str, points: dict | None) -> str:
+    """The one paragraph under a pile's heading, from the report rather than from prose.
+
+    The fixed pile names the commit its diffs are measured against, because that is the
+    one fact about it a reader cannot see: the left side of every diff below."""
+    if kind == "assumptions":
+        return ("Where the ticket was ambiguous, the reading that was taken — and under "
+                "<b>Read the other way</b>, the reading that was not. Nothing here is a "
+                "defect, and nothing here is in the diff: it is the only pile no pass, "
+                "script or reviewer could reconstruct afterwards.")
+    if kind == "findings":
+        return ("Findings the agent read and said no to, with its reason. These are closed "
+                "decisions, not a queue: your job here is to agree or disagree.")
+    src = html.escape((points or {}).get("source") or "review-points.md")
+    impl = ((points or {}).get("provenance") or {}).get("implementation", "")
+    against = (f"<code>{html.escape(impl[:8])}</code>, the implementation commit"
+               if impl else "the implementation commit")
+    return (f"Read off <code>{src}</code>, committed with the fixes. Each one names the "
+            f"reviewer that raised it and shows the diff against {against} — so what "
+            "the review changed is separable from what the feature changed.")
+
+
+def own_review_tab(spec: dict) -> None:
+    """Drop what the content file wrote over the piles: titles, intros, the tab's hover.
+
+    Named on stderr, the way `own_layout` names what it drops from the script-owned
+    tabs, so a content file that keeps typing them is told so instead of wondering why
+    its words never reach the page."""
+    for tab in spec.get("tabs") or []:
+        blocks = [b for b in tab.get("blocks") or [] if b.get("type") in POINTS_PILES]
+        if not blocks:
+            continue
+        for b in blocks:
+            for key in ("title", "body"):
+                if b.get(key) and b[key] != (PILE_TITLES[b["type"]] if key == "title"
+                                             else None):
+                    print(f"[review] content.json's {b['type']} {key} "
+                          f"({re.sub('<[^>]+>', '', str(b[key]))[:50]!r}) is ignored — "
+                          "the Review tab's headings are the builder's", file=sys.stderr)
+                b.pop(key, None)
+        tab["tip"] = REVIEW_TAB_TIP
 
 
 def points_note_band(points: dict | None, repo: str | None = None) -> str:
@@ -833,10 +917,25 @@ def _confidence_chip(f) -> str:
         return ""
     # A percentage, not a rate: `45%` is read at a glance, `0.45` is read as arithmetic.
     # The lede already says "3 under 70% sure"; the chips now speak the same unit.
-    shown = f"{round(c * 100)}%"
+    shown = f"{round(c * 100)}% confident"
     cls = "f-confidence sev-med" if c < 0.5 else "f-confidence"
     return (f'<span class="{cls}" title="{html.escape(CONFIDENCE_TIP, quote=True)}">'
             f'{shown}</span>')
+
+
+#: The word on every assumption card — fixed, never the item's own `source`. The report
+#: once carried `source` through to this badge verbatim, so one run's cards read
+#: `implementation decision` and `human` where every other page reads `assumption`.
+ASSUMPTION_BADGE = "assumption"
+
+
+def _decided_by(f) -> str:
+    """`chosen by the human`, after the chip, on the one kind of assumption the agent did
+    not make: a call the human made in the conversation, recorded so the reader knows it
+    was not a guess. Nothing for the agent's own — that is what the badge already says."""
+    if f.get("decidedBy") == "human":
+        return ' <span class="f-src">chosen by the human</span>'
+    return ""
 
 
 def render_assumptions(items, mode: str = "") -> str:
@@ -884,9 +983,9 @@ def render_assumptions(items, mode: str = "") -> str:
         # the pile still reads as the one the human owns.
         out.append(
             '<li class="n-assumed">'
-            f'<span class="badge sev-assumed">'
-            f'{html.escape((f.get("source") or "assumption").strip())}</span>'
+            f'<span class="badge sev-assumed">{ASSUMPTION_BADGE}</span>'
             + _confidence_chip(f)
+            + _decided_by(f)
             + f' <span class="f-title">{f["title"]}</span>'
             + gh_comment_link(f)
             + (f'<p>{f["body"]}</p>' if f.get("body") else "")
@@ -1330,13 +1429,21 @@ def render_pile_block(spec, block, heading=None):
     `heading` is `render_block`'s local heading emitter; without one (a test, a caller
     rendering a pile on its own) the piles render bare.
     """
+    kind = block.get("type", "section")
+    points = spec.get("_reviewPoints")
+
     def head_of(fallback_id, fallback_title):
         if heading is None:
             return ""
-        return _round_kicker(spec, block.get("type")) + heading(block, fallback_id,
-                                                                  fallback_title)
+        shown = block
+        if points:
+            # Read off the report, the heading and its intro are the builder's: whatever
+            # the content file typed over them was already dropped (`own_review_tab`).
+            fallback_title = PILE_TITLES[kind]
+            shown = {**{k: v for k, v in block.items() if k not in ("title", "body")},
+                     "title": fallback_title, "body": pile_intro(kind, points)}
+        return _round_kicker(spec, kind) + heading(shown, fallback_id, fallback_title)
 
-    kind = block.get("type", "section")
     # Whether these three piles are the branch's record or the content file's own list. It
     # changes what an empty one is allowed to say, and what each *item's* badge in the
     # autofixes pile is stamped with (`review-points.md` items were read and chosen —

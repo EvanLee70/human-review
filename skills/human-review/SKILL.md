@@ -93,6 +93,11 @@ It pushes, waits for CI **on the pushed commit**, and only then wipes `assets/`,
 ledger and writes the run's start markers. Exit 1 means the branch is not proven and nothing
 was destroyed — report which workflow failed and stop. Whatever it prints on its last line
 about the gate goes in the guide verbatim; *"no build proved this"* must never read as a pass.
+Only the **authoritative** workflows count — `"ci": {"workflows": ["ci.yml"]}` in
+`human-review.json` or `--workflow ci.yml` (repeatable, all must be green); unset, the one
+workflow named like ci/build, else every run on the SHA. A green Pages deploy never opens the
+gate. Cancelled, never-picked-up (runner outage) and GitHub-unreachable are reported as such,
+not as a red build; the verdict (workflow, run id, SHA) is in `.human-review/.gate.json`.
 
 If `.human-review/review.html` already exists, ask what changed first — see *Iterating*.
 
@@ -197,8 +202,22 @@ not.
 
 ### The prose that is left
 
-Everything else in the content file is layout and ledes: `title`, `subtitle`, `pr`,
-`scope`, `verdict`, the `tabs` array, and one short lede per non-Review tab.
+Everything else in the content file is prose: `title`, `subtitle`, `pr`, `verdict`, an
+optional `summary`/`note`, and the Review tab's block titles and ledes.
+
+**Every tab after Review is the scripts', not yours — write nothing on it.** Demo, API,
+Data, Tests, Sequence, Structure, Code City, UX, Complexity, Logging and CODEOWNERS show
+what a step produced. List them in `tabs` with the blocks in the reference strip
+(`reference/content-schema.md`, *The tab strip*) and stop: no section of your own, no
+`intro`, no snippet, no `html` block, no re-pointing of `swaggerdiff`, `video`,
+`conceptual`, `requirements-map`, `ds-audit` or `complexity-delta` at another fragment.
+The build owns those (`scripts/hrbuild/shared/layout.py`): it drops anything else on a
+script-owned tab, rebuilds those sections from its own table, puts back a Demo tab declared
+empty, and prints each drop on stderr. A run that wrote an API note, a Data section with
+two hand-picked snippets and a `gate green` chip produced a different page from the
+reference one — that is what this rule ends. **`scope` is computed chips only**
+(`{"auto": "diffstat"}`, `{"auto": "tests"}`, `{"auto": "autofixed"}`): a chip you type
+is dropped, and a `gate`/CI chip says nothing — a red gate means there is no page.
 
 **The writing rule: show the code, do not narrate it.** A finding is not a story about a
 defect, it is the defect, quoted. It still applies, to the tab ledes and the sections:

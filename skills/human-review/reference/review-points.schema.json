@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/victorrentea/human-review/blob/main/skills/human-review/reference/review-points.schema.json",
+  "title": "review-points report",
+  "description": "The structured record /record-review captures: what the coding agent fixed, declined and assumed, plus which commits the review covers. Written by review-points.py (from the committed review-points.md) to .human-review/review-points.json; validated where it is written (record-review.py finish, review-points.py) and where it is read (build-review-html.py). The Review tab is rendered from this document only, under titles and labels the builder owns.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "mode", "source", "provenance", "findings", "autofixes",
+               "assumptions", "sections", "warnings", "items", "dropped", "empty"],
+  "properties": {
+    "schema": {"const": "review-points/2",
+               "description": "The version of this contract. A report without it predates the schema and is regenerated, never rendered."},
+    "mode": {"const": "points"},
+    "source": {"type": "string", "minLength": 1,
+               "description": "The committed file the report was read from, repo-relative."},
+    "provenance": {"$ref": "#/$defs/provenance"},
+    "fixed_in": {"type": ["string", "null"]},
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/declined"},
+                 "description": "Ignored pile: findings the agent read and declined."},
+    "autofixes": {"type": "array", "items": {"$ref": "#/$defs/fixed"},
+                  "description": "Fixed pile: findings the agent accepted and repaired."},
+    "assumptions": {"type": "array", "items": {"$ref": "#/$defs/assumption"},
+                    "description": "Assumptions pile: readings the agent chose where the ticket did not decide."},
+    "meta": {"type": "object", "additionalProperties": {"type": "string"}},
+    "frontmatter": {"type": "object", "additionalProperties": {"type": "string"}},
+    "sections": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"Fixed": {"type": "string"}, "Ignored": {"type": "string"},
+                     "Assumptions": {"type": "string"}},
+      "description": "Which piles the file had a section for, and the heading it used."
+    },
+    "note": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/note"}]},
+    "items": {"type": "integer", "minimum": 0},
+    "dropped": {"type": "integer", "minimum": 0},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "empty": {"type": "boolean"}
+  },
+  "$defs": {
+    "rev": {"type": "string", "minLength": 1, "pattern": "^\\S+$"},
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "description": "Four different commits, kept apart: the audited range the reviewers read, the commit that implements the feature, HEAD when the review was recorded, and the commit that recorded it.",
+      "properties": {
+        "ticket": {"type": "string"},
+        "base": {"$ref": "#/$defs/rev"},
+        "auditedBase": {"$ref": "#/$defs/rev"},
+        "auditedHead": {"$ref": "#/$defs/rev"},
+        "implementation": {"$ref": "#/$defs/rev"},
+        "head": {"$ref": "#/$defs/rev"},
+        "reviewCommit": {"$ref": "#/$defs/rev"},
+        "reviewers": {"type": "string"},
+        "harness": {"type": "string"},
+        "session": {"type": "string"}
+      }
+    },
+    "ref": {"type": "string", "minLength": 1, "pattern": "^\\S(.*\\S)?$"},
+    "refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/ref"}},
+    "snippet": {
+      "type": "object", "additionalProperties": false, "required": ["ref"],
+      "properties": {"ref": {"type": "string", "pattern": ":\\d+(-\\d+)?$"},
+                     "caption": {"type": "string"}}
+    },
+    "snippets": {"type": "array", "items": {"$ref": "#/$defs/snippet"}},
+    "diff": {
+      "type": "object", "additionalProperties": false, "required": ["path"],
+      "properties": {"path": {"type": "string", "minLength": 1},
+                     "base": {"type": "string"}, "head": {"type": "string"}}
+    },
+    "diffs": {"type": "array", "items": {"$ref": "#/$defs/diff"}},
+    "severity": {"enum": ["high", "medium", "low", "info"]},
+    "html": {"type": "string",
+             "description": "Escaped prose; backticks already became <code>."},
+    "declined": {
+      "type": "object", "additionalProperties": false,
+      "required": ["title", "severity", "refs"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "severity": {"$ref": "#/$defs/severity"},
+        "source": {"type": "string"},
+        "why": {"$ref": "#/$defs/html"},
+        "body": {"$ref": "#/$defs/html"},
+        "refs": {"$ref": "#/$defs/refs"},
+        "snippets": {"$ref": "#/$defs/snippets"},
+        "diffs": {"$ref": "#/$defs/diffs"}
+      }
+    },
+    "fixed": {
+      "type": "object", "additionalProperties": false,
+      "required": ["title", "refs"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "severity": {"$ref": "#/$defs/severity"},
+        "source": {"type": "string"},
+        "why": {"$ref": "#/$defs/html"},
+        "body": {"$ref": "#/$defs/html"},
+        "refs": {"$ref": "#/$defs/refs"},
+        "snippets": {"$ref": "#/$defs/snippets"},
+        "diffs": {"$ref": "#/$defs/diffs"}
+      }
+    },
+    "assumption": {
+      "type": "object", "additionalProperties": false,
+      "required": ["title", "decidedBy", "refs"],
+      "description": "Never ranked (no severity) and never attributed to a pass (no source): who decided it is the only provenance an assumption has.",
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "decidedBy": {"enum": ["agent", "human"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "alternative": {"$ref": "#/$defs/html"},
+        "why": {"$ref": "#/$defs/html"},
+        "body": {"$ref": "#/$defs/html"},
+        "refs": {"$ref": "#/$defs/refs"},
+        "snippets": {"$ref": "#/$defs/snippets"},
+        "diffs": {"$ref": "#/$defs/diffs"}
+      }
+    },
+    "note": {
+      "type": "object", "additionalProperties": false, "required": ["heading", "html"],
+      "properties": {"heading": {"type": "string", "minLength": 1},
+                     "html": {"type": "string", "minLength": 1}}
+    }
+  }
+}

@@ -30,7 +30,8 @@ Two decisions worth stating, because both are load-bearing:
   told to validate the file *before* committing it.
 
 Exit codes:  0 parsed · 3 no such file · 4 unparseable · 5 present, and every item
-unanchored — a file that says nothing, reported as that rather than as a clean review.
+unanchored — a file that says nothing, reported as that rather than as a clean review ·
+6 the report does not match `reference/review-points.schema.json`.
 
 Usage:
   review-points.py --check                    # validate, print what was understood
@@ -43,8 +44,14 @@ import argparse
 import html
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
+
+# Loaded by path from push-pr-comments.py and the tests, so its own directory is not
+# necessarily on sys.path yet.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import review_points_schema  # noqa: E402
 
 DEFAULT_FILE = "review-points.md"
 CONFIG = "human-review.json"
@@ -78,6 +85,18 @@ SEVERITIES = {"high", "medium", "low", "info"}
 # below 0.3 = the author expects to be corrected. Two decimals, because the third would
 # claim a precision nobody has about their own guess.
 CONFIDENCE_DECIMALS = 2
+# An assumption's `source:` names who decided it. `human` is the one value that changes the
+# card; the rest are the spellings of "the agent did" already in the wild.
+HUMAN_SOURCES = {"human", "user", "the human"}
+AGENT_SOURCES = {"assumption", "agent", "the agent", "coder", "implementation decision"}
+# Front-matter keys that say which commit is which, and the `provenance` key each becomes.
+# Four commits a reviewer must not confuse: the range the reviewers read, the commit that
+# implements the feature (not the housekeeping after it), HEAD when the review was
+# recorded, and the commit that recorded it.
+PROVENANCE = {"ticket": "ticket", "base": "base", "audited-base": "auditedBase",
+              "audited-head": "auditedHead", "implementation": "implementation",
+              "head": "head", "review-commit": "reviewCommit", "reviewers": "reviewers",
+              "harness": "harness", "session": "session"}
 
 H2 = re.compile(r"^##\s+(.*?)\s*#*\s*$")
 H3 = re.compile(r"^###\s+(.*?)\s*#*\s*$")
@@ -263,7 +282,17 @@ def build_item(title: str, fields: list[tuple[str, str]], body: str, pile: str,
         # number on the page that no reviewer ever typed.
         item["severity"] = "info"
     if pile == "assumptions":
-        item.setdefault("source", "assumption")
+        # Who decided it is the only provenance an assumption has, and it has two values.
+        # `source:` used to be carried through verbatim and rendered as the card's badge,
+        # so a model that wrote `source: implementation decision` relabelled the whole
+        # pile on the page. The badge is the builder's now; the field only says whether
+        # the human made the call in the conversation (`source: human`) or the agent did.
+        said = (item.pop("source", "") or "").strip().lower()
+        item["decidedBy"] = "human" if said in HUMAN_SOURCES else "agent"
+        if said and said not in HUMAN_SOURCES and said not in AGENT_SOURCES:
+            warnings.append(
+                f"Assumptions: {title[:60]!r} (line {where}) says `source: {said}` — an "
+                "assumption's source is who decided it, `agent` or `human`; read as agent.")
     if body.strip():
         item["body"] = inline(body)
     if refs:
@@ -476,7 +505,39 @@ def top_fixed_in(front: dict, piles: dict[str, list[dict]]) -> str | None:
     return values.pop() if len(values) == 1 else None
 
 
-def document(path: Path, rel: str) -> dict:
+def recorded_in(root: Path, rel: str) -> str | None:
+    """The commit that recorded the file as it is on disk, or None.
+
+    The last commit that touched it — but only when the working copy matches it, because
+    at `record-review.py finish` time the file is about to be committed and the last
+    commit that touched it is the *previous* review's."""
+    def git(*args: str) -> str:
+        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    if git("status", "--porcelain", "--", rel):
+        return None
+    return git("log", "-1", "--format=%H", "--", rel) or None
+
+
+def provenance(front: dict, root: Path | None, rel: str) -> dict:
+    """Which commit is which, out of the front-matter, plus the recording commit.
+
+    `auditedBase` falls back to `base` and `auditedHead` to `implementation`: a file
+    written before the two were told apart said one range and one commit, and those were
+    what the reviewers read."""
+    out = {key: front[k].strip() for k, key in PROVENANCE.items() if front.get(k, "").strip()}
+    if "base" in out:
+        out.setdefault("auditedBase", out["base"])
+    if "implementation" in out:
+        out.setdefault("auditedHead", out["implementation"])
+    if root is not None and "reviewCommit" not in out:
+        sha = recorded_in(root, rel)
+        if sha:
+            out["reviewCommit"] = sha
+    return out
+
+
+def document(path: Path, rel: str, root: Path | None = None) -> dict:
     """The parsed file as the build reads it, plus what had to be thrown away."""
     parsed = parse(path.read_text(encoding="utf-8", errors="replace"))
     piles = parsed["piles"]
@@ -495,8 +556,10 @@ def document(path: Path, rel: str) -> dict:
             item.pop("_fixed_in", None)
             item.pop("_line", None)
     return {
+        "schema": review_points_schema.SCHEMA_VERSION,
         "mode": "points",
         "source": rel,
+        "provenance": provenance(front, root, rel),
         "fixed_in": fixed_in,
         "findings": piles["findings"],
         "autofixes": piles["autofixes"],
@@ -536,6 +599,8 @@ def report(doc: dict, out: Path, write: bool) -> None:
                 marks.append(f"confidence {item['confidence']:g}")
             if item.get("source"):
                 marks.append(f"from {item['source']}")
+            if item.get("decidedBy") == "human":
+                marks.append("decided by the human")
             print(f"      · {re.sub('<[^>]+>', '', item['title'])[:70]}"
                   + (f"   [{', '.join(marks)}]" if marks else ""))
     if doc.get("note"):
@@ -570,7 +635,7 @@ def main(argv=None) -> int:
               f"was reviewed, fixed or declined", file=sys.stderr)
         return 3
     try:
-        doc = document(path, rel)
+        doc = document(path, rel, root)
     except Unparseable as bad:
         print(f"[review-points] {rel} cannot be read:", file=sys.stderr)
         for problem in bad.problems:
@@ -585,6 +650,17 @@ def main(argv=None) -> int:
               f"says nothing checkable. Not the same thing as a clean review.",
               file=sys.stderr)
         return 5
+
+    # The report is a contract, checked before anything relies on it — the build checks
+    # it again on the way in. A failure here is this parser producing a shape the schema
+    # refuses, never something the agent's file can be blamed for in prose.
+    bad = review_points_schema.problems(doc)
+    if bad:
+        print(f"[review-points] the report built from {rel} does not match "
+              f"{review_points_schema.SCHEMA_PATH.name}:", file=sys.stderr)
+        for problem in bad:
+            print(f"  - {problem}", file=sys.stderr)
+        return 6
 
     if args.check:
         report(doc, out, write=False)

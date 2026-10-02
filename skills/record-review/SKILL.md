@@ -83,12 +83,14 @@ wrong is a silent loss of exactly one row on the page:
 | what | read by | if it is missing |
 | --- | --- | --- |
 | `review-points.md` at the repo root | `scripts/review-points.py` | the Review tab has no Fixed / Ignored / Assumptions piles, and says so rather than rendering "nothing outstanding" |
-| `Review-Points:` + `Implements:` trailers | `scripts/review-commits.py` | which commit is the implementation and which is the review is guessed from the file's history, or not at all |
+| `.human-review/review-points.json`, the structured report (not committed — regenerated from the file above) | `hrbuild/tabs/review.py`, after checking it against `reference/review-points.schema.json` | the build stops and names what does not match. The Review tab is rendered from this report only, under titles and labels the builder owns |
+| `Review-Points:` + `Implements:` trailers | `scripts/review-commits.py` | which commit is the implementation and which is the review is guessed from the file's history, or not at all. `Implements:` names the feature's own commit (`--implements <sha>` when HEAD is housekeeping after it), and `Audited: <base>..<head>` the range the reviewers actually read |
 | `Claude-Session:` on both commits | `scripts/session-cost.py` | the phase costs fall back to `.human-review/.session`, which is gitignored and dies with the directory. Outside Claude Code the line is left out, and the coding half has no price: Copilot's own session logs are not read yet |
 | `.human-review/pr-comments.json` (not committed) | `scripts/push-pr-comments.py`, behind the Review tab's *Push to GitHub PR* button | the button has nothing to send; `--from-review-points` can derive a blunter one from the record |
 
 **The trailers are written by `record-review.py finish`, and the harness may write after
-them.**
+them** — or ask `finish` to: `--commit-trailer "Co-authored-by: Copilot <…>"` (repeatable)
+appends a line of its own, so no harness has to patch the script to sign the commit.
 Claude Code appends `Co-Authored-By: Claude …` as a paragraph of its own, which puts the
 three keys in the *penultimate* paragraph — and git's `%(trailers:key=…)` only parses the
 last one, so it returns empty for all three. The first real run of this flow produced two

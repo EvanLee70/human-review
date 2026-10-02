@@ -24,7 +24,8 @@
 # hardcoded pauses below could never solve — a pause tuned for reading a sentence is not the
 # time it takes to say it — so every pause() is now a MINIMUM, stretched when the narration
 # needs longer. Set NARRATION=off to film silently; NARRATION_VOICE / NARRATION_RATE pick the
-# voice (`say -v "?"` lists them) and its speed.
+# voice (`say -v "?"` lists them) and its speed. With a Fish Audio key (see narrate-cue.py) the
+# cues are spoken by a cloned voice instead, and without one by the offline voice as before.
 #
 # The film OPENS ON A TITLE CARD — "Demo" over the name of the change being reviewed — and it
 # is filmed, not spliced on afterwards. Splicing was the obvious build: render a card, concat
@@ -347,6 +348,7 @@ const get = async (url) => {
   // A cue may name the element it is about. boundingBox() is viewport-relative, so it is
   // read at the moment the cue is spoken — after any scrolling — never earlier.
   let spokenUntil = 0;
+  const voicesUsed = new Set();
   const say = async (text, target) => {
     const box = target ? await target.boundingBox() : null;
     // The warning glyph is a caption device, not something to read out loud.
@@ -362,6 +364,7 @@ const get = async (url) => {
       };
     }
     if (speech) {
+      voicesUsed.add(speech.voice);
       cue.audio = path.basename(voiceDir) + "/" + path.basename(wav);
       cue.speech = speech.duration;
       cue.words = speech.words;
@@ -381,6 +384,10 @@ const get = async (url) => {
   const outcome = (await flow({page, say, pause, get, app, apiUrl, baseUrl})) || {};
   const saved = outcome.ok !== false;
   const note = outcome.note || "";
+  // The last sentence is still being spoken when the flow returns, and the annotator trims the
+  // narration to the footage: closing now would cut it off mid-word. A slower voice than the
+  // one the pauses of a flow were tuned for (a cloned one, say) is exactly when that happens.
+  await pause(0);
 
   // The boxes are frame pixels only if the page was rendered 1:1 at the recorded size.
   const geom = await page.evaluate(
@@ -401,7 +408,7 @@ const get = async (url) => {
   const spoken = cues.filter(c => c.audio);
   console.error(spoken.length
       ? `[video] narration: ${spoken.length}/${cues.length} cues, `
-        + `${spoken.reduce((a, c) => a + c.speech, 0).toFixed(1)}s of speech, voice "${voice}"`
+        + `${spoken.reduce((a, c) => a + c.speech, 0).toFixed(1)}s of speech, voice ${[...voicesUsed].map(v => `"${v}"`).join(" + ")}`
       : "[video] narration: none (NARRATION=off, or the synthesizer is unavailable)");
   if (!saved) {
     // Exit 3 is not a failure to handle — it is the most review-worthy film the pipeline

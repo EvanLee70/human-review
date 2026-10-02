@@ -72,10 +72,16 @@ unknown keys are carried through untouched.
 | --- | --- |
 | `ticket` | what was asked for, `owner/repo#n` or a URL |
 | `base` | the rev the change set is measured against |
-| `implementation` | sha of commit #1, the implementation-only commit. It becomes the default `base` of every `fixed-in` diff — the only left side that shows a review fix *on its own* |
+| `implementation` | sha of the commit that implements the feature — not housekeeping that landed after it. It becomes the default `base` of every `fixed-in` diff — the only left side that shows a review fix *on its own* |
+| `audited-base`, `audited-head` | the range the reviewers actually read; default `base` and `implementation` |
+| `head` | HEAD when the review was recorded, before the review commit |
 | `reviewers` | what was run, verbatim (`/code-review high`) |
+| `harness` | the agent harness that recorded it (`claude-code`, `copilot`) |
 | `session` | the coding session's id, the same value as the `Claude-Session:` trailer |
 | `fixed-in` | where the fixes landed, when every item shares one answer |
+
+`record-review.py finish` fills all of these. The commit that recorded the file is not
+among them — a commit cannot name itself — so the report derives it from git.
 
 ### Sections
 
@@ -120,7 +126,7 @@ fields.
 | field | repeatable | becomes |
 | --- | --- | --- |
 | `file:` | yes | `refs[]`, plus a `snippets[]` card when the value carries a line range (`path:12-30`). `\| caption` after the ref captions the card |
-| `source:` | no | `source` — the pass that raised it, verbatim. `/code-review` and `/simplify` render as links to their own docs |
+| `source:` | no | `source` — the pass that raised it, verbatim. `/code-review` and `/simplify` render as links to their own docs. **On an assumption** it says only who decided it: `human` becomes `decidedBy: "human"`, anything else `decidedBy: "agent"` (an unknown value with a warning). The card's badge is always `assumption` |
 | `severity:` | no | `severity` — `high\|medium\|low\|info`. Defaults to `info` in `Ignored`; **rejected outright on an assumption**, which is not a defect and must not be ranked as one |
 | `alternative:` | no | `alternative` — the reading that was *not* taken. What makes an assumption checkable at a glance |
 | `why:` | no | `why` — the reason to decline, or the reason the reading was chosen |
@@ -184,6 +190,23 @@ was never true. A model asked at the end of a long session what it fixed, declin
 assumed will produce fluent sentences of exactly this shape either way, and the anchor is
 the whole difference.
 
+## The structured report
+
+`review-points.py` writes `.human-review/review-points.json` — the report the Review tab is
+rendered from, and **only** from: when it is there, piles typed into `content.json` are
+ignored, and so are any titles or intros the content file wrote over the three piles; the
+headings (`Implementation assumptions`, `Open review issues`, `Auto-fixed`), their intros and
+every card's labels (`assumption`, `79% confident`) are the builder's.
+
+Its shape is [`review-points.schema.json`](review-points.schema.json) (JSON Schema 2020-12,
+`"schema": "review-points/2"`), checked twice: by `review-points.py` before it writes
+(exit 6), and by the build before it renders (it stops, naming each `$.path`). A report
+from before the schema has no `schema` key and is refused the same way — the reviewpoints
+step regenerates it from the committed file. Besides the three piles it carries
+`provenance`: `base`, `auditedBase`, `auditedHead`, `implementation`, `head`,
+`reviewCommit`, `reviewers`, `harness`, `session`, `ticket` — four commits that used to
+be one `Implements:` line.
+
 ## Running it
 
 ```sh
@@ -198,6 +221,7 @@ review-points.py --root ../petclinic --file docs/review-points.md --out /tmp/rp.
 | 3 | no such file — nobody recorded what was reviewed on this branch |
 | 4 | present and unparseable: an unknown H2, an unknown field, a field after the prose, a duplicate section, a `confidence:` that is not a number in `[0, 1]`, no section at all |
 | 5 | present, parsed, and **every** item was unanchored — which is a file that says nothing, reported as such rather than as an empty review |
+| 6 | the report built from the file does not match `review-points.schema.json` |
 
 Exit 3 and exit 5 are distinct on purpose. "Nobody wrote one" and "somebody wrote one with
 nothing checkable in it" are different failures, and the page says different things about

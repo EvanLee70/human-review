@@ -1089,14 +1089,15 @@ def test_the_two_refs_the_page_compares_lead_the_scope_bar_and_are_clickable(tmp
     first sentence — so the refs live in the pinned masthead. They lead the scope bar,
     which is the row that already answers *how much*, and each opens its own page on
     GitHub."""
-    page, _ = _build(tmp_path, dict(PR, scope=[{"label": "files", "value": "40"}]))
+    page, _ = _build(tmp_path, dict(PR, scope=[{"auto": "autofixed", "href": "#one",
+                                               "by": "Opus 5"}]))
     bar = page[page.index('<div class="scopebar">'):]
     bar = bar[:bar.index("</div>")]
     assert "https://github.com/victorrentea/petclinic/tree/test-pr" in bar
     assert "https://github.com/victorrentea/petclinic/tree/main" in bar
     # Before every measurement of them: two refs and six numbers about those refs are one
     # thought, and the refs are the half that says what the numbers are of.
-    assert bar.index("tree/test-pr") < bar.index("tree/main") < bar.index("files")
+    assert bar.index("tree/test-pr") < bar.index("tree/main") < bar.index("Opus 5")
     # The page's own tooltip, never the native one nobody waits for.
     assert "title=" not in bar
     assert "data-tip=" in bar
@@ -2497,9 +2498,10 @@ def test_an_assumptions_confidence_reads_verbatim_with_its_tooltip(tmp_path):
     # `one_tooltip_only` postprocess turns every native title into `data-tip`, the same
     # rewrite PlantUML's own hints go through — one tooltip mechanism, page-wide.
     # The tooltip is `CONFIDENCE_TIP`, fixed — not a sentence composed around this item's
-    # own number — and the face is a percentage, not a rate.
-    assert '<span class="f-confidence" data-tip="Confidence ∈ [10% .. 90%]">85%</span>' \
-        in item
+    # own number — and the face is a percentage, not a rate, said as what it measures:
+    # `85% confident`, so the number beside `assumption` cannot be read as a score.
+    assert ('<span class="f-confidence" data-tip="Confidence ∈ [10% .. 90%]">'
+            '85% confident</span>') in item
     assert "sev-med" not in item, "0.85 is not a low confidence"
 
 
@@ -2512,7 +2514,7 @@ def test_a_low_confidence_assumption_wears_the_page_own_worth_a_look_amber(tmp_p
                "blocks": [{"type": "assumptions", "mode": "A"}]}]))
     item = re.search(r'<li class="n-assumed">.*?</li>', page, re.S).group(0)
     assert 'class="f-confidence sev-med"' in item
-    assert ">30%</span>" in item
+    assert ">30% confident</span>" in item
 
 
 def test_assumptions_are_ordered_least_sure_first(tmp_path):
@@ -3906,15 +3908,18 @@ POINTS_SPEC = {
 }
 
 POINTS_DOC = {
+    "schema": "review-points/2",
     "mode": "points", "source": "review-points.md", "fixed_in": "HEAD",
+    "provenance": {"base": "2a45c210", "implementation": "7f3c1a9e"},
     "sections": {"Fixed": "Fixed", "Ignored": "Ignored", "Assumptions": "Assumptions"},
     "autofixes": [{"title": "fixed one", "refs": ["a.py:1"]}],
     "findings": [{"title": "declined one", "why": "out of scope", "refs": ["b.py:2"],
                   "severity": "medium"}],
     "assumptions": [{"title": "assumed one", "alternative": "the other reading",
-                     "refs": ["c.py:3"]}, {"title": "assumed two", "why": "because",
-                                           "refs": ["c.py:9"]}],
-    "warnings": [],
+                     "decidedBy": "agent", "refs": ["c.py:3"]},
+                    {"title": "assumed two", "why": "because", "decidedBy": "agent",
+                     "refs": ["c.py:9"]}],
+    "warnings": [], "items": 4, "dropped": 0, "empty": False,
 }
 
 
@@ -4096,11 +4101,13 @@ def test_the_piles_are_named_for_what_they_are_in_each_mode(tmp_path):
     assert "<h2>Open review issues</h2>" in out
     assert "<h2>Auto-fixed</h2>" in out
     assert ">fixed<" in out and ">auto-fixed<" not in out
-    # A content file that writes its own piles keeps both words.
+    # A content file that writes its own piles keeps both words — as long as no report
+    # sits beside it: a report, once there, is the Review tab whatever the file typed.
     old = {"findings": [{"title": "a", "body": "x"}], "autofixes": [{"title": "b"}],
            "tabs": [{"id": "review", "label": "R", "blocks": [
                {"type": "findings"}, {"type": "autofixes"}]}]}
-    build.resolve_review_points(old, tmp_path)
+    (tmp_path / "legacy").mkdir()
+    build.resolve_review_points(old, tmp_path / "legacy")
     build.reset_list()
     out = "".join(build.render_pile_block(old, b, heading=lambda b, i, t: f"<h2>{t}</h2>")[0]
                   for b in old["tabs"][0]["blocks"])

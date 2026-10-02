@@ -422,7 +422,7 @@ def _build_page(tmp_path, scope):
         # A window that opened, closed, and caught no turn: a tab a script produced.
         {"tabs": ["packages"], "label": "structure",
          "start": "2026-09-02T10:40:00+00:00", "end": "2026-09-02T10:45:00+00:00"},
-        # "logging" is deliberately absent: an uninstrumented step, which must read as
+        # "complexity" is deliberately absent: an uninstrumented step, which must read as
         # "not measured" rather than as a zero.
     ]), encoding="utf-8")
 
@@ -431,16 +431,19 @@ def _build_page(tmp_path, scope):
         "verdict": {"score": 7, "label": "ok", "bullets": ["b"]},
         "scope": scope,
         "findings": [{"title": "f", "body": "b", "severity": "high"}],
-        "sections": [{"id": "s", "title": "S", "body": "<p>b</p>"},
-                     {"id": "t", "title": "T", "body": "<p>b</p>"},
-                     {"id": "u", "title": "U", "body": "<p>b</p>"}],
+        # The three script-owned tabs carry what their scripts would put there — the build
+        # drops a section of prose from any of them (`hrbuild/shared/layout.py`). Each still
+        # renders something with no producer having run: a not-rendered notice, a missing
+        # source, a missing fragment.
+        "sections": [],
         "tabs": [
             {"id": "review", "label": "🤖 Review", "blocks": [{"type": "findings"}]},
-            {"id": "data", "label": "Data", "blocks": [{"type": "section", "id": "s"}]},
+            {"id": "data", "label": "Data",
+             "blocks": [{"type": "section", "id": "conceptual"}]},
             {"id": "packages", "label": "Structure",
-             "blocks": [{"type": "section", "id": "t"}]},
-            {"id": "logging", "label": "Logging",
-             "blocks": [{"type": "section", "id": "u"}]},
+             "blocks": [{"type": "puml", "src": "docs/packages.puml", "name": "packages"}]},
+            {"id": "complexity", "label": "Complexity",
+             "blocks": [{"type": "section", "id": "complexity-delta"}]},
         ],
     }
     src = repo / "content.json"
@@ -514,7 +517,7 @@ def test_the_built_page_shows_a_script_made_tab_as_a_measured_zero(built_page):
 
 def test_the_built_page_distinguishes_an_uninstrumented_tab(built_page):
     panel = _panel(built_page)
-    assert "1 tab not measured" in panel and "Logging" in panel
+    assert "1 tab not measured" in panel and "Complexity" in panel
 
 
 def test_the_built_page_totals_the_run_including_the_residual(built_page):

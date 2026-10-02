@@ -11,15 +11,20 @@ comments. Every one of those has exactly one right answer, so a program gives it
       writes the whole diff to one file and one brief per reviewer lens, and prints what
       the agent needs next — nothing else to look up.
 
-  record-review.py finish --subject "…"
-      Fills review-points.md's front-matter, checks the file, commits the fixes with it
-      under `[auto-fix]` and the three trailers, then derives and checks the PR comments.
+  record-review.py finish --subject "…" [--implements SHA] [--commit-trailer "K: v"]…
+      Fills review-points.md's front-matter (the audited range, the implementation
+      commit, HEAD — kept apart), converts it into the structured report
+      .human-review/review-points.json and validates it against
+      reference/review-points.schema.json, commits the fixes with it under `[auto-fix]`
+      and the trailers (plus any --commit-trailer), then derives and checks the PR
+      comments.
 
 What stays with the agent is what only it can do: run the reviewers on the briefs, accept or
 decline each finding, write the assumptions it made, and edit the code it accepts.
 
 Exit codes: 0 ok · 2 not a git repo / bad base · 3 uncommitted implementation and no
---impl-subject · 4 review-points.md missing or does not parse.
+--impl-subject · 4 review-points.md missing, does not parse, or its report does not match
+the schema.
 """
 from __future__ import annotations
 
@@ -37,6 +42,8 @@ HR = (HERE.parent / "human-review").resolve()
 SCRIPTS = HR / "scripts"
 WORK = ".human-review/review"
 POINTS = "review-points.md"
+#: The structured record the Review tab is rendered from (reference/review-points.schema.json).
+REPORT = ".human-review/review-points.json"
 DEFAULT_GENERATED = ["**/generated/**", "docs/generated/**", "openapi.yaml",
                      "**/*.genseq.*", "**/api-types.ts", "**/*.drawio*"]
 
@@ -149,8 +156,42 @@ def session_id() -> str:
     return os.environ.get("CLAUDE_CODE_SESSION_ID", "")
 
 
+def harness(given: str | None) -> str:
+    """Which agent harness recorded the review: what the caller says, else Claude Code
+    when its session id is in the environment, else nothing — never a guess."""
+    if given:
+        return given
+    return "claude-code" if session_id() else ""
+
+
+def rev(ref: str | None) -> str | None:
+    """`ref` as a full sha, or exit 2 naming it — a typo'd sha must not become a trailer."""
+    if not ref:
+        return None
+    try:
+        return git("rev-parse", "--verify", f"{ref}^{{commit}}")
+    except subprocess.CalledProcessError:
+        sys.exit(f"record-review: cannot resolve {ref!r} to a commit")
+
+
+#: One `Key: value` line, as git's own trailer parser reads one.
+TRAILER = re.compile(r"^[A-Za-z][A-Za-z0-9-]*: \S.*$")
+
+
 def trailers(**keys: str) -> str:
     return "\n".join(f"{k}: {v}" for k, v in keys.items() if v)
+
+
+def extra_trailers(given: list[str]) -> list[str]:
+    """`--commit-trailer` values, checked: a harness that needs its own attribution
+    (`Co-authored-by: Copilot <…>`) passes it here instead of patching this script."""
+    out = []
+    for t in given or []:
+        t = t.strip()
+        if not TRAILER.match(t) or "\n" in t:
+            sys.exit(f"record-review: --commit-trailer {t!r} is not one `Key: value` line")
+        out.append(t)
+    return out
 
 
 # --------------------------------------------------------------------------- prepare
@@ -207,12 +248,19 @@ def prepare(args) -> int:
         # the model reviewers do. /human-review would push this branch anyway.
         pushed = subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"],
                                 capture_output=True, text=True).returncode == 0
-    state = {"base": base, "implementation": head, "session": session_id()}
+    # Two different commits, kept apart: what the reviewers read (`auditedHead`, HEAD
+    # now) and what implements the feature — by default the same, but not when the
+    # branch tip is housekeeping that landed after the feature (`--implements <sha>`).
+    implementation = rev(args.implements) or head
+    state = {"base": base, "auditedHead": head, "implementation": implementation,
+             "session": session_id(), "harness": harness(args.harness)}
     (work / "state.json").write_text(json.dumps(state, indent=2) + "\n")
 
     print(f"base            {base[:8]}  ({args.base or 'merge-base with origin/main'})")
-    print(f"implementation  {head[:8]}  ({len(commits)} commit(s): {commits[0]}"
+    print(f"audited         {base[:8]}..{head[:8]}  ({len(commits)} commit(s): {commits[0]}"
           + (" …" if len(commits) > 1 else "") + ")")
+    print(f"implementation  {implementation[:8]}"
+          + ("  (--implements)" if implementation != head else "  (HEAD)"))
     print("diff            " + "  ".join(
         f"{WORK}/diff-{g}.patch ({n} files, {kb} KB)" for g, (n, kb) in sizes.items())
         + " — generated files left out")
@@ -256,30 +304,50 @@ def finish(args) -> int:
     if not points.is_file():
         print(f"{POINTS} is missing at the repository root.")
         return 4
+    extra = extra_trailers(args.commit_trailer)
     try:
         state = json.loads((repo / WORK / "state.json").read_text())
     except (OSError, ValueError):
         state = {"base": resolve_base(None), "implementation": git("rev-parse", "HEAD"),
                  "session": session_id()}
+    head = git("rev-parse", "HEAD")
+    implementation = rev(args.implements) or state["implementation"]
+    audited_head = state.get("auditedHead") or state["implementation"]
+    # The structured record's provenance: four commits a reviewer must not confuse.
+    # `review-commit` is not among them on purpose — this commit cannot name itself; the
+    # report derives it from the commit that recorded the file.
     points.write_text(fill_frontmatter(points.read_text(), {
-        "base": state["base"], "implementation": state["implementation"],
-        "reviewers": args.reviewers or "", "session": state.get("session", ""),
+        "base": state["base"], "audited-base": state["base"],
+        "audited-head": audited_head, "implementation": implementation, "head": head,
+        "reviewers": args.reviewers or "", "harness": harness(args.harness)
+        or state.get("harness", ""), "session": state.get("session", ""),
         "fixed-in": "HEAD"}))
 
-    check = subprocess.run([sys.executable, str(SCRIPTS / "review-points.py"), "--check"],
-                           capture_output=True, text=True)
-    print(check.stdout.strip().splitlines()[0] if check.stdout.strip() else "")
-    if check.returncode != 0:
-        print(check.stdout + check.stderr)
+    # The structured report, written where /human-review reads it and checked against
+    # reference/review-points.schema.json on the way out: a file that does not convert to
+    # a valid report is refused here, while the agent that wrote it can still fix it.
+    report = subprocess.run([sys.executable, str(SCRIPTS / "review-points.py"),
+                             "--out", str(repo / REPORT)],
+                            capture_output=True, text=True)
+    print(report.stdout.strip().splitlines()[0] if report.stdout.strip() else "")
+    if report.returncode != 0:
+        print(report.stdout + report.stderr)
         return 4
 
     stage_all()
-    msg = f"[auto-fix] {args.subject}\n\n" + trailers(**{
-        "Review-Points": POINTS, "Implements": state["implementation"],
-        "Claude-Session": state.get("session", "")})
+    msg = f"[auto-fix] {args.subject}\n\n" + "\n".join(filter(None, [trailers(**{
+        "Review-Points": POINTS, "Implements": implementation,
+        "Audited": f"{state['base']}..{audited_head}",
+        "Claude-Session": state.get("session", "")}), *extra]))
     git("commit", "-q", "-m", msg)
-    sha = git("rev-parse", "--short", "HEAD")
-    print(f"committed       {sha} [auto-fix] {args.subject}")
+    sha = git("rev-parse", "HEAD")
+    state["reviewCommit"] = sha
+    (repo / WORK).mkdir(parents=True, exist_ok=True)
+    (repo / WORK / "state.json").write_text(json.dumps(state, indent=2) + "\n")
+    print(f"committed       {sha[:8]} [auto-fix] {args.subject}")
+    print(f"provenance      audited {state['base'][:8]}..{audited_head[:8]} · implements "
+          f"{implementation[:8]} · head {head[:8]} · recorded in {sha[:8]}")
+    print(f"report          {REPORT} (validated against review-points.schema.json)")
 
     for extra in (["--from-review-points"], ["--check", "--base", state["base"]]):
         r = subprocess.run([sys.executable, str(SCRIPTS / "push-pr-comments.py"), *extra],
@@ -367,11 +435,21 @@ def main(argv=None) -> int:
     p.add_argument("--impl-subject", help="commit uncommitted work as the implementation")
     p.add_argument("--ticket", help="the ticket text, handed to every reviewer")
     p.add_argument("--no-ci", action="store_true", help="do not push to start CI early")
+    p.add_argument("--implements", help="the commit that implements the feature, when "
+                   "HEAD is housekeeping after it (default: HEAD)")
+    p.add_argument("--harness", help="the agent harness, recorded in the report "
+                   "(default: claude-code when its session id is set)")
     c = sub.add_parser("ci")
     c.add_argument("--wait-minutes", type=float, default=20)
     f = sub.add_parser("finish")
     f.add_argument("--subject", required=True)
     f.add_argument("--reviewers", default="")
+    f.add_argument("--implements", help="override the implementation commit prepare "
+                   "recorded — `Implements:` names it, never the latest housekeeping")
+    f.add_argument("--harness", help="the agent harness, recorded in the report")
+    f.add_argument("--commit-trailer", action="append", default=[], metavar="KEY: VALUE",
+                   help="an extra trailer on the review commit, e.g. `Co-authored-by: "
+                        "Copilot <…>`; repeatable")
     args = ap.parse_args(argv)
     return {"prepare": prepare, "finish": finish, "ci": ci}[args.cmd](args)
 

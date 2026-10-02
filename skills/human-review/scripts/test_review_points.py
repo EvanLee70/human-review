@@ -227,7 +227,9 @@ def test_a_declined_finding_with_no_severity_is_context_not_a_rank(tmp_path):
 
 def test_an_assumption_is_stamped_as_one_and_may_not_carry_a_severity(tmp_path):
     doc = _doc(tmp_path, "## Assumptions\n### t\n- file: a.py:1\n")
-    assert doc["assumptions"][0]["source"] == "assumption"
+    # Stamped by who decided it, never by a free-text source the page would echo.
+    assert doc["assumptions"][0]["decidedBy"] == "agent"
+    assert "source" not in doc["assumptions"][0]
     assert "severity" not in doc["assumptions"][0]
     with pytest.raises(rp.Unparseable) as bad:
         _doc(tmp_path, "## Assumptions\n### t\n- file: a.py:1\n- severity: high\n")
@@ -315,11 +317,11 @@ def test_the_item_keys_are_the_ones_the_renderer_reads(tmp_path):
     doc = _doc(tmp_path, FULL)
     assert set(doc["autofixes"][0]) <= {"title", "body", "why", "source", "severity",
                                         "refs", "snippets", "diffs", "alternative"}
-    assert set(doc["assumptions"][0]) <= {"title", "body", "why", "source", "refs",
+    assert set(doc["assumptions"][0]) <= {"title", "body", "why", "decidedBy", "refs",
                                           "snippets", "alternative", "diffs",
                                           "confidence"}
     src = page_source()
-    for key in ("refs", "snippets", "diffs", "severity", "alternative", "why"):
+    for key in ("refs", "snippets", "diffs", "severity", "alternative", "why", "decidedBy"):
         assert f'"{key}"' in src or f"'{key}'" in src
 
 

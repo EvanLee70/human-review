@@ -21,6 +21,7 @@ import argparse
 import html
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -122,12 +123,17 @@ from hrbuild.shared.postprocess import (
 from hrbuild.shared.validate import (
     REQUIRED, validate
 )
+from hrbuild.shared.layout import (
+    _layout_overridden, _layout_section, _video_step_ran, LAYOUT_ALWAYS, LAYOUT_MODEL_KEYS, LAYOUT_PRODUCER,
+    LAYOUT_SECTIONS, LAYOUT_TABS, own_layout
+)
 from hrbuild.tabs.review import (
     AFTERMATH_FILES, aftermath_html, aftermath_reads_takeover, AFTERMATH_JSON, CONFIDENCE_TIP,
     opening_lede, PASS_DOCS,
     PILE_BLOCKS, pile_numbers, PILELEDE_SPY_JS, points_empty_html, POINTS_MISSING_BAND, points_note_band,
     POINTS_PILES, render_assumptions, render_autofixes, render_findings, render_pile_block,
-    review_tab_badge,
+    review_tab_badge, ASSUMPTION_BADGE, _decided_by, own_review_tab, pile_intro, PILE_TITLES,
+    REVIEW_TAB_TIP,
     reset_list, resolve_refs, resolve_review_points, REVIEW_POINTS_JSON, scope_chip_face,
     SCOPE_CHIP_MAX_LEN, SEVERITIES, _aftermath_commit, _aftermath_files_tip,
     _assumptions_block, _code_totals, _confidence_chip, _finding_refs, _finding_source, _fold_note_lists,
@@ -182,6 +188,11 @@ from hrbuild.tabs.cost import (
     _cost_env, _cost_inputs, _cost_money, cost_session,
     _cost_tab_rows, _cost_tokens, _when
 )
+
+
+# An include that opens like a page rather than a fragment: a doctype, `<html>` or `<head>`
+# before any content. Leading whitespace and comments are skipped; case does not matter.
+WHOLE_DOCUMENT = re.compile(r"\s*(?:<!--.*?-->\s*)*<(?:!doctype\b|html\b|head\b)", re.I | re.S)
 
 
 def rebuild_interpreter() -> str:
@@ -270,6 +281,11 @@ def main(argv=None) -> int:
     # them as lists. This is the point at which the branch's own record becomes the page's.
     resolve_review_points(spec, out_dir)
     prepare_pr_push(spec, out_dir, root, HERE)
+    # The script-owned tabs, their sections and the scope bar are the skill's: whatever the
+    # content file put there that no script produced is dropped here, before validation,
+    # and named — the same treatment an unanchored assumption gets further down.
+    for warning in own_layout(spec, out_dir):
+        print(f"[review] WARNING: {warning}", file=sys.stderr)
 
     problems = validate(spec, out_dir)
     if problems:
@@ -362,6 +378,17 @@ def main(argv=None) -> int:
         inc = ""
         if s.get("includeHtml"):
             inc = (out_dir / s["includeHtml"]).read_text(encoding="utf-8")
+        if inc and WHOLE_DOCUMENT.match(inc):
+            # A fragment is pasted; a whole document must be framed. Another tool's full
+            # report (pb33f's openapi-changes, written as `includeHtml` instead of
+            # `embed`) brings its own <head>, and its stylesheet is not scoped: its `:root`
+            # palette and `body` rule sit later in the cascade than ours and win. On a light
+            # page that painted every tab's body near-black under a white masthead and set
+            # the prose in the report's monospace face; in dark mode the hijack blended in,
+            # which is how it shipped. A frame is the one boundary a stylesheet cannot cross.
+            inc = (f'<iframe class="oacframe" src="{html.escape(s["includeHtml"])}" '
+                   f'aria-label="{html.escape(s.get("title") or s["includeHtml"])}"></iframe>')
+        elif inc:
             # One include is written by a model and is the whole of a tab: the
             # requirements↔tests matrix. What it *says* is the model's; where its two
             # columns sit, and the ticket title over them, is the same on every branch and
@@ -607,19 +634,9 @@ def main(argv=None) -> int:
     # the finding, rather than in a parallel listing that can fall out of step with this one.
     # So two things are checked: that the chip's target exists, and that the stamps are
     # actually there. A merged count with nothing behind it is the real regression.
-    # The check that was missing for six days. `files` and `lines` are computed now, so a
-    # content file still typing them is not merely redundant — it is the exact failure this
-    # release exists to end, and it fails silently, because a number with a sign in front of
-    # it reads as something a tool produced. Loud, and not fatal: a page that still renders
-    # is better than a build that refuses, and the author sees this the moment they run it.
-    typed = [c.get("label") for c in scope
-             if not c.get("auto") and c.get("label") in ("files", "lines")]
-    if typed:
-        print(f"[review] WARNING: {' and '.join(typed)} typed by hand in 'scope' — replace "
-              'them with {"auto": "diffstat"}, which measures the change set at build time. '
-              "A typed diffstat is the one number on this page nothing can catch going "
-              "stale: it looks measured, and it outlives every commit made after it.",
-              file=sys.stderr)
+    # A chip typed by hand (`files 25`, `gate green`) never gets this far: `own_layout`
+    # drops every chip without an `auto` and names it on stderr — a typed number goes
+    # stale with nothing noticing, and a typed claim says what the page already proves.
 
     if any(c.get("auto") == "autofixed" for c in scope):
         target = next((c.get("href", "") for c in scope if c.get("auto") == "autofixed"), "")

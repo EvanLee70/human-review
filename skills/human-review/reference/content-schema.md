@@ -148,13 +148,16 @@ the page disagreeing with GitHub about what the ticket is called.
 
 ```json
 "scope": [
-  {"label":"commits","value":"2 (pushed to main)","href":"https://github.com/…/compare/…"},
   {"auto":"diffstat"},
   {"auto":"tests","href":"#requirements"},
-  {"label":"diagrams","value":"3","href":"#diagrams"},
   {"auto":"autofixed","href":"#review"}
 ]
 ```
+
+**That is the whole bar: computed chips only.** A chip with no `auto` — `commits 2`,
+`diagrams 3`, `gate green: CI for 7f71…` — is dropped by the build and named on stderr. A
+typed number goes stale with nothing noticing, and a typed claim like the gate says what
+the page's existence already proves: a red gate means there is no page.
 
 The scope bar is read as a row of signed numbers, so the signs are a convention and not
 a per-chip choice: **`+` added, `−` removed, `✍️` changed** (`files <span class="added">+1</span>
@@ -163,7 +166,7 @@ forty files were touched" is not what the number means: the pencil says somebody
 and edited exactly that many. It is `build.PENCIL`, so the two chips that use it cannot
 drift apart.
 
-`value` is raw HTML on purpose; `href` makes the chip a link. The three `auto` chips are
+`href` makes a chip a link. The three `auto` chips are
 **computed, never typed** — `diffstat` measures the change set with `git diff`, `autofixed`
 counts the page's own two lists, `tests` reads the manifest `test-changes.py` already built
 for the tab below. All three drop themselves rather than print a wrong number.
@@ -550,14 +553,17 @@ naming the absent file and keeps the transcript.
 ### `embed` (Step 7b, 7b-visual)
 
 ```json
-{"id": "pb33f", "title": "The same two revisions, read by a third differ",
- "body": "<p>…what it says, in this page's own words…</p>",
- "embed": {"src": "assets/openapi-changes.html",
-           "label": "openapi-changes report — openapi.yaml at <sha> against the working tree",
-           "missing": "run `openapi-changes html-report` (brew install pb33f/taps/openapi-changes)"}}
+{"id": "swaggerdiff", "title": "",
+ "includeHtml": "assets/openapi-verdict.html",
+ "embed": {"src": "assets/openapi-visual-diff.html#only-touched", "class": "oaviframe",
+           "label": "openapi-visual-diff — the REST contract at the base against the working tree",
+           "missing": "run scripts/openapi-visual-diff.py (needs `brew install oasdiff`)"}}
 ```
 
-`"class": "oaviframe"` on the `openapi-visual-diff.html` embed. `aria-label`, never `title` —
+This is the API tab's one section, and **the build writes it, not you** (see *The tab
+strip*): the verdict band over the visual diff. The text diff, the compatibility table and
+the pb33f report the `api` and `specchanges` steps also write are linked from the verdict
+band, never stacked on the tab as sections of their own. `aria-label`, never `title` —
 this page has exactly one tooltip component, and `data-tip` is dead inside a cross-document
 frame. A control inside an embedded frame gets **neither**: make it self-explanatory, or
 explain it in the host page's prose.
@@ -575,6 +581,10 @@ it and strikes the label through.
 
 ## Rules the renderer enforces (so you do not have to)
 
+- **The script-owned tabs and the scope bar are the build's.** Blocks a script did not
+  produce are dropped from every tab after Review, the six built-in sections are rebuilt
+  from the build's own table, and a scope chip without `auto` is dropped — each named on
+  stderr (*The tab strip*, *Top level*).
 - **`verdict.bullets` render nowhere.** `verdict.score` is the pill beside the title (and
   the band of colour it wears); the bullets are kept in the file and never drawn. The
   full-bleed amber band that used to hold them said the pill again one screenful lower and
@@ -694,7 +704,7 @@ takes them, so the page is a **tab strip over panels**, driven by a `tabs` array
   {"id":"data","label":"Data",
    "blocks":[{"type":"diagrams","only":["DomainModel","DB"]},{"type":"section","id":"conceptual"}]},
   {"id":"requirements","label":"Tests",
-   "blocks":[{"type":"section","id":"requirements"},{"type":"tests"}]},
+   "blocks":[{"type":"section","id":"requirements-map"}]},
   {"id":"sequence","label":"Sequence",
    "blocks":[{"type":"testpairs","id":"sequences","kind":"sequence",
               "title":"Each test, beside the sequence its own run recorded",
@@ -702,8 +712,7 @@ takes them, so the page is a **tab strip over panels**, driven by a `tabs` array
               "unpaired":{"id":"tests-nosequence",
                           "title":"Tagged for tracing, and no diagram came back","body":"…"}}]},
   {"id":"packages","label":"Structure",
-   "blocks":[{"type":"section","id":"packages-note"},
-             {"type":"diagrams","only":["Java packages"],
+   "blocks":[{"type":"diagrams","only":["Java packages"],
               "context":{"src":"petclinic-backend/docs/packages.puml","name":"Java packages","note":"…"}},
              {"type":"puml","src":"petclinic-backend/docs/generated/MavenModules.puml",
               "name":"Maven modules","status":"unchanged"},
@@ -722,6 +731,30 @@ takes them, so the page is a **tab strip over panels**, driven by a `tabs` array
   {"id":"owners","label":"CODEOWNERS","blocks":[{"type":"codeowners"}]}
 ]
 ```
+
+**Copy this strip; do not compose it.** Every tab after Review is script-owned, and the
+build enforces it (`scripts/hrbuild/shared/layout.py`): on those tabs it keeps only the
+block types their scripts produce — `diagrams`/`puml` on Data and Structure, `testpairs`
+on Sequence, `tests`/`traces` on Tests, `codecity`, `logging`, `codeowners` — and its own
+sections, which it rebuilds from its own table whatever `sections` says:
+
+| section | tab | what the build puts in it |
+| --- | --- | --- |
+| `video` | Demo | `assets/feature.webm` (yours: `video`, `appLinks`, `runtime`) — with no film, the recorder's verdict |
+| `swaggerdiff` | API | `includeHtml` `assets/openapi-verdict.html` + `embed` `assets/openapi-visual-diff.html#only-touched` |
+| `conceptual` | Data | `{{drawio:conceptual}}`, title `""` |
+| `requirements-map` | Tests | `includeHtml` `assets/requirements-map.html`, `includeFirst` |
+| `ds-audit` | UX | `includeHtml` `assets/ds-audit.html` |
+| `complexity-delta` | Complexity | `includeHtml` `assets/complexity-delta.html` |
+
+Anything else on a script-owned tab — a section of your own, an `intro`, an `html` block,
+the text diff or the pb33f report added to API — is dropped and named on stderr. A
+required section missing from its tab is added back, so a Demo tab declared `[]` still
+says why there is no film; a Demo tab left out entirely is put back whenever the `video`
+step ran. A fragment its step did not write renders as a one-line *not produced* notice
+naming the step. Your per-branch choices on these tabs are selections, never prose:
+which diagrams (`only`, `context`), which tests to quote beside their sequences
+(`snippets`), the tab's `tip`.
 
 A tab's `id` becomes the panel's DOM id, so the Review tab's `intro` must **not** also carry
 `id="review"`, and the Complexity tab's section is `complexity-delta`, not `complexity`.
@@ -1236,9 +1269,11 @@ Four tabs need something said about how they are written:
     what is missing", just the fact.
   - With that column on the page, **do not also write an evidence-cards section** listing
     what the branch wrote — it is the same list, in fewer words, further down.
-- **Data** — the DB and domain deltas, and 2–5 core-logic bullets in domain language, each
-  backed by a snippet. It also carries the **conceptual model**, the one diagram on the
-  page a human drew, and four rules go with it:
+- **Data** — script-only: the DB and domain deltas (`diagrams`) and the **conceptual
+  model**, the one diagram on the page a human drew. **Write no section, prose or snippet
+  of your own here** — core-logic bullets belong in a finding, not on this tab, and the
+  build drops them. The rules below are what the build's `conceptual` section already
+  does; they are kept so nobody re-adds what was taken out:
   - **It goes last on the tab, under the generated diagrams.** The machine-extracted
     pictures — `DomainModel`, `DB` — are what the branch did; the hand-drawn map is what
     the team means, and it is the one the reader is asked to act on. Walking the tab ends

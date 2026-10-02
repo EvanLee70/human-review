@@ -1161,7 +1161,9 @@ def _testcov(ctx: Ctx):
 # hit therefore also requires the step's own outputs to be where it left them.
 STEP_INPUTS = {
     "reviewpoints": {"paths": ("*review-points.md",),
-                     "tools": ("review-points.py", "review-commits.py"),
+                     "tools": ("review-points.py", "review-commits.py",
+                               "review_points_schema.py",
+                               "../reference/review-points.schema.json"),
                      "outputs": ("review-points.json", "review-commits.json")},
     "aftermath":    {"paths": (),
                      "reads": ("review-commits.json",),

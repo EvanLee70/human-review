@@ -1012,6 +1012,30 @@ REQMAP_CSS = """
     grid-row:auto}
   .reqmap .rm-cats{margin:46px 2px 10px}
 }
+/* The fragment's own stylesheet is written by a model and has, so far, only ever been a
+   light one: ink #1b1f23, ticket and card on #f6f8fa, pastel status chips. On a dark page
+   that was a white ticket beside a white card, and every requirement sentence and test
+   file name in near-black on the near-black page. Its class names are fixed by the
+   prompt (and by `reqmap_layout`, which finds its footing by them), so the dark skin is
+   put back here, after the fragment, on those names and on the page's own tokens. Light
+   mode is left exactly as the model drew it; dark mode is the page's, whatever the model
+   wrote. */
+@media (prefers-color-scheme:dark){
+  .reqmap,.reqmap .rm-who{color:var(--fg)}
+  .reqmap .rm-ticket,.reqmap .rm-code{background:var(--card);border-color:var(--line)}
+  .reqmap .rm-req,.reqmap .rm-t{border-color:var(--line)}
+  .reqmap .rm-tkhead,.reqmap .rm-scope,.reqmap .rm-covering-label,.reqmap .rm-note,
+  .reqmap .rm-summary-line,.reqmap .rm-tsuite,.reqmap .rm-surf{color:var(--muted)}
+  .reqmap .rm-cat{background:var(--code-bg)}
+  .reqmap .rm-none{color:#f08a8a}
+  .reqmap .rm-s-asserted{background:#1b2c1f;color:#9ad3a5}
+  .reqmap .rm-s-executed{background:#1c2738;color:#9dc0f5}
+  .reqmap .rm-s-selected,.reqmap .rm-s-na{background:#24282e;color:#9aa3af}
+  .reqmap .rm-s-missing{background:#3a1f1f;color:#f2a0a0}
+  .reqmap .rm-req[data-strength="asserted"]{border-left-color:#5fbf7a}
+  .reqmap .rm-req[data-strength="executed"]{border-left-color:#8ab4f8}
+  .reqmap .rm-req[data-strength="missing"]{border-left-color:#f08a8a}
+}
 </style>"""
 
 

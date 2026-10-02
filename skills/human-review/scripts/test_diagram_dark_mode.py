@@ -395,3 +395,68 @@ def test_textlength_and_lengthadjust_are_dropped_from_inlined_svg(tmp_path):
     out = build.inline_svg(src, tmp_path)
     assert "textLength" not in out and "lengthAdjust" not in out
     assert '<text fill="var(--dgm-fg)" font-size="13" x="1" y="2">select owners &#8853;</text>' in out
+
+
+# --- light mode: nothing another tool wrote may repaint the page -----------------------
+#
+# The two bugs below shipped together on one page and looked like one: in light mode the
+# body under the tab strip went near-black and the prose turned monospace, and in dark mode
+# the Tests tab showed white cards with near-black text on them. Neither was in this
+# page's own stylesheet. Both came from a stylesheet that arrived *with an include* and
+# sat later in the cascade than ours, so it won.
+
+
+def test_a_whole_document_include_is_framed_not_pasted(tmp_path):
+    """pb33f's `openapi-changes html-report` writes a full page — doctype, `<head>`, an
+    unscoped `:root`/`body` palette in its own dark skin and a monospace face. Given to the
+    build as `includeHtml` it was pasted into the API panel, and its `body` rule repainted
+    every tab of the light page. A frame is the only boundary a stylesheet cannot cross."""
+    from test_build_review import BARE, _build
+    (tmp_path / "report.html").write_text(
+        "<!DOCTYPE html>\n<html lang=en theme=dark><head><style>"
+        ":root{--background-color:#0d1129}body{background:#0d1129;"
+        "font-family:BerkeleyMono-Regular}</style></head><body>report</body></html>",
+        encoding="utf-8")
+    page, _ = _build(tmp_path, dict(BARE, sections=[
+        {"id": "one", "title": "One", "body": "<p>a</p>", "includeHtml": "report.html"},
+        {"id": "two", "title": "Two", "body": "<p>b</p>"}]))
+    assert '<iframe class="oacframe" src="report.html"' in page
+    assert "#0d1129" not in page and "BerkeleyMono" not in page
+    # One document, one <head>: the page's own.
+    assert len(re.findall(r"<head[\s>]", page, re.I)) == 1
+    assert len(re.findall(r"<!doctype", page, re.I)) == 1
+
+
+def test_a_fragment_include_is_still_pasted(tmp_path):
+    """The framing is for a whole document only: a fragment (the complexity delta, the
+    data model) is the page's own furniture and must keep reading the page's tokens."""
+    from test_build_review import BARE, _build
+    (tmp_path / "frag.html").write_text("<!-- generated -->\n<div class=cx>delta</div>",
+                                        encoding="utf-8")
+    page, _ = _build(tmp_path, dict(BARE, sections=[
+        {"id": "one", "title": "One", "body": "<p>a</p>", "includeHtml": "frag.html"},
+        {"id": "two", "title": "Two", "body": "<p>b</p>"}]))
+    assert "<div class=cx>delta</div>" in page and "<iframe" not in page
+
+
+def test_whole_document_sniffing_skips_comments_and_case():
+    for doc in ("<!DOCTYPE html><html>", "  \n<!doctype html>", "<html lang=en>",
+                "<!-- by pb33f -->\n<!DOCTYPE html>"):
+        assert build.WHOLE_DOCUMENT.match(doc), doc
+    for frag in ('<div class="reqmap">', "<!-- generated -->\n<section>", "<p>html</p>"):
+        assert not build.WHOLE_DOCUMENT.match(frag), frag
+
+
+def test_the_requirements_matrix_is_reskinned_for_dark_mode():
+    """The matrix is a model's fragment with its own light-only `<style>`: #1b1f23 ink,
+    #f6f8fa ticket and card. The build's REQMAP_CSS is emitted after it, so the dark skin
+    lives there, on the class names the prompt fixes, and on the page's own tokens."""
+    css = build.REQMAP_CSS
+    dark = css[css.index("@media (prefers-color-scheme:dark)"):]
+    assert re.search(r"\.reqmap\b[^{]*\{color:var\(--fg\)\}", dark)
+    assert re.search(r"\.reqmap \.rm-ticket[^{]*\{background:var\(--card\)", dark)
+    assert re.search(r"\.reqmap \.rm-code\{background:var\(--card\)", dark)
+    # Every status chip reads at AA on its own dark fill.
+    for bg, fg in re.findall(r"\.rm-s-[a-z]+[^{]*\{background:(#[0-9a-f]{6});color:(#[0-9a-f]{6})\}",
+                             dark):
+        assert contrast(bg, fg) >= 4.5, (bg, fg)
