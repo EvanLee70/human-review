@@ -461,6 +461,166 @@ def _unquoted_note(test_rel: str, root: Path) -> str:
             f'left.</span></p>')
 
 
+# ── the tests the tab quotes, derived ───────────────────────────────────────────────
+#
+# Which test to quote beside which picture used to be the content file's `snippets`, typed
+# by the model that wrote the review. Eval run 5 (3 Oct 2026) copied them from the reference
+# PR: `add-visit.spec.ts:31-43`, `AddVisitApiTest.java:73-98` — line ranges of another branch,
+# quoting tests by position. Nothing about that choice needs a model. A picture names the
+# scenario that drew it (`title [[src://<test>:<line> …]]`), and a test asks for a picture with
+# a tag. So the build reads both: every scenario a diagram names, and every scenario tagged
+# for tracing that no diagram names, each quoted from its tag to its last line.
+
+#: A test asking for a sequence: the Gherkin tag, the Java annotation, the Playwright tag
+#: (`{tag: [GENERATE_SEQUENCE_TAG]}` or the literal). Read on a line, then placed on the
+#: scenario it belongs to — a line that belongs to no scenario (the constant's own
+#: declaration, an import, a Javadoc) is dropped there, not here.
+GENSEQ_TAG = re.compile(r"^\s*@(?:generate_sequence|GenerateSequence)\b"
+                        r"|GENERATE_SEQUENCE_TAG|[\"']@generate_sequence[\"']")
+_FEATURE_DECL = re.compile(r"^\s*(?:Scenario(?: Outline| Template)?|Example)\s*:")
+_FEATURE_STOP = re.compile(r"^\s*(?:@|Scenario|Example\s*:|Rule\s*:|Background\s*:|Feature\s*:)")
+_TS_DECL = re.compile(r"^\s*(?:test|it)(?:\.\w+)?\s*\(")
+_JAVA_DECL = re.compile(r"^\s*(?:(?:public|protected|private|static|final|abstract|"
+                        r"synchronized)\s+)*[\w<>\[\],.? ]+\s+\w+\s*\(")
+_STRINGS = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`')
+
+
+def _test_kind(rel: str) -> str:
+    low = rel.lower()
+    return ("feature" if low.endswith(".feature")
+            else "java" if low.endswith((".java", ".kt"))
+            else "ts" if low.endswith((".ts", ".tsx", ".js", ".mjs")) else "")
+
+
+def scenario_span(lines: list[str], decl: int, kind: str) -> tuple[int, int]:
+    """1-based `(first, last)` of the scenario declared on line `decl`, from its tag.
+
+    From its tag because the tag is why the picture exists: a quote opening below
+    `@generate_sequence` or `@GenerateSequence` quotes a test that looks untagged. A Gherkin
+    scenario ends before the next scenario, tag or rule; a Java method or a Playwright
+    `test(…)` where its brackets close — counted over parentheses and braces together, so
+    a `{tag: […]}` options object on the second line does not end the test early."""
+    i = decl - 1
+    lo = i
+    while lo > 0 and lines[lo - 1].strip().startswith("@"):
+        lo -= 1
+    if kind == "feature":
+        hi = i
+        for j in range(i + 1, len(lines)):
+            if _FEATURE_STOP.match(lines[j]):
+                break
+            if lines[j].strip() and not lines[j].strip().startswith("#"):
+                hi = j
+        return lo + 1, hi + 1
+    depth, opened = 0, False
+    for j in range(i, min(len(lines), i + 400)):
+        code = _STRINGS.sub('""', lines[j]).split("//", 1)[0]
+        for ch in code:
+            if ch in "({":
+                depth += 1
+                opened = opened or ch == "{"
+            elif ch in ")}":
+                depth -= 1
+                if opened and depth <= 0:
+                    return lo + 1, j + 1
+    return lo + 1, min(len(lines), i + 60)
+
+
+def _tagged_decl(lines: list[str], at: int, kind: str) -> int | None:
+    """The declaration line (1-based) of the scenario the tag on line `at` (0-based) is on."""
+    if kind == "feature":
+        for j in range(at + 1, min(len(lines), at + 6)):
+            if _FEATURE_DECL.match(lines[j]):
+                return j + 1
+            if lines[j].strip() and not lines[j].strip().startswith(("@", "#")):
+                return None
+        return None
+    if kind == "java":
+        for j in range(at + 1, min(len(lines), at + 12)):
+            t = lines[j].strip()
+            if not t or t.startswith(("@", "//", "/*", "*")):
+                continue
+            if re.search(r"\b(?:class|interface|record|enum)\b", t):
+                return None            # on the class: every test in it, which is no scenario
+            return j + 1 if _JAVA_DECL.match(lines[j]) else None
+        return None
+    if kind == "ts":
+        for j in range(at, max(-1, at - 5), -1):
+            if _TS_DECL.match(lines[j]):
+                return j + 1
+    return None
+
+
+def tagged_scenarios(root: Path) -> dict[str, list[int]]:
+    """`{test: [declaration line, …]}` of every scenario tagged for tracing in the index."""
+    found: dict[str, list[int]] = {}
+    got = subprocess.run(["git", "-C", str(root), "grep", "-n", "-I", "-E",
+                          "@generate_sequence|@GenerateSequence|GENERATE_SEQUENCE_TAG"],
+                         capture_output=True, text=True)
+    hits: dict[str, list[int]] = {}
+    for row in got.stdout.splitlines() if got.returncode == 0 else []:
+        rel, _, rest = row.partition(":")
+        num, _, text = rest.partition(":")
+        if num.isdigit() and _test_kind(rel) and GENSEQ_TAG.search(text) \
+                and "/genseq/" not in f"/{rel}":
+            hits.setdefault(rel, []).append(int(num) - 1)
+    for rel, ats in hits.items():
+        try:
+            lines = (root / rel).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        kind = _test_kind(rel)
+        decls = {d for d in (_tagged_decl(lines, at, kind) for at in ats) if d}
+        if decls:
+            found[rel] = sorted(decls)
+    return found
+
+
+def _ref(rel: str, decls, root: Path) -> dict | None:
+    try:
+        lines = (root / rel).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    spans: list[list[int]] = []
+    for lo, hi in sorted(scenario_span(lines, d, _test_kind(rel)) for d in decls
+                         if 0 < d <= len(lines)):
+        if spans and lo <= spans[-1][1] + 1:
+            spans[-1][1] = max(spans[-1][1], hi)
+        else:
+            spans.append([lo, hi])
+    if not spans:
+        return None
+    return {"ref": f"{rel}:" + ",".join(f"{a}-{b}" if a != b else str(a) for a, b in spans),
+            "derived": True}
+
+
+def derived_snippets(root: Path) -> tuple[list[dict], list[dict]]:
+    """`(drawn, undrawn)` excerpts, one per test file each.
+
+    `drawn` quotes every scenario a diagram on disk names, in the file the diagram says drew
+    it; `undrawn` every scenario tagged for tracing that no diagram names — the group the
+    tab heads "Tagged for tracing, and no diagram came back". One reference per file, of as
+    many spans as it has scenarios, which is the shape `_share_excerpts` hands out."""
+    drawn: dict[str, set[int]] = {}
+    for test_rel, pumls in genseq_by_test(root).items():
+        if not (root / test_rel).is_file():
+            continue
+        for puml in pumls:
+            drawn.setdefault(test_rel, set()).update(
+                ln for ln, _ in _scenarios_drawn(puml, test_rel, root))
+    undrawn = {rel: [d for d in decls if d not in drawn.get(rel, set())]
+               for rel, decls in tagged_scenarios(root).items()}
+    pool = [x for x in (_ref(rel, sorted(lines), root)
+                        for rel, lines in sorted(drawn.items()) if lines) if x]
+    rest = [x for x in (_ref(rel, lines, root)
+                        for rel, lines in sorted(undrawn.items()) if lines) if x]
+    return pool, rest
+
+
+#: What the layout puts in a Sequence block's `snippets`: derive them (`derived_snippets`).
+AUTO_SNIPPETS = {"auto": "genseq"}
+
+
 #: What `plan` carries in place of a manifest row for a diagram that has no delta drawn
 #: for it and is *not* identical to the base. `None` already means "unchanged", and the
 #: two must not be told apart by a boolean beside the plan — the plan is what the render
@@ -578,7 +738,13 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
     # visible where the source is quoted rather than as an empty exhibit here.
     rows = [r for r in select_rows(manifest_rows, block)
             if r["kind"] == "sequence" and r.get("status") != "deleted"]
-    snippets = list(block.get("snippets", []))
+    # Derived when the layout says so (every content file's Sequence block, since run 5);
+    # a list is still read as it stands, for a block built by hand or by a test.
+    undrawn: list[dict] = []
+    if isinstance(block.get("snippets"), dict) and block["snippets"].get("auto") == "genseq":
+        snippets, undrawn = derived_snippets(root)
+    else:
+        snippets = list(block.get("snippets", []))
     parts, used = [], set()
     # The registry the 🕵️ on the covering-tests rows reads: one entry per scenario the
     # generator drew, keyed the way that map addresses a row, so the jump is a lookup and
@@ -649,7 +815,7 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
                                                 authored_cat.get(test_rel))))
             register(puml_rel, scenarios)
 
-    orphaned = [x for x in snippets if id(x) not in used]
+    orphaned = [x for x in snippets if id(x) not in used] + undrawn
     tail = block.get("unpaired") or {}
     if orphaned:
         pieces = [""] + [snippet_html(x["ref"], x.get("caption"), root).strip("\n")
@@ -727,17 +893,66 @@ def sequence_verdict_alarm(out_dir: Path) -> str | None:
     return SEQ_VERDICT_ALARM.get((sequence_verdict(out_dir) or {}).get("state"))
 
 
+#: `⚠️ "<scenario>": fetch failed — skipped` — a generator naming what it skipped. Read off
+#: the log for a verdict written before `run-steps.py` recorded `skips` itself.
+_SKIP_LINE = re.compile(r"(?:\"[^\"]*\"|'[^']*')\s*:\s*(?P<why>.*\bskipped\b.*)$", re.I)
+
+
+def _drew_nothing(r: dict) -> str:
+    """`exit 0, and drew no diagram — “fetch failed — skipped” ×3` for a command that
+    exited 0 on a run that drew nothing — never `passed`."""
+    if r.get("outcome") == "drew-nothing" and r.get("detail"):
+        return str(r["detail"])
+    skips = r.get("skips")
+    if skips is None:
+        skips = [m["why"].strip() for m in map(_SKIP_LINE.search, map(str, r.get("log") or []))
+                 if m]
+    counts: dict[str, int] = {}
+    for why in skips:
+        counts[why] = counts.get(why, 0) + 1
+    said = ", ".join(f"“{w}”" + (f" ×{n}" if n > 1 else "") for w, n in counts.items())
+    return "exit 0, and drew no diagram" + (f" — {said}" if said else "")
+
+
+def _counted(runs: list[dict], state: str) -> str:
+    """One plain sentence for the band: how the commands ended, counted, no shell in it."""
+    nothing = state == "skipped"
+    tally = {"failed": 0, "no-tests": 0, "empty": 0, "passed": 0}
+    for r in runs:
+        o = r.get("outcome")
+        key = ("failed" if o == "failed" else "no-tests" if o == "no-tests"
+               else "empty" if o == "drew-nothing" or (o == "ran" and nothing) else "passed")
+        tally[key] += 1
+    words = [(tally["failed"], "could not run"),
+             (tally["no-tests"], "found no test under its tag filter"),
+             (tally["empty"], "exited cleanly with nothing to draw"),
+             (tally["passed"], "passed")]
+    said = [f"{n} {what}" for n, what in words if n]
+    if not said:
+        return ""
+    total = len(runs)
+    head = f"Of the {total} traced command{'s' if total != 1 else ''}, " if total > 1 else "The traced command "
+    return head + ", ".join(said[:-1]) + (" and " if len(said) > 1 else "") + said[-1] + "."
+
+
 def sequence_verdict_html(out_dir: Path) -> str:
     """Why the Sequence tab is empty, red or stale, said at its top — or nothing.
 
     The reason used to exist only as a row of the producers' status table, which reached
     the page if and when a model copied it into the guide, on the Review tab. The Sequence
     tab itself was merely struck through, which reads as "this branch did not touch its
-    sequences" — while it was showing committed pictures nobody had re-traced."""
+    sequences" — while it was showing committed pictures nobody had re-traced.
+
+    It leads with plain sentences — what the tab is, then how the commands ended, counted —
+    and everything in shell (the commands, their exits, their last lines) goes in one fold
+    under them. Eval run 5 printed `npm run trace:diagram: passed` in the open for a
+    generator that had skipped every scenario and drawn nothing: a command that drew
+    nothing is not `passed`, and the raw lines were the first thing a judge read."""
     doc = sequence_verdict(out_dir)
     if not doc:
         return ""
-    cls, title, why = SEQ_VERDICT_FACE[doc["state"]]
+    state = doc["state"]
+    cls, title, why = SEQ_VERDICT_FACE[state]
     parts = [f'<p><b>{html.escape(title)}</b> {html.escape(why)}</p>']
     missing = [m for m in doc.get("missing") or [] if isinstance(m, str)]
     if missing:
@@ -747,21 +962,29 @@ def sequence_verdict_html(out_dir: Path) -> str:
                        "rerun this tab.</p>")
     runs = [r for r in doc.get("runs") or [] if isinstance(r, dict)]
     if runs:
+        counted = _counted(runs, state)
+        if counted:
+            parts.append(f'<p class="rb-sub">{html.escape(counted)}</p>')
+
         def said(r):
             outcome = r.get("outcome")
-            text = ("passed" if outcome == "ran" else str(r.get("detail") or "")
-                    if outcome == "no-tests" else f'exit {r.get("exit")} — {r.get("detail", "")}')
+            text = (_drew_nothing(r) if outcome == "drew-nothing"
+                    or (outcome == "ran" and state == "skipped")
+                    else "passed" if outcome == "ran"
+                    else str(r.get("detail") or "") if outcome == "no-tests"
+                    else f'exit {r.get("exit")} — {r.get("detail", "")}')
             return (f'<li><code>{html.escape(str(r.get("command", "")))}</code>: '
                     f'{html.escape(text)}</li>')
-        parts.append("<ul>" + "".join(said(r) for r in runs) + "</ul>")
         log = [f'$ {r.get("command", "")}\n' + "\n".join(map(str, r.get("log") or []))
-               for r in runs if r.get("outcome") != "ran" and r.get("log")]
-        if log:
-            # Folded, like the recorder's last words over the film: the answer for whoever
-            # is fixing the environment, furniture for everybody else.
-            parts.append('<details class="toolcommits"><summary>the suites’ last words'
-                         '</summary><pre>' + html.escape("\n\n".join(log)) + "</pre></details>")
+               for r in runs if (r.get("outcome") != "ran" or state == "skipped")
+               and r.get("log")]
+        # Folded, like the recorder's last words over the film: the answer for whoever
+        # is fixing the environment, furniture for everybody else.
+        parts.append('<details class="toolcommits"><summary>What each command said'
+                     '</summary><ul>' + "".join(said(r) for r in runs) + "</ul>"
+                     + ('<pre>' + html.escape("\n\n".join(log)) + "</pre>" if log else "")
+                     + "</details>")
     elif doc.get("reason") and not missing:
         parts.append(f'<p class="rb-sub">{html.escape(str(doc["reason"]))}</p>')
-    role = "alert" if doc["state"] in SEQ_VERDICT_ALARM else "status"
+    role = "alert" if state in SEQ_VERDICT_ALARM else "status"
     return f'<div class="rband {cls} seqverdict" role="{role}">' + "".join(parts) + "</div>"

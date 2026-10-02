@@ -104,6 +104,17 @@ PROVENANCE = {"ticket": "ticket", "base": "base", "audited-base": "auditedBase",
               "head": "head", "review-commit": "reviewCommit", "reviewers": "reviewers",
               "harness": "harness", "session": "session"}
 
+# A finding the agent refuted, in its own words: "wrong — handleError rethrows", "the
+# reviewer was wrong", "false positive". Such an item is not a defect left open and not a
+# fix — it belongs under Ignored at `severity: info`, so the page does not count it as
+# "worth a look" (run 5 filed one at medium, and the grade counted it).
+REFUTED = re.compile(
+    r"\b(?:reviewer|finding|claim)\s+(?:was|is)\s+(?:wrong|mistaken|incorrect)\b"
+    r"|\bfalse\s+positive\b|\brefuted\b|\bnot\s+a\s+(?:real\s+)?(?:bug|defect)\b", re.I)
+# The same verdict as a `why:` that opens on it — "wrong — handleError rethrows". Only on
+# `why:`: an observation may well open on "Wrong status code…", which is the defect.
+REFUTED_WHY = re.compile(r"^\s*(?:the\s+reviewer\s+(?:was|is)\s+)?wrong\b", re.I)
+
 H2 = re.compile(r"^##\s+(.*?)\s*#*\s*$")
 H3 = re.compile(r"^###\s+(.*?)\s*#*\s*$")
 FIELD = re.compile(r"^[-*]\s*([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*)$")
@@ -344,6 +355,23 @@ def build_item(title: str, fields: list[tuple[str, str]], body: str, pile: str,
             warnings.append(
                 f"{PILE_HEADING[pile]}: {title[:60]!r} (line {where}) — `observation:` runs "
                 f"past {OBSERVATION_SENTENCES} sentences; say what was wrong, not the story.")
+    def plain(key: str) -> str:
+        return re.sub(r"<[^>]+>", "", html.unescape(str(item.get(key) or "")))
+    said_wrong = "why" if REFUTED_WHY.search(plain("why")) else next(
+        (k for k in ("why", "observation", "fix") if REFUTED.search(plain(k))), None)
+    if said_wrong is None and REFUTED.search(body or ""):
+        said_wrong = "body"
+    if said_wrong and (pile == "autofixes"
+                       or (pile == "findings" and item.get("severity", "info") != "info")):
+        warnings.append(
+            f"{PILE_HEADING[pile]}: {title[:60]!r} (line {where}) says in its `{said_wrong}` "
+            "that the reviewer was wrong — a refuted finding is not a fix and not an open "
+            "defect: file it under Ignored with `severity: info` and the evidence in "
+            "`why:`, or it is counted as worth a look.")
+    if pile == "assumptions" and not item.get("why"):
+        warnings.append(
+            f"Assumptions: {title[:60]!r} (line {where}) has no `why:` — one or two "
+            "sentences on why this reading, and what holds the confidence where it is.")
     if pile != "autofixes" and item.get("fix"):
         warnings.append(f"{PILE_HEADING[pile]}: {title[:60]!r} (line {where}) carries "
                         "`fix:` — only a Fixed item has a repair to comment on. Ignored.")

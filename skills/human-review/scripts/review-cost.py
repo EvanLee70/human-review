@@ -74,7 +74,30 @@ def family(model: str | None) -> str | None:
     return next((k for k in PRICES if k in m), None)
 
 
+#: `claude-<family>-<major>[-<minor>]`, then a date stamp, a `[1m]` or nothing. The minor
+#: is one or two digits, so an eight-digit date after the major is not read as one.
+MODEL_ID = re.compile(r"claude-(?P<fam>[a-z]+)-(?P<major>\d+)(?:-(?P<minor>\d{1,2}))?"
+                      r"(?=$|[-@\[])")
+
+
 def label(model: str | None) -> str:
+    """`Opus 5.5` for `claude-opus-5-5`: the family and the whole version.
+
+    Read off the id rather than looked up in `LABELS`, which matched by prefix and so
+    named `claude-opus-5-5` `Opus 5` — the version a reader compares runs by, dropped
+    from every cost row and from the reviewer's name on the review chip. `LABELS` is the
+    fallback for an id of another shape."""
+    m = (model or "").lower()
+    hit = MODEL_ID.match(m)
+    if hit:
+        minor = f".{hit['minor']}" if hit["minor"] else ""
+        return f"{hit['fam'].capitalize()} {hit['major']}{minor}"
+    return legacy_label(m)
+
+
+def legacy_label(model: str | None) -> str:
+    """What `label` answered before it read the version: `Opus 5` for `claude-opus-5-5`.
+    Kept to recognise the names already written into a recorded `review-cost.json`."""
     m = (model or "").lower()
     return next((name for pre, name in LABELS if m.startswith(pre)), m or "synthetic")
 

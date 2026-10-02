@@ -19,8 +19,9 @@ re-typed into `content.json` by whichever model ran the review, off an example i
 
 So the build normalises all of it before anything renders, and says on stderr what it threw
 away. The content file still names the tabs (and so still carries the Review tab's ledes,
-each tab's hover, and the few per-branch selections a script cannot make — which diagrams,
-which tests to quote beside their sequences), but a script-owned tab keeps only blocks of
+each tab's hover, and the few per-branch selections a script cannot make — which diagrams;
+not which tests to quote beside their sequences, which the build reads off the diagrams and
+the tags), but a script-owned tab keeps only blocks of
 the kinds its scripts produce, its sections are rebuilt from `SECTIONS`, and a chip that is
 not computed does not reach the bar.
 """
@@ -93,6 +94,50 @@ LAYOUT_TABS: dict[str, dict] = {
 #: that most needs saying, and an absent pill says nothing.
 LAYOUT_ALWAYS = "behaviour"
 
+#: The Sequence block's shape, whatever the content file wrote. The tests it quotes are
+#: derived (`hrbuild/tabs/sequence.py` `derived_snippets`): eval run 5 typed them in by hand
+#: and copied another branch's line ranges. Its heading and its leftover group are the
+#: skill's words too — run 5 also wrote `"title": ""`, and the tab lost the heading the
+#: reference opens on.
+LAYOUT_TESTPAIRS = {"snippets": {"auto": "genseq"},
+                    "unpaired": {"id": "tests-nosequence",
+                                 "title": "Tagged for tracing, and no diagram came back"}}
+
+
+def _squash(name: str) -> str:
+    return "".join(ch for ch in str(name).lower() if ch.isalnum())
+
+
+def _own_testpairs(block: dict, tid: str, warnings: list[str]) -> None:
+    """Snippets derived, heading and leftover group the skill's — said on stderr."""
+    typed = [k for k in ("snippets", "title", "body") if k in block
+             and block[k] != LAYOUT_TESTPAIRS.get(k)]
+    if typed:
+        warnings.append(f"tab {tid!r}: the testpairs block's {', '.join(typed)} dropped — the "
+                        "tests beside the sequences are read off the diagrams and the tags, "
+                        "and the heading is the skill's")
+    for k in ("title", "body"):
+        block.pop(k, None)
+    block.update(copy.deepcopy(LAYOUT_TESTPAIRS))
+
+
+def _own_diagram_title(block: dict, tid: str, warnings: list[str]) -> None:
+    """A heading that only repeats the card under it goes.
+
+    Run 5's Structure tab: a bare `<h2>C2 Containers</h2>` straight above the card whose
+    own title is `C2-Containers` — the reference example in `content-schema.md` carried the
+    title, and the model copied it. The card names itself; a heading that says the same
+    words is the name twice."""
+    title = block.get("title")
+    if not title:
+        return
+    names = [*(block.get("only") or []), block.get("name") or "",
+             (block.get("context") or {}).get("name") or ""]
+    if any(n and _squash(n) == _squash(title) for n in names):
+        block.pop("title")
+        warnings.append(f"tab {tid!r}: heading {title!r} dropped — it repeats the name on "
+                        "the diagram card under it")
+
 
 def _video_step_ran(out_dir) -> bool:
     """The film, the recorder's verdict beside it, or the ledger's mark that the step ran."""
@@ -152,6 +197,10 @@ def own_layout(spec: dict, out_dir) -> list[str]:
                 if b["id"] not in sections:
                     sections.append(b["id"])
             elif kind in rule["blocks"]:
+                if kind == "testpairs":
+                    _own_testpairs(b, tid, warnings)
+                elif kind in ("diagrams", "puml"):
+                    _own_diagram_title(b, tid, warnings)
                 kept.append(b)
             else:
                 dropped.append(f"{kind} {b.get('id')!r}" if b.get("id") else kind)

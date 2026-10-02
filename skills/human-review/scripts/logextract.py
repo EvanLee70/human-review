@@ -512,6 +512,12 @@ class Hit:
     # `"Integer"`, `"List<Pet>"` — or None where it could not be resolved from a
     # declaration. None is an answer: the page shows no hint rather than a guessed one.
     arg_types: list = field(default_factory=list)
+    # Under --since only: "added" when the change set wrote this statement, "modified" when
+    # it rewrote one that was already there (`pair_with_old_calls`), with `was` the call it
+    # replaced and `same_output` true when the two provably log the same text.
+    change: str = ""
+    was: str = ""
+    same_output: bool = False
 
 
 @dataclass
@@ -1554,6 +1560,140 @@ def in_ranges(line: int, ranges: list[tuple[int, int]]) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# new logging, or old logging rewritten?
+# --------------------------------------------------------------------------- #
+#
+# A line the diff marks `+` is not necessarily a statement the branch *added*. Run 5 of the
+# demo PR swapped `"Validation failed: {}"` for a `VALIDATION_FAILED_LOG` constant in three
+# existing `log.warn` calls, and the tab showed four new log statements where there was one.
+#
+# The rule, kept deliberately simple so a reader can check it by eye:
+#
+#   A logging call on a changed line is **modified** when the same diff hunk deletes a call
+#   to the same logger method (`log.warn` → `log.warn`), and **added** otherwise. Deleted
+#   calls pair with new ones one-to-one, in order.
+#
+# Same hunk, because that is where git puts a line it rewrote in place; same receiver and
+# method, because changing `log.debug` into `log.warn` or `log` into `audit` changes who
+# reads the line, and that is new logging. Nothing about *what* is logged is excused by
+# "modified" — the statement is still listed, still on a changed line, still reviewed; the
+# label only stops a refactor from passing for a new log line. On top of it, `same_output`
+# marks the subset that provably logs the very same text: arguments equal after whitespace,
+# or a string literal replaced by a constant the new file declares with that literal.
+
+def changed_hunks(repo: str, base: str, head: str = "HEAD") -> dict[str, list[tuple]]:
+    """Per file (repo-relative, new side): `(first, last, deleted text)` for every hunk that
+    adds lines — the same diff `changed_ranges` reads, keeping what each hunk removed."""
+    args = ["git", "-C", repo, "diff", "--unified=0", "--no-color", base]
+    if head != "HEAD":
+        args.append(head)
+    out = subprocess.run(args, capture_output=True, text=True, check=True).stdout
+    hunks: dict[str, list] = defaultdict(list)
+    cur, hunk = None, None
+    for line in out.splitlines():
+        if line.startswith("+++ "):
+            p = line[4:].strip()
+            cur = None if p == "/dev/null" else p[2:] if p.startswith("b/") else p
+            hunk = None
+        elif line.startswith("@@") and cur:
+            m = HUNK_RE.match(line)
+            hunk = None
+            if m:
+                start = int(m.group(1))
+                cnt = int(m.group(2)) if m.group(2) is not None else 1
+                if cnt:
+                    hunk = [start, start + cnt - 1, []]
+                    hunks[cur].append(hunk)
+        elif hunk is not None and line.startswith("-") and not line.startswith("---"):
+            hunk[2].append(line[1:])
+    return {f: [(a, b, "\n".join(rm)) for a, b, rm in hs] for f, hs in hunks.items()}
+
+
+def calls_in(text: str, receiver: str, method: str) -> list[tuple[str, list[str] | None]]:
+    """Every `receiver.method(…)` in `text`, as `(call text, its arguments)`. The arguments
+    are None when the call does not close inside `text` — a multi-line call whose tail the
+    hunk did not touch."""
+    out = []
+    pat = re.compile(rf"(?<![\w.]){re.escape(receiver)}\s*\.\s*{re.escape(method)}\s*\(")
+    for m in pat.finditer(text):
+        depth, quote, i = 1, None, m.end()
+        while i < len(text) and depth:
+            c = text[i]
+            if quote:
+                if c == "\\":
+                    i += 1
+                elif c == quote:
+                    quote = None
+            elif c in "\"'":
+                quote = c
+            elif c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+            i += 1
+        if depth:
+            out.append((re.sub(r"\s+", " ", text[m.start():]).strip(), None))
+        else:
+            inner = text[m.end():i - 1]
+            out.append((re.sub(r"\s+", " ", text[m.start():i]).strip(),
+                        _split_top(inner, ",") if inner.strip() else []))
+    return out
+
+
+_JAVA_STRING = r'"(?:[^"\\]|\\.)*"'
+
+
+def constant_value(source: str, name: str) -> str | None:
+    """The string literal `name` is declared with in `source` (`… NAME = "…";`), or None."""
+    m = re.search(rf"\b{re.escape(name)}\s*=\s*({_JAVA_STRING})\s*;", source)
+    return m.group(1) if m else None
+
+
+def same_output(old: list[str] | None, new: list[str] | None, source: str) -> bool:
+    """Whether two argument lists provably log the same text: the same count, and each pair
+    equal up to runs of whitespace, or an old string literal against a constant the new source
+    declares with exactly that literal."""
+    if old is None or new is None or len(old) != len(new):
+        return False
+    for a, b in zip(old, new):
+        a, b = a.strip(), b.strip()
+        if " ".join(a.split()) == " ".join(b.split()):
+            continue
+        if re.fullmatch(_JAVA_STRING, a) and re.fullmatch(r"[A-Za-z_]\w*", b) \
+                and constant_value(source, b) == a:
+            continue
+        return False
+    return True
+
+
+def pair_with_old_calls(hits: list, hunks: dict, repo: str) -> None:
+    """Set `change` (and `was`, `same_output`) on every hit by the rule above, in place."""
+    sources: dict[str, str] = {}
+    taken: dict[tuple, int] = defaultdict(int)
+    for h in sorted(hits, key=lambda x: (x.abs_file, x.line, x.column)):
+        rel = os.path.relpath(h.abs_file, os.path.realpath(repo))
+        h.change, h.was, h.same_output = "added", "", False
+        for first, last, removed in hunks.get(rel, ()):
+            if not first <= h.line <= last:
+                continue
+            old = calls_in(removed, h.receiver, h.method)
+            key = (rel, first, h.receiver, h.method)
+            if taken[key] < len(old):
+                was, old_args = old[taken[key]]
+                taken[key] += 1
+                if h.abs_file not in sources:
+                    try:
+                        sources[h.abs_file] = Path(h.abs_file).read_text(encoding="utf-8")
+                    except OSError:
+                        sources[h.abs_file] = ""
+                new = calls_in(h.text, h.receiver, h.method)
+                h.change, h.was = "modified", was
+                h.same_output = bool(new) and same_output(old_args, new[0][1],
+                                                          sources[h.abs_file])
+            break
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 
@@ -1587,6 +1727,7 @@ def main(argv: list[str] | None = None) -> int:
             return r in rng and in_ranges(h.line, rng[r])
         diff_hits = [h for h in hits if keep(h)]
         diff_antis = [a for a in antis if keep(a)]
+        pair_with_old_calls(diff_hits, changed_hunks(repo, args.since, args.head), repo)
 
     payload = {
         "all": {"logging": [asdict(h) for h in hits],
@@ -1604,8 +1745,13 @@ def main(argv: list[str] | None = None) -> int:
     scope = "on added/modified lines" if diff_hits is not None else "in scope"
     print(f"{len(shown)} logging statement(s) {scope}")
     for h in shown:
+        tag = f"  {h.change}" if h.change else ""
+        if h.change == "modified":
+            tag += " (same text logged)" if h.same_output else ""
         print(f"  {h.file}:{h.line}:{h.column}  [{h.level:5}] {h.receiver}.{h.method}  "
-              f"({h.flavour}, {h.confidence})")
+              f"({h.flavour}, {h.confidence}){tag}")
+        if h.was:
+            print(f"        was: {h.was}")
         print(f"        {h.raw_line.strip()}")
     shown_a = diff_antis if diff_antis is not None else antis
     if shown_a:

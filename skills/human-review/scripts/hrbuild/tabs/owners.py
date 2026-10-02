@@ -13,9 +13,14 @@ from ..shared.util import CODEOWNERS
 # what we wrote about it. So the renderer runs the check itself instead of including a
 # fragment somebody remembered to regenerate — a stale "no owner touched this" is worse
 # than no tab at all.
-def codeowners_fragment(block, root: Path, out_dir: Path):
+#
+# `base` is the page's one base (`chips.page_base`). Defaulting to `origin/main` here put a
+# second base on the page: on a branch carrying commits from before the review, the tab
+# demanded an approval for a file nobody in the reviewed range had touched. A `base` on
+# the block itself still wins, for a page that deliberately asks a different question.
+def codeowners_fragment(block, root: Path, out_dir: Path, base: str | None = None):
     dest = out_dir / block.get("out", "assets/codeowners.html")
-    cmd = [sys.executable, str(CODEOWNERS), "--base", block.get("base", "origin/main"),
+    cmd = [sys.executable, str(CODEOWNERS), "--base", block.get("base") or base or "origin/main",
            "--out", str(dest), "--json"]
     if block.get("noUntracked"):
         cmd.append("--no-untracked")

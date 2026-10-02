@@ -426,3 +426,24 @@
    mark the card uses for "as inferred by AI". */
 .reqmap .rm-f[data-src=model]::after{content:"\1F916";font-size:.62em;vertical-align:super;
   margin-left:.2em;opacity:.75}
+/* Paired on shared words, and no model has read the tests yet: a candidate, not a colour.
+   A dashed green underline says "there is something here to check" without claiming it. */
+.reqmap .rm-f[data-cov=unconfirmed],.reqmap .rm-lg[data-cov=unconfirmed]{background:none;
+  text-decoration:underline dashed var(--rm-g-edge);text-underline-offset:3px}
+/* Delivered narrower than the sentence, on purpose and on the record: grey hatch, neither
+   the green of "covered" nor the red of "missing". */
+.reqmap{--rm-nar:repeating-linear-gradient(135deg,rgba(110,110,130,.34) 0 7px,rgba(110,110,130,.08) 7px 14px)}
+@media (prefers-color-scheme:dark){.reqmap{
+  --rm-nar:repeating-linear-gradient(135deg,rgba(190,190,210,.30) 0 7px,rgba(190,190,210,.06) 7px 14px)}}
+.reqmap .rm-f[data-cov=narrowed],.reqmap .rm-lg[data-cov=narrowed]{background:var(--rm-nar)}
+/* Where the left column's text came from: a muted line of its own under the header strip,
+   never squeezed into it beside the author and the date. */
+.reqmap .rm-ticket > .rm-src{margin:0;padding:6px 16px;font-size:12.5px;line-height:1.45;
+  border-bottom:1px solid var(--rm-gh-edge)}
+/* The covering-tests card, grouped by why a test is on it. */
+.reqmap .rm-tgroup{padding:8px 10px 3px;font-size:11px;font-weight:600;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--muted,#6b6b6b);border-bottom:1px solid var(--line,#e2e2e2)}
+.reqmap .rm-tgroup[data-rank="3"]{opacity:.8}
+.reqmap .rm-rej{margin:.2em 0 0;padding-left:1.2em;font-size:12.5px}
+.reqmap .rm-rid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+.reqmap .rm-dec{margin:.2em 0 0;font-size:12.5px;color:var(--muted,#6b6b6b)}

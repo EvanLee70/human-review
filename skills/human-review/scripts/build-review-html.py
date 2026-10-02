@@ -79,7 +79,7 @@ from hrbuild.shared.snippets import (
     DIFF_CONTEXT, diff_html, DIFF_INLINE_TOKEN, diff_link_html, DIFF_TOKEN, diff_uri_handler,
     expand_snippets, github_blob_base, review_step_rev, SNIPPET_BASE, snippet_html,
     SNIPPET_TOKEN, _extract_module, _first_changed, _github_compare_link, _icon, _parse_unified,
-    _shown_in_compare, _snippet_links, _unmoved_since
+    _shown_in_compare, _snippet_links, _unmoved_since, set_diff_base
 )
 from hrbuild.shared.svg import (
     CREOLE_IN_TITLE, CREOLE_LINK, DIAGRAM_COLOR_VARS, DIAGRAM_FILL_ATTR, DIAGRAM_STYLE_COLOR,
@@ -101,17 +101,19 @@ from hrbuild.shared.diagrams import (
     select_rows, shorten_dgm_src, unchanged_row, UNCHANGED, UNCHANGED_BADGE, VIEW_WORDS,
     _context_svg, _diagram_views, _drawio_unchanged_card, _focus_views, _provenance,
     _source_link, _sql_shape, _SQL_COLLATE, _SQL_COLUMN, _SQL_INDEX, _SQL_TABLE,
-    _unchanged_body, _why_not_drawn
+    _unchanged_body, _why_not_drawn, SCHEMA_ONLY, SCHEMA_ONLY_BADGE
 )
 from hrbuild.shared.bands import (
     set_bands, _BANDS, _TOP_BANDS, _flush_bands, _flush_top_bands, _lede_above
 )
 from hrbuild.shared.chips import (
     base_state, base_warning, chip_face, chip_html, diffstat_chips, GENERATED_PATHSPECS,
-    _compare_href, _numstat, _resolve_base
+    _compare_href, _numstat, _resolve_base, BASE_SOURCES, COMMITS_JSON, measured_from,
+    page_base, POINTS_JSON, _front_matter, _is_ancestor, _recorded_bases
 )
 from hrbuild.shared.masthead import (
-    FAVICON, FAVICON_EMOJI, FAVICON_SVG, masthead_html, page_title, ref_badges
+    FAVICON, FAVICON_EMOJI, FAVICON_SVG, masthead_html, outside_note, page_title, ref_badges,
+    title_ticket_ref
 )
 from hrbuild.shared.footer import (
     DEMO_DOCKER_URL, DEMO_PAGES_URL, DEMO_ZIP_URL, FOOTER_BOILERPLATE, HOME_URL, INVITATION,
@@ -128,7 +130,8 @@ from hrbuild.shared.validate import (
 )
 from hrbuild.shared.layout import (
     _layout_overridden, _layout_section, _video_step_ran, LAYOUT_ALWAYS, LAYOUT_MODEL_KEYS, LAYOUT_PRODUCER,
-    LAYOUT_SECTIONS, LAYOUT_TABS, own_layout
+    LAYOUT_SECTIONS, LAYOUT_TABS, own_layout, LAYOUT_TESTPAIRS, _squash, _own_testpairs,
+    _own_diagram_title
 )
 from hrbuild.tabs.review import (
     AFTERMATH_FILES, aftermath_html, aftermath_reads_takeover, AFTERMATH_JSON, CONFIDENCE_TIP,
@@ -147,7 +150,13 @@ from hrbuild.tabs.review import (
     gh_comment_link, prepare_pr_push, pr_comment_slug, PR_COMMENTS_JSON, PR_PILE_LETTER,
     PR_POSTED_JSON, PR_PUSH_JS, push_pr_button, push_pr_dialog, PUSH_PR_ACTION,
     PUSH_PR_DRY_ACTION, _PR_SLUG_MAX,
-    _taken_fold_html, _tooling_fold_html
+    _taken_fold_html, _tooling_fold_html,
+    API_VERDICT_HTML, FILM_VERDICT_JSON, GATE_JSON, GRADE_CAPS, MODEL_GRADE_LINES, PILE_SIGNALS,
+    SEQUENCE_VERDICT_JSON, _after_review_signal, _api_signal, _base_ref, _ci_signal,
+    _evidence_signal, _git_out, _git_root, _out_of_range_signal, _pile_signals, _plain_text,
+    _read_json, _signal, cap_grade, grade_signals,
+    FIX_BOOKKEEPING, FIX_HUNK_REACH, _fix_range, _gap, _ref_spans, attribute_fix_hunks,
+    fix_hunks, _assumption_why, drop_model_summary, pr_exists, resolve_piles
 )
 from hrbuild.tabs.sequence import (
     CODE_BADGE, FILE_PAGE, FILE_PENCIL, FILE_PLUS, render_testpairs, SEQ_ARROW, SEQ_DECL,
@@ -156,7 +165,10 @@ from hrbuild.tabs.sequence import (
     _pair_runner, _scenario_extents, _scenarios_drawn, _share_excerpts, _spans_for,
     _stale_sequence, _unchanged_sequence, _unquoted_note,
     SEQ_VERDICT, SEQ_VERDICT_ALARM, SEQ_VERDICT_FACE, sequence_verdict,
-    sequence_verdict_alarm, sequence_verdict_html
+    sequence_verdict_alarm, sequence_verdict_html,
+    AUTO_SNIPPETS, derived_snippets, GENSEQ_TAG, scenario_span, tagged_scenarios, _counted,
+    _drew_nothing, _FEATURE_DECL, _FEATURE_STOP, _JAVA_DECL, _ref, _SKIP_LINE, _STRINGS,
+    _tagged_decl, _test_kind, _TS_DECL
 )
 from hrbuild.tabs.tests import (
     LEDGER_TAB, render_requirements, render_test_ledger, render_tests, render_traces,
@@ -178,7 +190,7 @@ from hrbuild.tabs.tests import (
 from hrbuild.tabs.demo import (
     voice_films, voice_switch, embed_html, VERDICT_FACE, video_html, VIDEO_VERDICT,
     video_verdict_html,
-    _link_captions
+    _link_captions, derived_app_links, derived_runtime, _project_root, _screen_changed
 )
 from hrbuild.tabs.city import (
     CITY_HEADING
@@ -187,7 +199,7 @@ from hrbuild.tabs.logging import (
     LOGEXTRACT, logging_fragment, logging_libraries, logging_libraries_tip,
     MAX_ORIGIN_LINES_SHOWN, SRCREF_HREF, type_hint_html, _aim_at_statement, _hint_arguments,
     _CHAR, _insert_at, _LOG_PKGS_RE, _logextract, _logging_aside, _logging_listing,
-    _logging_ref, _plain, _PRE, _ROW, _TAG_SPLIT
+    _logging_ref, _plain, _PRE, _ROW, _TAG_SPLIT, _change_line
 )
 from hrbuild.tabs.owners import (
     codeowners_fragment
@@ -242,7 +254,24 @@ def rebuild_interpreter() -> str:
         return "uv run --with pygments python"
     return shlex.quote(sys.executable)
 
+
 def main(argv=None) -> int:
+    """`_main`, with the snippet base it moves put back afterwards.
+
+    A build points every snippet at the page's one base (`set_diff_base`). In a process
+    that builds once and exits that is the whole story; the test suite builds in-process
+    too, and a base left behind by one page would be the next page's `origin/main`."""
+    import hrbuild.shared.snippets as snippets_mod
+    held, env = snippets_mod.SNIPPET_BASE, os.environ.get("HUMAN_REVIEW_DIFF_BASE")
+    try:
+        return _main(argv)
+    finally:
+        set_diff_base(held)
+        if env is None:
+            os.environ.pop("HUMAN_REVIEW_DIFF_BASE", None)
+
+
+def _main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -308,6 +337,24 @@ def main(argv=None) -> int:
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
         return 1
+
+    # The ONE base every number this build computes is measured from — the files and lines
+    # chips, CODEOWNERS, the Logging scan, a snippet's NEW FILE / NEW CODE badge and its
+    # diff handles, the schema note under an ERD, the cost ledger. `page_base` says which
+    # and why: the base the review audited when `review-points.md` records one, else the
+    # base the producers ran against, else the fork point from the PR's base. Asked here,
+    # before the first snippet renders, because the snippets are the first consumer. The
+    # drift facts on the ref chip (`ahead`, `localBehind`) stay about the named base ref.
+    base_st = page_base(root, out_dir, (spec.get("pr") or {}).get("base") or "origin/main")
+    page_rev = (base_st or {}).get("diffBase")
+    if page_rev:
+        set_diff_base(page_rev)
+    if (base_st or {}).get("stepsBase"):
+        print(f"[review] WARNING: the producers ran against {base_st['stepsBase'][:8]} "
+              f"(review-commits.json) and this page measures from {page_rev[:8]} "
+              f"({BASE_SOURCES[base_st['diffBaseSource']]}) — the tabs they drew count a "
+              f"different range than the header. Re-run: run-steps.py --base {page_rev[:8]}",
+              file=sys.stderr)
 
     # The base every `diffs` entry is measured against when the entry does not name its
     # own: the rev the ledger recorded before the review pass touched anything. That is the
@@ -492,23 +539,9 @@ def main(argv=None) -> int:
     # section further down) or coloured (+added / -removed), and escaping would kill both.
     chips = []
     scope = spec.get("scope", [])
-    # Where the base actually is, asked once: the diffstat chip measures against it and
-    # the ref chip warns about it, and those two must never be talking about different
-    # commits. `origin/main` is the default because it is what a pull request merges into;
-    # a content file naming something else is taken at its word.
-    base_st = base_state(root, (spec.get("pr") or {}).get("base") or "origin/main")
-
-    # The cost of the run answers two chips now -- what it cost, and which model did the
-    # reviewing -- and they can appear in either order in the content file, so the answer
-    # is memoised rather than fetched where it happens to be needed first. A list, not a
-    # variable, so `None` (a real answer: no session to ask) is distinguishable from
-    # "not asked yet".
-    cost_memo: list = []
-
-    def resolved_cost() -> dict | None:
-        if not cost_memo:
-            cost_memo.append(cost_chip(root))
-        return cost_memo[0]
+    # Where the base is was asked once, further up (`page_base`): the diffstat chip
+    # measures from it and the ref chip warns about the named ref it was derived from, and
+    # those two must never be talking about different commits.
 
     def emit(c: dict) -> None:
         """Render one resolved chip. Shared so that a chip which expands into several --
@@ -538,9 +571,10 @@ def main(argv=None) -> int:
             # hand-typed number, arrived at by a longer route.
             open_n, fixed, assumed = pile_numbers(spec)
             total = open_n + fixed
-            paid = resolved_cost() or {}
-            reviewer = next((m for m in paid.get("models") or [] if m and m != "synthetic"),
-                            None) or c.get("by")
+            # The REVIEWERS' model, not the first model on the run's bill — that one is
+            # the implementation's, and named four Sonnet reviewers `Opus 5`.
+            import harness_cost
+            reviewer = ", ".join(harness_cost.reviewer_models(root, out_dir)) or c.get("by")
             computed = {
                 # A colon, not a gap. The pill reads as one sentence — `🤖Fable 5
                 # reviewer: 6 open, 4 fixed` — where before it was a label, a gap and a
@@ -815,7 +849,7 @@ def main(argv=None) -> int:
             # What the picture cannot say. An ERD drawn from a schema dump is blind to an
             # index or a collation, so a schema that changed only there reads UNCHANGED;
             # the line under the card names it, and the card then counts as a change.
-            merge_base = (base_st or {}).get("mergeBase")
+            merge_base = page_rev
             for r in rows:
                 if r.get("kind") == "structural":
                     r["_unseen"] = schema_unseen_note(r["source"], root, merge_base,
@@ -859,12 +893,12 @@ def main(argv=None) -> int:
                 auto_badge["label"] = alarm
             return render_testpairs(block, dspec, manifest_rows, root, out_dir)
         if kind == "logging":
-            return logging_fragment(block, root)
+            return logging_fragment(block, root, page_rev)
         if kind == "puml":
             return (heading(block, "puml", block.get("title", ""))
                     + render_puml(block, root, out_dir), 1, 0)
         if kind == "codeowners":
-            frag, summary = codeowners_fragment(block, root, out_dir)
+            frag, summary = codeowners_fragment(block, root, out_dir, page_rev)
             state, owned = summary["state"], summary["owned"]
             # No CODEOWNERS in the repository is not a finding, it is an absence: drop
             # the tab rather than teach the reviewer to ignore a permanent grey box.
@@ -912,6 +946,11 @@ def main(argv=None) -> int:
             body = by_id.get(block["id"])
             if body is None:
                 raise SystemExit(f'[review] tab block references no section: {block["id"]}')
+            # The API verdict band is red when the contract breaks (or the two differs
+            # disagree): the pill goes red with it, the CODEOWNERS way.
+            if block["id"] == "swaggerdiff" and 'class="apiverdict red"' in body:
+                auto_badge["tabClass"] = "alarm"
+                auto_badge["label"] = "breaking contract change"
             # A section is prose we wrote about the change, so it counts as a change
             # unless it declares itself context.
             return body, 1, 0 if unchanged_ids.get(block["id"]) else 1
@@ -1004,7 +1043,7 @@ def main(argv=None) -> int:
         # `tab_cost_report`'s docstring) — a bad day comes back as a "not measured"
         # sentence, not as a tab silently getting no number at all.
         led = cost_ledger_report(root, [t["id"] for t in tabs],
-                                 (spec.get("pr") or {}).get("base") or "origin/main",
+                                 page_rev or (spec.get("pr") or {}).get("base") or "origin/main",
                                  out_dir)
         costs = (led or {}).get("tabs")
         strip, panels, dropped, quiet, emitted = [], [], [], [], []

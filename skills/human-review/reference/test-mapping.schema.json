@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "test-mapping.schema.json",
   "title": "The ticket-sentence to test pairing behind the Tests tab",
-  "description": "Written by scripts/semcov.py (the scripted pass, every link with its evidence) and, for the sentences the script could not pair, by a cheap model through scripts/rerun-model.py into .human-review/test-mapping.json. Both halves have this shape; the build merges them and draws the matrix. A model answer names only the sentences it was asked about and only test ids from the list it was given.",
+  "description": "Written by scripts/semcov.py (the scripted pass, every link with its evidence — a candidate, not proof) and by a cheap model through scripts/rerun-model.py into .human-review/test-mapping.json: the model is asked about every sentence that makes a claim, confirms or rejects each link the script made (`review`), and may mark a sentence `narrowed` when a scope decision the branch recorded narrows it (`decision`). The build merges the two and draws the matrix; a sentence the model has not answered shows its scripted links as unconfirmed, never as covered. A model answer names only the sentences it was asked about, only test ids from the list it was given, and only decision ids it was shown.",
   "type": "object",
   "required": ["schema", "sentences"],
   "additionalProperties": false,
@@ -18,11 +18,25 @@
       "additionalProperties": false,
       "properties": {
         "id": {"type": "string", "pattern": "^s[0-9a-f]{6}(-[0-9]+)?$"},
-        "coverage": {"enum": ["covered", "partial", "exercised", "missing", "n/a"]},
+        "coverage": {"enum": ["covered", "partial", "exercised", "missing", "n/a", "narrowed"]},
         "tests": {"type": "array", "items": {"$ref": "#/$defs/link"}},
         "gap": {"type": "string", "minLength": 1},
         "gapKind": {"enum": ["tests", "requirement"]},
-        "by": {"enum": ["script", "model"]}
+        "by": {"enum": ["script", "model"]},
+        "review": {"type": "array", "items": {"$ref": "#/$defs/verdict"},
+                   "description": "One verdict per link the script made for this sentence: confirm (it stays in `tests`) or reject (it does not)."},
+        "decision": {"type": "string", "pattern": "^d[0-9]+$",
+                     "description": "`narrowed` only: the id of the recorded decision that narrows the sentence."}
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "required": ["id", "verdict", "why"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[^\\s]+:[0-9]+$"},
+        "verdict": {"enum": ["confirm", "reject"]},
+        "why": {"type": "string", "minLength": 1}
       }
     },
     "link": {

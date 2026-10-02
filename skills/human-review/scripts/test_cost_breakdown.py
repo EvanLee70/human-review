@@ -501,9 +501,12 @@ def test_the_cost_tab_is_not_in_the_walk_through_the_lede_has_to_name(built_page
     Requiring every content file to also recite `$1` would be the page reading its own
     furniture back to the reader — and the build warns about unnamed tabs, so a cost tab
     inside that list would make every page warn, forever."""
-    assert "4 of them" in _build_page.last_stderr, (
-        "the enumeration check counted the bill as a tab to be named: "
-        + _build_page.last_stderr)
+    # The model's `summary` lede is no longer rendered (the Review tab opens on computed
+    # grade reasons), so the enumeration it was checked against is gone; what is left to
+    # hold is that no warning ever asks for the bill to be named.
+    named = [l for l in _build_page.last_stderr.splitlines()
+             if "lede" in l.lower() and ("$" in l or "cost" in l.lower())]
+    assert not named, "a warning asks for the cost tab to be named: " + "\n".join(named)
     assert 'id="tabbtn-cost"' in built_page, "…while the tab itself is on the strip"
 
 

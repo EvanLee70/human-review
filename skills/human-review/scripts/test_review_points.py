@@ -996,3 +996,62 @@ def test_a_fixed_item_says_what_the_reviewer_found_and_how_it_was_repaired(tmp_p
     fixed = doc["autofixes"][0]
     assert "nobody awaits" in fixed["observation"] and "void" in fixed["fix"]
     assert any("Bare decline" in w and "observation" in w for w in doc["warnings"])
+
+
+# ── a refuted finding, and an assumption that does not say why it is that sure ──────
+# Run 5 filed "HTTP errors reported as …" under Ignored at `severity: medium` with
+# `why: wrong — handleError rethrows`: a finding the agent had disproved, counted on the
+# page as "worth a look" and in the grade as an open issue.
+
+REFUTED = """## Fixed
+
+### Guard the empty list
+- file: a.py:2
+- severity: low
+- observation: The loop indexes [0] on an empty list.
+- fix: the reviewer was wrong, nothing to change
+- fixed-in: HEAD
+
+## Ignored
+
+### HTTP errors reported as a missing page
+- file: b.ts:43
+- severity: medium
+- observation: The reviewer claims handleError swallows a 400.
+- why: wrong — handleError rethrows; the service spec asserts a 400 reaches the caller.
+
+### Same refutation, filed the way the prompt asks
+- file: b.ts:50
+- severity: info
+- observation: The reviewer claims the retry loops forever.
+- why: refuted — the retry is capped at three by RetryPolicy.
+
+### Wrong status code is a real defect, kept open
+- file: b.ts:60
+- severity: medium
+- observation: Wrong status code returned on a missing owner.
+- why: out of scope for #25.
+
+## Assumptions
+
+### Empty sort falls back to the default
+- file: c.java:109
+- alternative: reject it with 400
+- confidence: 0.6
+"""
+
+
+def test_a_finding_that_says_the_reviewer_was_wrong_is_flagged_unless_filed_at_info(tmp_path):
+    warnings = rp.parse(REFUTED)["warnings"]
+    said = [w for w in warnings if "reviewer was wrong" in w]
+    assert any("Guard the empty list" in w and "`fix`" in w for w in said)
+    assert any("HTTP errors reported" in w and "`why`" in w for w in said)
+    # Filed under Ignored at info, as asked: no warning. An observation that merely opens
+    # on "Wrong …" is the defect itself, not a refutation.
+    assert not any("Same refutation" in w or "Wrong status code" in w for w in said)
+
+
+def test_an_assumption_with_no_why_is_told_to_say_what_holds_its_confidence(tmp_path):
+    warnings = rp.parse(REFUTED)["warnings"]
+    assert any("Empty sort falls back" in w and "no `why:`" in w
+               and "confidence where it is" in w for w in warnings)

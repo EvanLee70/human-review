@@ -210,6 +210,12 @@ HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)(?:,\d+)? @@")
 NEW_BLOCK_RATIO = 0.8
 
 
+def _base_face() -> str:
+    """`DIFF_BASE` as a tooltip names it: a sha cut to twelve, a ref name as it is. The
+    build sets it to the page's one base, which is a full sha on a reviewed branch."""
+    return DIFF_BASE[:12] if re.fullmatch(r"[0-9a-f]{40}", DIFF_BASE) else DIFF_BASE
+
+
 def _git(root: Path, *args: str) -> str | None:
     """stdout, or None if git could not answer - no repo, no such ref, no git."""
     try:
@@ -300,7 +306,7 @@ def block_status(rel: str, root: Path, spans, lines: list[str], noun: str = "cod
     if not hit:
         return {"diff": "unchanged", "label": "unchanged", "added": 0, "total": len(real),
                 "tip": f"No line in this window was touched on this branch "
-                       f"(diffed against {DIFF_BASE})."}
+                       f"(diffed against {_base_face()})."}
     if real and len(hit) / len(real) >= NEW_BLOCK_RATIO:
         return {"diff": "new", "label": f"new {noun}", "added": len(hit), "total": len(real),
                 "tip": f"{len(hit)} of {len(real)} lines in this window are new on this "

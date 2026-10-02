@@ -78,10 +78,12 @@ of those tabs shows is a change to its producer.
 
 `build-review-html.py` re-exports every name the package defines, because it is the import
 surface the rest of the skill has always used — `ds-audit.py`, `serve-review.py` and two
-dozen test modules load it by path and reach for a function on it. Three names are the
+dozen test modules load it by path and reach for a function on it. Four names are the
 exception and must be read and patched on the module that owns them, never through the
-re-export: `OFFLINE` (`tabs/logging.py`) and `_LIST_OFFSET` / `_LEDE_SHOWN`
-(`tabs/review.py`). A re-export copies a value; those three move while a build runs.
+re-export: `OFFLINE` (`tabs/logging.py`), `_LIST_OFFSET` / `_LEDE_SHOWN`
+(`tabs/review.py`) and `SNIPPET_BASE` (`shared/snippets.py`, moved by `set_diff_base` to the
+page's one base, `shared/chips.py:page_base`). A re-export copies a value; those four move
+while a build runs.
 
 `test_build_split_identity.py` holds the split to all of this: the assets round-trip byte
 for byte, the CSS and the scripts are emitted in the order they always were, every tab

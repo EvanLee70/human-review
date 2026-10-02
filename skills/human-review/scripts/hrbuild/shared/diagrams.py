@@ -401,6 +401,16 @@ UNCHANGED = "unchanged"
 #: New-Old frame — two looks for one fact on the same tab.
 UNCHANGED_BADGE = f'<span class="badge sev-info">{UNCHANGED}</span>'
 
+#: An unchanged PICTURE over a source that did change where the picture cannot show it —
+#: `_unseen`, the line `schema_unseen_note` writes under an ERD whose dump gained indexes.
+#: It used to wear UNCHANGED, and the line under it said `DB.sql changed: indexes added`:
+#: two judges of eval run 5 read the pair as the page contradicting itself. Its own word,
+#: in the amber a finding-to-look-at wears, and the hover says what the two halves mean.
+SCHEMA_ONLY = "schema only"
+SCHEMA_ONLY_BADGE = (f'<span class="badge sev-med" data-tip="The diagram is unchanged; the '
+                     f'schema changed in what the diagram cannot draw — the line under it '
+                     f'says what">{SCHEMA_ONLY}</span>')
+
 
 def _unchanged_body(row, assets: Path, root: Path, out_dir: Path) -> str:
     """An unchanged diagram is the whole current picture and nothing else.
@@ -561,7 +571,8 @@ def render_diagrams(spec, root: Path, out_dir: Path, rows=None, bare: str = "") 
             # A badge earns its place by saying something surprising. "modified" is what
             # a diagram in a delta gallery always is, and "structural" is legible from the
             # picture — so only the states that carry information get one.
-            + (UNCHANGED_BADGE if r["status"] == UNCHANGED else
+            + (SCHEMA_ONLY_BADGE if r["status"] == UNCHANGED and r.get("_unseen") else
+               UNCHANGED_BADGE if r["status"] == UNCHANGED else
                f'<span class="badge {"sev-high" if r["status"] == "added" else "sev-low"}">'
                f'{html.escape(r["status"])}</span>' if r["status"] != "modified" else "")
             + _source_link(r["source"], root) + '</div>'
@@ -573,6 +584,10 @@ def render_diagrams(spec, root: Path, out_dir: Path, rows=None, bare: str = "") 
             + body
             + (f'<p class="sub dgm-unseen">{html.escape(r["_unseen"])}</p>'
                if r.get("_unseen") else "")
+            # A producer's own line about the row (the C2 projection: "projected from the
+            # committed sequences, not re-traced"). Text, escaped: a manifest is not HTML.
+            + (f'<p class="sub dgm-stale">{html.escape(r["note"])}</p>'
+               if (r.get("note") or "").strip() else "")
             + '</div>'
         )
     return "\n".join(parts)

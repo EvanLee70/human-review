@@ -39,9 +39,15 @@
   // Every acceptance test the branch offers, UI first, then API - the same order the
   // groups used to impose, now applied once to a list that is always on screen.
   var ORDER={e2e:0,api:1,unit:2};
+  // semcov: why a test is on the card comes first - paired with a sentence, written by the
+  // branch, aimed at the change, only passing through it (`rank`, from semcov.py). A test
+  // about vets that runs the exception advice this PR touched belongs at the bottom, not
+  // between the two that prove the ticket.
+  function rank(id){var r=D.tests[id].rank;return r===undefined?0:r;}
   var ids=Object.keys(D.tests).sort(function(a,b){
-    var d=ORDER[D.tests[a].cat]-ORDER[D.tests[b].cat];
+    var d=rank(a)-rank(b)||ORDER[D.tests[a].cat]-ORDER[D.tests[b].cat];
     return d||human(D.tests[a].title).localeCompare(human(D.tests[b].title));});
+  var groupsShown=ids.length&&D.ranks&&rank(ids[0])!==rank(ids[ids.length-1]);
 
   // The first part of a test is the test's own body, so its diff is the test's own story:
   // new, edited, or (no stamp) one this branch left exactly as it found it.
@@ -116,10 +122,12 @@
     // only knows what happened inside the lines quoted, which is not the same question -
     // a test edited three lines above the excerpt reads as untouched otherwise.
     var st=STAMP[t.status]||STAMP.unchanged;
+    // semcov: and why it is on this card at all - the changed lines its coverage ran.
+    var tip=st[1]+(t.why?' \u2014 '+esc(t.why).replace(/"/g,'&quot;'):'');
     // The word is gone from the page but not from the accessibility tree: a screen reader
     // reading this row still gets "new test", which is what the glyph is for.
     return '<span class="rm-st" data-st="'+st[3]
-      +'" role="img" aria-label="'+st[2]+'" data-tip="'+st[1]+'">'+st[0]+'</span>';
+      +'" role="img" aria-label="'+st[2]+'" data-tip="'+tip+'">'+st[0]+'</span>';
   }
   // Which of the three the excerpt's own badge is. Keyed off the badge's words, not off
   // `p.diff`: `new file` and `new code` are both `diff:"new"` and are not the same fact -
@@ -189,7 +197,15 @@
     (D.sentences[sid].groups||[]).forEach(function(g){g.tests.forEach(function(ev){
       (COVERS[ev.id]=COVERS[ev.id]||[]).push(sid);});});});
 
+  var lastRank=null;
   ids.forEach(function(id){
+    if(groupsShown&&rank(id)!==lastRank){
+      lastRank=rank(id);
+      var g=document.createElement('div');
+      g.className='rm-tgroup';g.dataset.rank=lastRank;
+      g.textContent=D.ranks[String(lastRank)]||'';
+      list.appendChild(g);
+    }
     var t=D.tests[id],row=document.createElement('div');
     row.className='rm-t';row.dataset.open='no';row.dataset.id=id;
     // A test the branch deleted is listed and not openable: this checkout has no source
@@ -405,9 +421,16 @@
     // The two are different findings and go to different people.
     var kind=s.gapKind==='requirement'?'in the requirement':'in the tests';
     gap.dataset.kind=s.gapKind||'tests';
-    gap.innerHTML=s.gap?'<h4>Blind spot <span class="rm-gapkind">'+kind+'</span>'
-      +(s.by==='model'?'<sup class="rm-ai" data-tip="as inferred by AI">🤖</sup>':'')+'</h4><p>'+esc(s.gap)+'</p>':'';
-    gap.hidden=!s.gap;
+    // semcov: the links a model read and turned down, under the blind spot - the keyword
+    // match that would have painted this sentence, and the one line on why it does not count.
+    var rej=(s.rejected||[]).map(function(r){
+      return '<li><span class="rm-rid">'+esc(where(r.id))+'</span> \u2014 '+esc(r.why)+'</li>';}).join('');
+    var head=s.cov==='narrowed'?'Narrowed on purpose':'Blind spot';
+    gap.innerHTML=(s.gap?'<h4>'+head+' <span class="rm-gapkind">'+kind+'</span>'
+      +(s.by==='model'?'<sup class="rm-ai" data-tip="as inferred by AI">🤖</sup>':'')+'</h4><p>'+esc(s.gap)+'</p>'
+      +(s.decision?'<p class="rm-dec">Recorded: '+esc(s.decision)+'</p>':''):'')
+      +(rej?'<h4>Matched on words, rejected by AI <sup class="rm-ai">🤖</sup></h4><ul class="rm-rej">'+rej+'</ul>':'');
+    gap.hidden=!(s.gap||rej);
   }
   root.addEventListener('click',function(e){
     var f=e.target.closest('.rm-f');if(f&&root.contains(f))open(f.dataset.s);});
@@ -427,7 +450,9 @@
            :'<span class="rm-do">no test \u00B7 click for what is missing</span>';
     // semcov: who paired it, after the badges - the script's evidence or a model's reading.
     tip+=s.cov==='unmapped'?'<span class="rm-do"> not paired yet \u00B7 run the 🤖</span>'
-        :'<span class="rm-do"> \u00B7 '+(s.by==='model'?'🤖 paired by AI':'paired by script')+'</span>';
+        :s.cov==='unconfirmed'?'<span class="rm-do"> \u00B7 shared words only, not confirmed \u00B7 run the 🤖</span>'
+        :s.cov==='narrowed'?'<span class="rm-do"> \u00B7 narrowed by a recorded decision</span>'
+        :'<span class="rm-do"> \u00B7 '+(s.by==='model'?'🤖 checked by AI':'paired by script')+'</span>';
     f.setAttribute('data-tip-html',tip);
     f.removeAttribute('data-tip');
   });

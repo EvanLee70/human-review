@@ -17,9 +17,9 @@ list. This skill reads that file. It does not run a review, and it does not writ
 
 That is the whole division. The judgement is produced once, by the agent that made the
 decisions, while it still has them; the page is assembled by programs from the branch.
-What is left for you is two model-written artifacts — the part of the sentence↔test pairing
-behind the Tests tab that the script could not decide (`test-mapping.json`, a cheap model's
-JSON), and **+1 LLM script**, the Demo film's — plus the page's layout and its ledes. Everything else on
+What is left for you is two model-written artifacts — the cheap model's check of the
+sentence↔test pairing behind the Tests tab (`test-mapping.json`: every scripted link
+confirmed or rejected, the rest paired), and **+1 LLM script**, the Demo film's — plus the page's layout and its ledes. Everything else on
 these five steps is a script. Do **not** commit or push.
 
 A branch with no `review-points.md` is not an error and not a gate: the page says so, in a
@@ -124,7 +124,9 @@ landed after it, diagram deltas, sequence diagrams, the container view projected
 them, Code City, the feature film, complexity, the REST contract and its two second
 opinions, the logging scan, the design-system audit, code owners, the test manifest, the
 Playwright recordings — each gated on its own prerequisite, each ledger-wrapped, none of
-them able to skip its `end`.
+them able to skip its `end`. When `review-points.md` records an `audited-base` on this
+branch past the fork point, every producer — and the page build after them — measures from
+it rather than from `$BASE`'s merge-base: a page never mixes two bases.
 
 The first two steps are the Review tab, and neither of them is yours to write:
 
@@ -198,37 +200,51 @@ ${SKILL}/scripts/steps-ledger.py start guide --label "assemble content.json and 
   > .human-review/.step-guide
 ```
 
-### The matrix, and the model that writes its last few pairings
+### The matrix, and the model that checks its pairings
 
 The Tests tab's matrix is drawn by a script, `scripts/semcov.py`, every build: the ticket
 (`gh issue view`, cached in `ticket-body.json`) rendered on the left and split into
-sentences with stable ids; on the right the tests whose per-test coverage
-(`assets/test-coverage.json`, from the `testcov` step) runs a line this PR changed; and the
-colouring and hover/click association between them. **Most of the pairing is scripted
-too** — shared words of the test's name and assertions, a synonym table, literals, the
-changed lines its coverage ran — and every scripted link carries its evidence.
+sentences with stable ids — followed, when the branch implements an OpenSpec change
+(`openspec/changes/<name>/`, matched by branch name or by the issue number its proposal
+cites), by that change's requirements as a numbered list, paired like the issue's own
+sentences; on the right the tests whose per-test coverage (`assets/test-coverage.json`,
+from the `testcov` step) runs a line this PR changed, the ones about the change first, each
+saying on hover which changed lines brought it there; and the colouring and hover/click
+association between them. The script **proposes** links — shared words of the test's name
+and assertions, a synonym table, literals, the changed lines its coverage ran — and every
+scripted link carries its evidence. **A proposed link is a candidate, not proof**: run 5
+painted "sortable by any column" green over a test that checks the page size.
 
-What a model still does is the sentences the script could not pair, and only those, each
-with its few candidate tests. Run it as a program, from the repository root:
+So a model reads them. **Always run it, every review, after `run-steps.py` and before the
+build** — from the repository root:
 
 ```sh
-${SKILL}/scripts/rerun-model.py           # cheap model (haiku), only for the open sentences
+${SKILL}/scripts/rerun-model.py           # cheap model (haiku), one call for the whole ticket
 ```
 
-It writes `.human-review/test-mapping.json` (schema: `reference/test-mapping.schema.json`;
-prompt: `reference/matrix-prompt.md`), refuses an answer that fails the schema or names a
-sentence or test it was not given, and asks nothing at all when the script paired every
-sentence. The model is `haiku` unless `"mappingModel"` in `human-review.json` (or
-`--model`) says otherwise; its cost is recorded in `.model-runs.json` and shows on the cost
-tab. **Under GitHub Copilot**, pick the cheap model (*Auto*, or `gpt-5-mini`) yourself:
-`rerun-model.py --prompt-only` prints the prompt with its input, you answer it as JSON, and
-`rerun-model.py --answer reply.json` checks and installs the answer. Never write the
-matrix HTML yourself — the build draws it.
+In one call it confirms or rejects every scripted link with a one-line reason, pairs the
+sentences the script could not, and marks a sentence `narrowed` when a scope decision the
+branch recorded (an assumption or a declined finding in `review-points.md`, a scope cut in
+the OpenSpec proposal) delivers less than it says. Until it has run, no scripted link is
+drawn as covering anything — the sentence reads *unconfirmed*. It writes
+`.human-review/test-mapping.json` (schema: `reference/test-mapping.schema.json`; prompt:
+`reference/matrix-prompt.md`), refuses an answer that fails the schema, names a sentence,
+test or decision it was not given, or leaves a scripted link without a verdict; it asks
+nothing only when no sentence makes a claim. The model is `haiku` unless `"mappingModel"`
+in `human-review.json` (or `--model`) says otherwise; its cost is recorded in
+`.model-runs.json` and shows on the cost tab. **Under GitHub Copilot**, pick the cheap
+model (*Auto*, or `gpt-5-mini`) yourself: `rerun-model.py --prompt-only` prints the prompt
+with its input, you answer it as JSON, and `rerun-model.py --answer reply.json` checks and
+installs the answer. Never write the matrix HTML yourself — the build draws it.
 
 ### The prose that is left
 
 Everything else in the content file is prose: `title`, `subtitle`, `pr`, `verdict`, an
-optional `summary`/`note`, and the Review tab's block titles and ledes.
+optional `note`, and the Review tab's block titles and ledes. **No `summary`**: the
+Review tab opens on the grade's computed reasons, and a `summary` is dropped there.
+`verdict` is `{"score": n}` plus at most two `bullets` for what only you know — CI, the
+open piles, a breaking API change, tabs without evidence and commits outside the review
+are computed, and they cap your score.
 
 **Every tab after Review is the scripts', not yours — write nothing on it.** Demo, API,
 Data, Tests, Sequence, Structure, Code City, UX, Complexity, Logging and CODEOWNERS show
@@ -381,7 +397,7 @@ its hover, because that is the one a reader is right to worry about.
 
 Beside it, **Rerun + AI** is the same thing with *this skill's own model step* in front of
 it. It is the button form of the matrix instruction above: `rerun-model.py` asks a cheap
-model (`haiku` by default) to pair the ticket sentences the script could not, rewrites
+model (`haiku` by default) to confirm or reject the script's pairings and pair the rest, rewrites
 `test-mapping.json`, and then the static refresh runs with `--allow-model` and redraws the
 matrix from it.
 
@@ -461,8 +477,8 @@ anybody pressing F5.
 ### What the model half is, so the program half can never be asked to fake it
 
 Written by a model, once, when the human asks — and restored, never regenerated, if it goes
-missing: `test-mapping.json` (the cheap model's pairing of the sentences the script could
-not decide) and `content.json`. `refresh-report.py` exits 3 rather than build a page
+missing: `test-mapping.json` (the cheap model's verdict on the script's pairings, and its
+pairing of the sentences the script could not decide) and `content.json`. `refresh-report.py` exits 3 rather than build a page
 without them. The matrix itself is no longer on this list: `semcov.py` draws it on every
 build from the ticket, the per-test coverage and that JSON. A model-written
 `assets/requirements-map.html` from an older run stands in for the JSON (it is rendered as

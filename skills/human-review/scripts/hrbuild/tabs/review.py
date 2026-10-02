@@ -12,6 +12,7 @@ from pathlib import Path
 from ..shared.actions import ACTIONS, declare_action, RERUN_ACTION
 from ..shared.bands import _lede_above, _flush_top_bands
 from ..shared.commands import command_html
+from ..shared.snippets import DIFF_CONTEXT, diff_html
 
 # The report's contract lives next to the scripts, beside the parser that writes it: the
 # directory this package sits in is on sys.path whenever the package is importable.
@@ -93,6 +94,37 @@ def unglue_refs(item: dict) -> None:
 
 
 def resolve_review_points(spec: dict, out_dir: Path) -> dict | None:
+    """Make the Review tab's inputs the branch's and the page's, not the content file's.
+
+    The piles come off `review-points.md` (`resolve_piles`); each Fixed card is dealt the
+    hunks of the fix commit its anchors reach (`attribute_fix_hunks`); the grade's reasons
+    are computed from what the page measured and its number capped by them
+    (`grade_signals`, `cap_grade`); and the content file's prose `summary`, which opened
+    this tab above the grade, is dropped (`drop_model_summary`)."""
+    drop_model_summary(spec)
+    points = resolve_piles(spec, out_dir)
+    attribute_fix_hunks(spec, out_dir)
+    grade_signals(spec, out_dir)
+    cap_grade(spec)
+    return points
+
+
+def drop_model_summary(spec: dict) -> None:
+    """Drop `summary` when it would open the Review tab, and say so on stderr.
+
+    It rendered as a bordered paragraph of the model's prose above the grade, where the
+    reader arriving from the score expects the computed reasons. Everything it can say
+    honestly the page now measures; what it says beyond that nobody checked."""
+    tabs = spec.get("tabs") or []
+    first = tabs[0] if tabs else {}
+    if spec.get("summary") and any(b.get("type") in POINTS_PILES
+                                    for b in first.get("blocks") or []):
+        print("[review] content.json's `summary` is not rendered — the Review tab opens on "
+              "the computed grade reasons, not on prose", file=sys.stderr)
+        spec.pop("summary", None)
+
+
+def resolve_piles(spec: dict, out_dir: Path) -> dict | None:
     """Fill the piles the content file delegated to `review-points.md`, in place.
 
     `content.json` stops being the judgement here. Before this, a model read the passes,
@@ -221,8 +253,10 @@ def pile_intro(kind: str, points: dict | None) -> str:
     against = (f"<code>{html.escape(impl[:8])}</code>, the implementation commit"
                if impl else "the implementation commit")
     return (f"Read off <code>{src}</code>, committed with the fixes. Each one names the "
-            f"reviewer that raised it and shows the diff against {against} — so what "
-            "the review changed is separable from what the feature changed.")
+            f"reviewer that raised it and shows the hunks of the fix commit its "
+            f"<code>file:line</code> reaches, against {against} — so what the review "
+            "changed is separable from what the feature changed. Hunks no card reaches "
+            "follow the pile.")
 
 
 def own_review_tab(spec: dict) -> None:
@@ -487,7 +521,7 @@ def _finding_refs(f) -> str:
     An item that shows a snippet or a diff already links the file, with a line RANGE, from
     that block's own header. Repeating a bare `file:line` link above it says the same thing
     twice and worse."""
-    if f.get("_snippets") or f.get("_diffs"):
+    if f.get("_snippets") or f.get("_diffs") or f.get("_fixDiffs"):
         return ""
     return "".join(_ref_link(r) for r in f.get("_refs", []))
 
@@ -731,43 +765,315 @@ def _first_clause(text: str) -> str:
     return (plain[:m.start()] if m else plain).strip().rstrip(".")
 
 
-def grade_reasons(spec) -> list[tuple[str, str]]:
-    """`[(short, full), …]` — why the score is what it is, in a few words each.
+#: Where `preflight.py` leaves the CI gate's verdict on the commit under review.
+GATE_JSON = ".gate.json"
+#: The API tab's verdict band, as `openapi-compat.py` wrote it.
+API_VERDICT_HTML = "assets/openapi-verdict.html"
+#: The two producers that leave a verdict when their tab could not be measured this run.
+SEQUENCE_VERDICT_JSON = "assets/sequence.verdict.json"
+FILM_VERDICT_JSON = "assets/feature.verdict.json"
+#: How many lines of its own the content file's `verdict` may add under the computed ones.
+MODEL_GRADE_LINES = 2
 
-    Nothing here is written by the build: `verdict.why`, when the content file carries it,
-    is used as it is; otherwise the open findings are counted by severity, the assumptions
-    counted, and each of the verdict's own `bullets` is cut to its first clause, with the
-    whole bullet kept for the hover. The score was chosen by whoever wrote the verdict, so
-    its reasons are theirs — the page only makes them short enough to read at a glance."""
-    v = spec.get("verdict") or {}
-    if v.get("why"):
-        return [(_first_clause(w) if len(w) > 80 else html.unescape(re.sub(r"<[^>]+>", "", w)),
-                 html.unescape(re.sub(r"<[^>]+>", "", w))) for w in v["why"]]
+#: The highest grade each signal allows. A grade is the model's number, lowered to the
+#: lowest ceiling any signal on the page sets — never raised. One table, so the reader can
+#: be told in one hover why an 8 became a 6, and a reviewer can argue with a row of it.
+GRADE_CAPS = {
+    "ci-failed": 4,         # CI ran on the reviewed commit and failed
+    "ci-unproven": 6,       # no CI run proved the reviewed commit (skipped, cancelled, none)
+    "open-high": 5,         # an open review issue the reviewer filed as `high`
+    "api-breaking": 7,      # the REST contract breaks a client
+    "no-evidence": 7,       # one tab carries a reason instead of this run's evidence
+    "no-evidence-2": 6,     # two or more do
+    "after-review": 7,      # code moved on the branch after the review was recorded
+    "out-of-range": 7,      # commits in the PR that the review never read
+}
+
+
+def _plain_text(text: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", text or "")).strip()
+
+
+def _read_json(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _git_out(root: Path | None, *args: str) -> str | None:
+    """`git <args>` in `root`, stdout stripped — or None when it fails or there is no root."""
+    if root is None:
+        return None
+    r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def _git_root(out_dir: Path) -> Path | None:
+    top = _git_out(Path(out_dir), "rev-parse", "--show-toplevel") if Path(out_dir).is_dir() \
+        else None
+    return Path(top) if top else None
+
+
+def _signal(key: str, short: str, full: str, cap: int | None = None) -> dict:
+    return {"key": key, "short": short, "full": full, "cap": cap}
+
+
+def _ci_signal(out_dir: Path) -> dict | None:
+    """What CI said about the reviewed commit — green or not, either way on the panel.
+
+    Silence about CI read as "nothing to worry about" on a page whose CI was green, and as
+    the same on a page whose CI never ran. No `.gate.json` at all (a page from before the
+    gate, or a test) says nothing rather than guessing."""
+    gate = _read_json(Path(out_dir) / GATE_JSON)
+    if not isinstance(gate, dict) or not gate.get("verdict"):
+        return None
+    sha = str(gate.get("sha") or "")[:8]
+    caveat = _plain_text(str(gate.get("caveat") or ""))
+    runs = [w for w in gate.get("workflows") or [] if isinstance(w, dict)]
+    if gate["verdict"] == "green":
+        run = next((w for w in runs if w.get("runId")), {})
+        return _signal("ci-green", f"CI green on {sha}" if sha else "CI green",
+                       caveat or f"{run.get('name', 'CI')} run {run.get('runId', '')} passed")
+    if any(w.get("verdict") == "failure" for w in runs) or gate["verdict"] == "failure":
+        return _signal("ci-failed", f"CI failed on {sha}" if sha else "CI failed",
+                       caveat or "a CI workflow concluded failure on the reviewed commit",
+                       GRADE_CAPS["ci-failed"])
+    return _signal("ci-unproven", "No build proved this commit",
+                   caveat or f"the CI gate says {gate['verdict']!r}, not green",
+                   GRADE_CAPS["ci-unproven"])
+
+
+def _api_signal(out_dir: Path) -> dict | None:
+    """The API tab's own verdict band, read rather than recomputed: red means breaking."""
+    try:
+        band = (Path(out_dir) / API_VERDICT_HTML).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if 'class="apiverdict red"' not in band:
+        return None
+    text = _plain_text(re.sub(r"<style>.*?</style>", "", band, flags=re.S))
+    text = re.sub(r"\s+", " ", re.sub(r"\(report\s*\u2197\)", "", text)).strip()
+    m = re.search(r"(\d+)\s+breaking", text)
+    n = int(m.group(1)) if m else 0
+    short = (f"{n} breaking API change{'' if n == 1 else 's'}" if n
+             else "The API contract breaks")
+    return _signal("api-breaking", short, text or short, GRADE_CAPS["api-breaking"])
+
+
+def _evidence_signal(spec, out_dir: Path) -> dict | None:
+    """The tabs that carry a reason instead of evidence from this run, as one line.
+
+    Read off the verdicts their producers leave — the Sequence tab's when the traced
+    suites drew nothing or were red, the Demo tab's when the film did not complete. The
+    C2 view on Structure is projected from the sequence diagrams, so a Sequence tab that
+    was not re-traced takes it along."""
+    names = []
+    detail = []
+    seq = _read_json(Path(out_dir) / SEQUENCE_VERDICT_JSON)
+    if isinstance(seq, dict) and seq.get("state") in ("skipped", "red"):
+        what = ("not re-traced on this run" if seq["state"] == "skipped"
+                else "the traced suite was red")
+        names.append("Sequence")
+        c2 = (Path(out_dir) / "assets" / "c2").is_dir()
+        detail.append(f"Sequence: {what}"
+                      + (" — and the C2 view on Structure is drawn from those same "
+                         "diagrams" if c2 else ""))
+    film = _read_json(Path(out_dir) / FILM_VERDICT_JSON)
+    if isinstance(film, dict) and film.get("exit"):
+        names.append("Demo")
+        detail.append("Demo: " + {3: "the feature did not hold on film",
+                                  2: "nothing was filmed"}.get(
+            film.get("exit"), f"the recorder failed (exit {film.get('exit')})"))
+    if not names:
+        return None
+    n = len(names)
+    short = (f"{'One tab carries' if n == 1 else f'{n} tabs carry'} a reason instead of "
+             f"evidence: {', '.join(names)}")
+    return _signal("no-evidence", short, "; ".join(detail),
+                   GRADE_CAPS["no-evidence" if n == 1 else "no-evidence-2"])
+
+
+def _base_ref(spec, root: Path | None) -> str | None:
+    """The branch the PR merges into, as a ref this clone can resolve."""
+    base = str((spec.get("pr") or {}).get("base") or "main")
+    for ref in (base if base.startswith("origin/") else f"origin/{base}", base):
+        if _git_out(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"):
+            return ref
+    return None
+
+
+def _after_review_signal(out_dir: Path, root: Path | None, base_ref: str | None) -> dict | None:
+    """Commits that moved code after the review was recorded — the aftermath band's
+    count, minus what that band folds away as tooling from the base and merge seams."""
+    doc = _read_json(Path(out_dir) / AFTERMATH_JSON)
+    if not isinstance(doc, dict):
+        return None
+    commits = [c for c in doc.get("commits") or []
+               if isinstance(c, dict) and not c.get("takeover") and not c.get("taken_over")
+               and any(not f.get("generated") for f in c.get("files") or [])]
+    shas = [c["sha"] for c in commits if c.get("sha")]
+    drop = _merge_seam_shas(root, shas) if root else set()
+    drop |= _tooling_commit_shas(root, base_ref, [s for s in shas if s not in drop]) \
+        if root else set()
+    commits = [c for c in commits if c.get("sha") not in drop]
+    if not commits:
+        return None
+    n = len(commits)
+    return _signal("after-review",
+                   f"{n} commit{'' if n == 1 else 's'} landed after the review",
+                   "Code moved after review-points.md was recorded, and the piles have not "
+                   "seen it: " + "; ".join(f"{c.get('short', '')} {c.get('subject', '')}"
+                                           for c in commits[:4]),
+                   GRADE_CAPS["after-review"])
+
+
+def _out_of_range_signal(spec, root: Path | None, base_ref: str | None) -> dict | None:
+    """Commits the PR carries that sit before the range the reviewers read.
+
+    The review reads `audited-base..implementation`; the PR is everything since it left
+    its base. When the review started later than that, the commits in between are in the
+    diff a merge would ship, and nobody read them."""
+    prov = ((spec.get("_reviewPoints") or {}).get("provenance") or {})
+    audited = prov.get("auditedBase") or prov.get("base")
+    if not (root and base_ref and audited):
+        return None
+    mb = _git_out(root, "merge-base", base_ref, "HEAD")
+    if not mb or not _git_out(root, "merge-base", "--is-ancestor", mb, audited) == "":
+        return None
+    listed = _git_out(root, "log", "--no-merges", "--format=%h %s", f"{mb}..{audited}")
+    rows = [line for line in (listed or "").splitlines() if line.strip()]
+    if not rows:
+        return None
+    n = len(rows)
+    return _signal("out-of-range",
+                   f"{n} commit{'' if n == 1 else 's'} in the PR before the reviewed range",
+                   f"The reviewers read {audited[:8]}..{str(prov.get('auditedHead', 'HEAD'))[:8]}"
+                   f"; these sit between {base_ref} and that range and were never reviewed: "
+                   + "; ".join(rows[:5]) + (" …" if n > 5 else ""),
+                   GRADE_CAPS["out-of-range"])
+
+
+#: The signals `_pile_signals` produces, which `grade_reasons` recounts at render time.
+PILE_SIGNALS = ("open", "open-high", "assumptions")
+
+
+def _pile_signals(spec) -> list[dict]:
+    """The open pile by severity and the unconfirmed assumptions — the two signals a spec
+    carries on its own, with no build around it."""
     out = []
-    findings = spec.get("findings") or []
-    if isinstance(findings, list) and findings:
-        by = {}
+    findings = [f for f in spec.get("findings") or [] if isinstance(f, dict)] \
+        if isinstance(spec.get("findings"), list) else []
+    if findings:
+        by: dict[str, int] = {}
         for f in findings:
             by[f.get("severity", "info")] = by.get(f.get("severity", "info"), 0) + 1
         split = ", ".join(f"{by[k]} {SEVERITIES[k][1]}{'s' if k == 'low' and by[k] > 1 else ''}"
                           for k in ("high", "medium", "low", "info") if by.get(k))
         n = len(findings)
-        out.append((f"{n} open review issue{'' if n == 1 else 's'}: {split}",
-                    "; ".join(f.get("title", "") for f in findings
-                              if f.get("severity") in ("high", "medium"))
-                    or "the open pile below"))
-    assumed = spec.get("assumptions") or []
-    if isinstance(assumed, list) and assumed:
+        out.append(_signal(
+            "open-high" if by.get("high") else "open",
+            f"{n} open review issue{'' if n == 1 else 's'}: {split}",
+            "; ".join(_plain_text(f.get("title", "")) for f in findings
+                      if f.get("severity") in ("high", "medium")) or "the open pile below",
+            GRADE_CAPS["open-high"] if by.get("high") else None))
+    assumed = [a for a in spec.get("assumptions") or [] if isinstance(a, dict)] \
+        if isinstance(spec.get("assumptions"), list) else []
+    if assumed:
         unsure = sum(1 for a in assumed
                      if isinstance(a.get("confidence"), (int, float)) and a["confidence"] < .7)
         n = len(assumed)
-        out.append((f"{n} implementation assumption{'' if n == 1 else 's'} unconfirmed"
-                    + (f", {unsure} under 70% sure" if unsure else ""),
-                    "What the coder guessed at and nobody confirmed — the last pile below"))
-    for b in v.get("bullets") or []:
-        short = _first_clause(b)
+        out.append(_signal(
+            "assumptions",
+            f"{n} implementation assumption{'' if n == 1 else 's'} unconfirmed"
+            + (f", {unsure} under 70% sure" if unsure else ""),
+            "What the coder guessed at and nobody confirmed — the last pile below"))
+    return out
+
+
+def grade_signals(spec, out_dir: Path, root: Path | None = None) -> list[dict]:
+    """What the page measured that bears on the grade, one dict per reason, in the order
+    the panel prints them — and, as `spec["_gradeSignals"]`, what `grade_reasons` reads.
+
+    Every reason is computed: CI, the open pile by severity, the unconfirmed assumptions,
+    a breaking API change, tabs left without evidence, code that moved after the review,
+    commits the review never read. A content file's verdict adds at most
+    `MODEL_GRADE_LINES` lines under these (`grade_reasons`), and its number is lowered to
+    the lowest ceiling the signals set (`cap_grade`)."""
+    root = root if root is not None else _git_root(out_dir)
+    base_ref = _base_ref(spec, root) if root else None
+    out = []
+    ci = _ci_signal(out_dir)
+    if ci:
+        out.append(ci)
+    out.extend(_pile_signals(spec))
+    for sig in (_api_signal(out_dir), _evidence_signal(spec, out_dir),
+                _after_review_signal(out_dir, root, base_ref),
+                _out_of_range_signal(spec, root, base_ref)):
+        if sig:
+            out.append(sig)
+    spec["_gradeSignals"] = out
+    return out
+
+
+def cap_grade(spec) -> int | None:
+    """Lower `verdict.score` to the lowest ceiling a computed signal sets, in place.
+
+    The model's own number is kept as `verdict.modelScore` so the panel can say what it was
+    and which signals brought it down. Never raises a grade: the ceilings say how good a
+    page with this evidence can be, not how good it is. Returns the ceiling that bound, or
+    None when the model's number stands."""
+    v = spec.get("verdict")
+    if not isinstance(v, dict) or "score" not in v:
+        return None
+    caps = [s["cap"] for s in spec.get("_gradeSignals") or [] if s.get("cap")]
+    if not caps:
+        return None
+    model = int(v.get("modelScore", v["score"]))
+    ceiling = min(caps)
+    if ceiling >= model:
+        return None
+    v["modelScore"] = model
+    v["score"] = ceiling
+    return ceiling
+
+
+def grade_reasons(spec) -> list[tuple[str, str]]:
+    """`[(short, full), …]` — why the score is what it is, in a few words each.
+
+    The computed signals first (`grade_signals`, or — for a spec that never went through
+    it — the two piles counted here), then at most `MODEL_GRADE_LINES` of the content
+    file's own: `verdict.why` if it has one, else `verdict.bullets`, each cut to its first
+    clause with the whole kept for the hover. A model used to write the whole list, and
+    run 5 shipped a green 8/10 whose two reasons were counts — nothing about the breaking
+    API change, the tab nobody re-traced, or the CI run. The page states what it measured;
+    the model gets two lines for what it alone knows."""
+    v = spec.get("verdict") or {}
+    # The piles are counted here, at render time, not off the list the build computed:
+    # the build drops unanchored assumptions after the signals were taken, and the panel
+    # has to count the pile the reader sees under it.
+    measured = [s for s in spec.get("_gradeSignals") or [] if s["key"] not in PILE_SIGNALS]
+    signals = ([s for s in measured if s["key"].startswith("ci-")] + _pile_signals(spec)
+               + [s for s in measured if not s["key"].startswith("ci-")])
+    model_score = v.get("modelScore")
+    out = []
+    for s in signals:
+        short = s["short"]
+        if s.get("cap") and model_score is not None and s["cap"] < model_score:
+            short += f" (caps the grade at {s['cap']})"
+        out.append((short, s.get("full") or short))
+    own = list(v.get("why") or v.get("bullets") or [])
+    if len(own) > MODEL_GRADE_LINES:
+        print(f"[review] verdict carries {len(own)} lines of its own; the grade panel shows "
+              f"the first {MODEL_GRADE_LINES} — the rest of its reasons are computed",
+              file=sys.stderr)
+    for b in own[:MODEL_GRADE_LINES]:
+        # A `why` line is written to be short and kept whole unless it runs long; a
+        # `bullet` is a paragraph, and its first clause is the claim.
+        short = (_first_clause(b) if not v.get("why") or len(_plain_text(b)) > 80
+                 else _plain_text(b))
         if short:
-            out.append((short, html.unescape(re.sub(r"<[^>]+>", "", b)).strip()))
+            out.append((short, _plain_text(b)))
     return out
 
 
@@ -779,7 +1085,8 @@ def grade_reasons_html(spec) -> str:
     The grade was a small `Why graded 6/10` heading over the bullets, which made the
     number the least visible thing in a panel that exists to explain it, and left half the
     panel blank beside a column of five-word lines. Now the bullets start at the top and
-    the number sits beside them, where the eye lands after reading them."""
+    the number sits beside them, where the eye lands after reading them. When a signal
+    lowered the model's number, the panel says from what (`was 8`)."""
     v = spec.get("verdict")
     if not v or "score" not in v:
         return ""
@@ -792,11 +1099,15 @@ def grade_reasons_html(spec) -> str:
         f'<li data-tip="{html.escape(full, quote=True)}">{html.escape(short)}</li>'
         if full and full != short else f"<li>{html.escape(short)}</li>"
         for short, full in reasons)
+    was = v.get("modelScore")
+    capped = (f'<span class="gradewhy-was" title="The model graded it {was}/10; the '
+              f'signals marked beside the reasons cap it at {n}">was {was}</span>'
+              if was is not None and int(was) != n else "")
     return (f'<aside class="gradewhy {band}" id="grade-why" aria-label="Why graded {n}/10">'
             f'<ul>{items}</ul>'
             f'<p class="gradewhy-score" title="Why graded {n}/10: the reasons beside it">'
             f'<span class="gradewhy-l">graded</span>'
-            f'<span class="gradewhy-n"><b>{n}</b>/10</span></p></aside>')
+            f'<span class="gradewhy-n"><b>{n}</b>/10</span>{capped}</p></aside>')
 
 
 def opening_lede(spec) -> str:
@@ -999,6 +1310,20 @@ def _decided_by(f) -> str:
     return ""
 
 
+def _assumption_why(f) -> str:
+    """`Why 55%: …` — the agent's reason for this reading *and* for how sure it is of it.
+
+    The confidence chip says how sure; nothing on the card used to say why, so a 50–65%
+    reading could not be argued with from the one clause beside it. `record-review` now
+    asks for one or two sentences that say what holds the number where it is, and the
+    label names the number the sentence answers."""
+    if not f.get("why"):
+        return ""
+    c = f.get("confidence")
+    label = f"Why {round(c * 100)}%:" if isinstance(c, (int, float)) else "Why:"
+    return f'<p class="f-why"><b>{label}</b> {f["why"]}</p>'
+
+
 def render_assumptions(items, mode: str = "") -> str:
     """What the agent that wrote the code decided without being told — and its alternative.
 
@@ -1052,7 +1377,7 @@ def render_assumptions(items, mode: str = "") -> str:
             + (f'<p>{f["body"]}</p>' if f.get("body") else "")
             + (f'<p class="f-alt"><b>Read the other way:</b> {f["alternative"]}</p>'
                if f.get("alternative") else "")
-            + (f'<p class="f-why">{f["why"]}</p>' if f.get("why") else "")
+            + _assumption_why(f)
             + (f"<p>{refs}</p>" if refs else "")
             + (f.get("_snippets", "") or "")
             + (f.get("_diffs", "") or "")
@@ -1095,12 +1420,181 @@ def render_autofixes(fixes, badge: str = "auto-fixed") -> str:
             + (f'<p class="f-why">{f["why"]}</p>' if f.get("why") else "")
             + (f'<p>{f["body"]}</p>' if f.get("body") else "")
             + (f"<p>{refs}</p>" if refs else "")
-            + (f.get("_diffs", "") or "")
+            + (f.get("_fixDiffs") or f.get("_diffs", "") or "")
             + (f'<p class="f-fix"><b>Fix:</b> {f["fix"]}</p>' if f.get("fix") else "")
             + (f.get("_snippets", "") or "")
             + "</li>"
         )
     return _open_list(len(fixes)) + "\n".join(items) + "</ol>"
+
+
+# --------------------------------------------------------------------------- #
+# Each fix's own hunks, not the whole file
+# --------------------------------------------------------------------------- #
+
+#: How far, in lines, a hunk's change may sit from a Fixed card's `file:line` and still be
+#: that card's. Nearer than this, the nearest card takes it; further, nobody does, and it
+#: is listed under the pile as another change in the fix commit.
+FIX_HUNK_REACH = 15
+
+#: Files a fix commit carries that are the review's bookkeeping rather than a fix. The
+#: points file itself is added from the report's own `source`.
+FIX_BOOKKEEPING = ("review-cost.json",)
+
+
+def fix_hunks(rel: str, base: str, head: str | None, root: Path) -> list[tuple[int, int]]:
+    """`[(lo, hi), …]` — the new-side lines each hunk of `rel` changed, one pair per hunk,
+    in the order `diff_html(…, hunks=…)` indexes them (same command, same context).
+
+    Context lines are not counted: a hunk reaches as far as what it changed. A pure deletion
+    sits at the new-side line it was cut before."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "diff", f"-U{DIFF_CONTEXT}", "--no-color", base]
+        + ([head] if head else []) + ["--", rel], capture_output=True, text=True)
+    if proc.returncode != 0:
+        return []
+    out = []
+    for part in re.split(r"(?m)^(?=@@ )", proc.stdout)[1:]:
+        m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)", part)
+        new_no = int(m.group(1)) if m else 0
+        touched = []
+        for line in part.split("\n")[1:]:
+            if line.startswith("+"):
+                touched.append(new_no)
+                new_no += 1
+            elif line.startswith("-"):
+                touched.append(new_no)
+            elif line.startswith("\\"):
+                continue
+            else:
+                new_no += 1
+        if touched:
+            out.append((min(touched), max(touched)))
+        else:
+            out.append((new_no, new_no))
+    return out
+
+
+def _ref_spans(ref: str) -> tuple[str, list[tuple[int, int]] | None]:
+    """`path:12-30,40` → `("path", [(12, 30), (40, 40)])`; a bare path → `(path, None)`."""
+    m = re.match(r"^(.*?):(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$", ref)
+    if not m:
+        return ref, None
+    spans = []
+    for part in m.group(2).split(","):
+        lo, _, hi = part.partition("-")
+        spans.append((int(lo), int(hi or lo)))
+    return m.group(1), spans
+
+
+def _gap(a: tuple[int, int], b: tuple[int, int]) -> int:
+    """Lines between two inclusive ranges; 0 when they touch or overlap."""
+    return max(0, a[0] - b[1], b[0] - a[1])
+
+
+def _fix_range(item: dict, points: dict) -> tuple[str | None, str | None]:
+    """`(base, head)` of the commit(s) a Fixed item's diff is read from.
+
+    The base is the implementation commit the item's diffs already name. The head is the
+    rev the item pins (`fixed-in: <sha>`), else the commit that recorded the report — the
+    `[auto-fix]` commit, which carries every fix of the round — else the working tree."""
+    d = (item.get("diffs") or [{}])[0]
+    prov = points.get("provenance") or {}
+    return (d.get("base") or prov.get("implementation"),
+            d.get("head") or prov.get("reviewCommit"))
+
+
+def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> None:
+    """Show each Fixed card the hunks its own anchors reach, and list the rest after the pile.
+
+    Each card used to render the whole file against the implementation commit, once per
+    file it named. One `[auto-fix]` commit usually carries every fix, so a file two fixes
+    touched appeared under both cards with both changes, a one-line fix showed +22 because
+    another fix's tests sat in the same spec, and a file no card named was on no card at
+    all. Now the fix commit's hunks are dealt out by position: a hunk goes to the card
+    whose `file:line` it overlaps or comes nearest to, within `FIX_HUNK_REACH` lines. What
+    no card reaches is rendered once, under the pile, as *other changes in the fix commit*
+    — so the pile still adds up to the whole commit.
+
+    Rendered here, as `_fixDiffs` on each item and `fixOther` on the report, rather than
+    through the item's `diffs`: those the build would draw whole. A card whose anchor got
+    a hunk loses the snippet of the same lines, which the hunk already shows."""
+    points = spec.get("_reviewPoints") or {}
+    fixes = [f for f in spec.get("autofixes") or [] if isinstance(f, dict) and f.get("diffs")]
+    if not fixes or points.get("missing"):
+        return
+    root = root if root is not None else _git_root(out_dir)
+    if root is None:
+        return
+    skip = {points.get("source") or "review-points.md"}
+    groups: dict[tuple, list[dict]] = {}
+    for f in fixes:
+        base, head = _fix_range(f, points)
+        if base and _git_out(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}") \
+                and (not head or _git_out(root, "rev-parse", "--verify", "--quiet",
+                                          f"{head}^{{commit}}")):
+            groups.setdefault((base, head), []).append(f)
+    other_html = []
+    for (base, head), items in groups.items():
+        listed = _git_out(root, "diff", "--name-only", "--no-renames", base,
+                          *([head] if head else [])) or ""
+        files = [p for p in listed.splitlines()
+                 if p and p not in skip and Path(p).name not in FIX_BOOKKEEPING]
+        owned: list[dict[str, list[int]]] = [{} for _ in items]
+        unowned: dict[str, list[int]] = {}
+        for rel in files:
+            for idx, span in enumerate(fix_hunks(rel, base, head, root)):
+                near, whole = [], []
+                for i, f in enumerate(items):
+                    for ref in f.get("refs") or []:
+                        path, spans = _ref_spans(ref)
+                        if path != rel:
+                            continue
+                        if spans is None:
+                            whole.append(i)
+                            continue
+                        gap = min(_gap(s, span) for s in spans)
+                        if gap <= FIX_HUNK_REACH:
+                            near.append((gap, i))
+                if near:
+                    best = min(g for g, _ in near)
+                    takers = sorted({i for g, i in near if g == best})
+                else:
+                    takers = sorted(set(whole))
+                for i in takers:
+                    owned[i].setdefault(rel, []).append(idx)
+                if not takers:
+                    unowned.setdefault(rel, []).append(idx)
+        for f, mine in zip(items, owned):
+            # The card's own files first, in the order it named them; then any other file
+            # its anchors reached (a whole-file ref), in diff order.
+            order = []
+            for ref in f.get("refs") or []:
+                path = _ref_spans(ref)[0]
+                if path in mine and path not in order:
+                    order.append(path)
+            order += [p for p in mine if p not in order]
+            f["_fixDiffs"] = "".join(diff_html(p, base, root, None, head, hunks=mine[p])
+                                     for p in order)
+            if f.get("snippets"):
+                f["snippets"] = [s for s in f["snippets"]
+                                 if _ref_spans(str(s.get("ref", "")))[0] not in mine]
+            f["diffs"] = []
+        if unowned:
+            rng = (f"<code>{html.escape(base[:8])}..{html.escape(head[:8])}</code>" if head
+                   else f"<code>{html.escape(base[:8])}</code>..the working tree")
+            n = sum(len(v) for v in unowned.values())
+            other_html.append(
+                '<div class="fixother">'
+                f'<p class="fixother-h"><b>Other changes in the fix commit</b> · {rng}: '
+                f'{n} hunk{"" if n == 1 else "s"} no card\'s <code>file:line</code> reaches '
+                f'(within {FIX_HUNK_REACH} lines), shown so nothing the fixes changed is '
+                'off the page.</p>'
+                + "".join(diff_html(p, base, root, None, head, hunks=v)
+                          for p, v in unowned.items())
+                + '</div>')
+    if other_html:
+        points["fixOther"] = "".join(other_html)
 
 #: Where `run-steps.py`'s `aftermath` step leaves what it measured.
 AFTERMATH_JSON = "aftermath.json"
@@ -1545,7 +2039,8 @@ def render_pile_block(spec, block, heading=None):
     head = _lede_above(head_of("fixed", "Auto-fixed"), opening_lede(spec))
     if points and not items:
         return (head + points_empty_html("autofixes", points), 1, 0)
-    return (head + render_autofixes(items, badge="fixed" if points else "auto-fixed"),
+    return (head + render_autofixes(items, badge="fixed" if points else "auto-fixed")
+            + ((points or {}).get("fixOther") or ""),
             len(items), len(items))
 
 
@@ -1585,8 +2080,9 @@ def resolve_refs(items, root: Path):
 # said the masthead's pill again a screenful lower and spent the first screenful of a review
 # on a conclusion, so the list of findings the reader came for started below the fold. The
 # `verdict` block in the content file is still read: its `score` is the pill's number and
-# its band its colour. Its `bullets` are kept in the file and rendered nowhere; if the page
-# ever needs the reasons stated in prose again, that is what `summary` is for.
+# its band its colour, once `cap_grade` has lowered it to what the computed signals allow.
+# Up to two of its `bullets` join the computed reasons in the grade panel; `summary` is
+# dropped from this tab (`drop_model_summary`).
 
 
 def _score_target(spec) -> tuple[str, str]:
@@ -1653,6 +2149,12 @@ def prepare_pr_push(spec: dict, out_dir: Path, root: Path, skill_dir: Path) -> d
     script = skill_dir / "push-pr-comments.py"
     if not comments or not script.is_file():
         return None
+    if not pr_exists(spec, out_dir):
+        # No pull request, nothing to post to: `push-pr-comments.py` would exit 2 on
+        # "no PR for this branch", after the reader had pressed a button the page offered.
+        print("[review] no pull request named in content.json (`pr.number` / `pr.url`) — "
+              "the Review tab offers no 'Publish comment on GitHub PR'", file=sys.stderr)
+        return None
     try:
         rel = str(out_dir.resolve().relative_to(root.resolve()))
     except ValueError:
@@ -1684,6 +2186,16 @@ def prepare_pr_push(spec: dict, out_dir: Path, root: Path, skill_dir: Path) -> d
                        "pushedAt": posted.get("pushed_at"),
                        "reviewUrl": posted.get("review_url"), "prUrl": posted.get("url")}
     return spec["_prPush"]
+
+
+def pr_exists(spec: dict, out_dir: Path) -> bool:
+    """Whether there is a pull request to post to: the content file names one (a number,
+    or a `/pull/` URL), or an earlier push left its receipt. Read off what the run already
+    knows rather than asked of GitHub at build time — the build runs offline too."""
+    pr = spec.get("pr") or {}
+    if pr.get("number") or "/pull/" in str(pr.get("url") or ""):
+        return True
+    return (out_dir / PR_POSTED_JSON).is_file()
 
 
 def gh_comment_link(f) -> str:

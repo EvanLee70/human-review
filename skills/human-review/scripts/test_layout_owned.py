@@ -107,3 +107,42 @@ def test_a_typed_chip_does_not_reach_the_scope_bar(tmp_path):
     assert "green: CI" not in bar and ">gate<" not in bar
     assert "Opus 5" in bar, "the computed chip beside it still renders"
     assert "gate typed by hand" in err
+
+
+# ── eval run 5 (3 Oct 2026): what the Sequence and Structure tabs were handed ─────────
+
+def _own(tabs, tmp_path):
+    import importlib
+    layout = importlib.import_module("hrbuild.shared.layout")
+    spec = {"tabs": tabs, "sections": []}
+    return spec, layout.own_layout(spec, tmp_path)
+
+
+def test_the_sequence_block_quotes_derived_tests_under_the_skills_own_heading(tmp_path):
+    """Run 5 typed the snippets — another branch's line ranges — and `"title": ""`, which
+    cost the tab the `Sequence diagrams of tests` heading the reference opens on."""
+    spec, warnings = _own([{"id": "sequence", "label": "Sequence", "blocks": [
+        {"type": "testpairs", "id": "sequences", "kind": "sequence", "title": "",
+         "snippets": [{"ref": "petclinic-test/src/add-visit.spec.ts:31-43"}],
+         "unpaired": {"id": "tests-nosequence", "title": "t", "body": "pipeline prose"}}]}],
+        tmp_path)
+    block = spec["tabs"][0]["blocks"][0]
+    assert block["snippets"] == {"auto": "genseq"}
+    assert "title" not in block, "absent, so the renderer prints its default heading"
+    assert block["unpaired"] == {"id": "tests-nosequence",
+                                 "title": "Tagged for tracing, and no diagram came back"}
+    assert any("snippets" in w and "title" in w for w in warnings)
+
+
+def test_a_heading_that_only_repeats_the_card_under_it_is_dropped(tmp_path):
+    """Run 5's Structure tab: a bare `C2 Containers` H2 straight above the `C2-Containers`
+    card. A heading that says something else is the author's to keep."""
+    spec, warnings = _own([{"id": "packages", "label": "Structure", "blocks": [
+        {"type": "diagrams", "manifest": "assets/c2/MANIFEST.tsv", "only": ["C2-Containers"],
+         "id": "c2-containers", "title": "C2 Containers"},
+        {"type": "puml", "src": "docs/MavenModules.puml", "name": "Maven modules",
+         "title": "How the build is cut"}]}], tmp_path)
+    c2, maven = spec["tabs"][0]["blocks"]
+    assert "title" not in c2
+    assert maven["title"] == "How the build is cut"
+    assert any("C2 Containers" in w for w in warnings)

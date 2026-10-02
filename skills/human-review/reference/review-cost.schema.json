@@ -76,7 +76,9 @@
             "description": "Copilot: AI credits, its native unit. Null on a Claude entry."},
     "calls": {"type": "integer", "minimum": 0},
     "modelSeconds": {"type": "number", "minimum": 0},
-    "note": {"type": "string"}
+    "note": {"type": "string"},
+    "subagentModels": {"type": "array", "items": {"type": "string"},
+                       "description": "The models of the agents the session forked inside the window, apart from its own — in the review row, the reviewers."}
    }
   }
  }

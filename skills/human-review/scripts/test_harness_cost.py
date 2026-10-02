@@ -361,3 +361,75 @@ def test_a_copilot_guide_recorded_mid_session_is_completed_at_build(tmp_path, mo
     assert wall["seconds"] == 800
     rep["harness"], rep["guide"]["harnesses"] = hc.CLAUDE, [hc.CLAUDE]
     assert hc.complete_guide(tmp_path, tmp_path, rep)[0]["aic"] == 198.3
+
+
+def test_a_copilot_review_records_which_models_did_the_reviewing(world):
+    """The review chip said `Reviewed by Opus 5` — the first model on the run's whole
+    bill, the implementation's — over four Sonnet reviewers. The record now keeps the
+    models of the agents the review forked, and the chip names those."""
+    copilot_review(world, ci_round=False)
+    state = {"base": world["base"], "implementation": world["impl"],
+             "reviewStartedAt": "2026-10-02T09:59:00Z",
+             "reviewersDoneAt": "2026-10-02T10:05:30Z"}
+    doc = hc.record(world["repo"], "main", state, hc.COPILOT_CLI, at="2026-10-02T10:30:00Z")
+    assert schema.cost_problems(doc) == []
+    review = {c["key"]: c for c in doc["components"]}["review"]
+    assert review["entries"][0]["subagentModels"] == ["Sonnet 5"]
+    (world["repo"] / hc.RECORD_FILE).write_text(json.dumps(doc))
+    assert hc.reviewer_models(world["repo"]) == ["Sonnet 5"]
+
+
+def _claude_session(projects: Path, sid: str, main_model: str, agents: dict) -> None:
+    """A transcript under `projects`, and one subagent transcript per `agents` entry
+    (`id -> (model, first timestamp)`), the way Claude Code lays them out."""
+    folder = projects / "-repo"
+    (folder / sid / "subagents").mkdir(parents=True)
+
+    def turn(model, when, mid):
+        return json.dumps({"type": "assistant", "timestamp": when, "message": {
+            "id": mid, "model": model, "usage": {"input_tokens": 10, "output_tokens": 1}}})
+
+    (folder / f"{sid}.jsonl").write_text(turn(main_model, "2026-10-02T21:49:30Z", "m") + "\n")
+    for aid, (model, when) in agents.items():
+        (folder / sid / "subagents" / f"agent-{aid}.jsonl").write_text(
+            turn(model, when, aid) + "\n")
+
+
+def test_an_older_record_is_answered_from_the_reviewers_own_transcripts(tmp_path, monkeypatch):
+    """Eval run 5's record predates `subagentModels`: its review row says `Opus 5 80% /
+    Sonnet 5 20%`, the orchestrator and the reviewers mixed. The agents that started in the
+    review window say which of the two reviewed — and with the version the old label lost."""
+    projects = tmp_path / "projects"
+    monkeypatch.setattr(hc.rc(), "PROJECTS", projects)
+    _claude_session(projects, "s1", "claude-opus-5-5",
+                    {"aaaa": ("claude-sonnet-5-5", "2026-10-02T21:49:40Z"),
+                     "later": ("claude-haiku-4-5", "2026-10-02T22:05:00Z")})
+    repo = tmp_path / "repo"
+    (repo / ".human-review" / "review").mkdir(parents=True)
+    (repo / ".human-review" / "review" / "state.json").write_text(json.dumps({
+        "session": "s1", "sessions": ["s1"], "reviewStartedAt": "2026-10-02T21:49:19Z",
+        "reviewersDoneAt": "2026-10-02T21:50:37Z"}))
+    entry = {"harness": hc.CLAUDE, "session": "s1", "models": {"Opus 5": 80, "Sonnet 5": 20}}
+    (repo / hc.RECORD_FILE).write_text(json.dumps({"schema": hc.RECORD_SCHEMA, "components": [
+        {"key": "review", "entries": [entry]}]}))
+    assert hc.reviewer_models(repo) == ["Sonnet 5.5"], \
+        "an agent the page build forked later is not a reviewer"
+    row = hc.relabel({"entries": [dict(entry)]})
+    assert row["entries"][0]["models"] == {"Opus 5.5": 80, "Sonnet 5.5": 20}
+
+
+def test_with_no_transcript_the_front_matter_names_the_reviewers(tmp_path, monkeypatch):
+    monkeypatch.setattr(hc.rc(), "PROJECTS", tmp_path / "nothing")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "review-points.md").write_text(
+        "---\nreviewers: 4 read-only Sonnet subagents (correctness, tests)\n---\n\n## Fixed\n")
+    entry = {"harness": hc.CLAUDE, "session": "gone", "models": {"Opus 5": 80, "Sonnet 5": 20}}
+    (repo / hc.RECORD_FILE).write_text(json.dumps({"schema": hc.RECORD_SCHEMA, "components": [
+        {"key": "review", "entries": [entry]}]}))
+    assert hc.reviewer_models(repo) == ["Sonnet 5"]
+    assert hc.relabel({"entries": [dict(entry)]})["entries"][0]["models"] == entry["models"], \
+        "with the transcript gone, a recorded name stays what it was recorded as"
+    (repo / "review-points.md").unlink()
+    assert hc.reviewer_models(repo) == ["Opus 5", "Sonnet 5"], \
+        "nothing names the reviewers: the review row's own models, largest first"

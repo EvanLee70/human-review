@@ -241,8 +241,14 @@ def test_the_script_pairs_what_shared_evidence_decides_and_leaves_the_rest_open(
     # Nothing on the card shares a word with the pirate: the model's to decide.
     open_texts = {by_text[sid] for sid in g["scripted"]["open"]}
     assert open_texts == {"Owners are greeted by a pirate."}
+    # Every sentence that makes a claim goes to the model in the one call — the paired ones
+    # with the script's links to confirm or reject, the open one with its candidates.
     asked = S.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"])
-    assert [s["text"] for s in asked["sentences"]] == ["Owners are greeted by a pirate."]
+    got = {s["text"]: s for s in asked["sentences"]}
+    assert set(got) == set(by_text.values())
+    assert [t["id"] for t in got["Booking a visit lets you leave the vet unassigned."]
+            ["scripted"]] == ["test/VisitTest.java:3"]
+    assert got["Owners are greeted by a pirate."]["scripted"] == []
 
 
 # --- the page ---------------------------------------------------------------------------
@@ -324,6 +330,296 @@ def test_the_build_relays_a_scripted_matrix_without_rewording_its_card(tmp_path)
     assert T.COVCARD_WHO in out and T.CARD_WHO not in out
 
 
+# --- a keyword match is a candidate, not proof ------------------------------------------
+#
+# Run 5 painted "The grid should be sortable by any column" fully covered: the script linked
+# it to a scenario that checks the page size, on the words `grid` and `sort`, and no model
+# was ever asked because every sentence had a link. A scripted link is now a candidate the
+# model confirms or rejects, and a sentence is green only on a test the model says asserts it.
+
+def _sids(g):
+    by_text = {s["text"]: s["id"] for s in g["sentences"]}
+    return (by_text["Booking a visit lets you leave the vet unassigned."],
+            by_text["Editing a visit changes the vet."],
+            by_text["Owners are greeted by a pirate."])
+
+
+def test_an_unconfirmed_scripted_link_is_never_drawn_as_covered(tmp_path):
+    root, review = _repo(tmp_path)
+    g = S.gather(S._spec(review), review, root)
+    book, edit, _ = _sids(g)
+    entries = {e["id"]: e for e in S.merge(g["sentences"], g["scripted"], None)}
+    assert entries[book]["coverage"] == "unconfirmed" and entries[book]["tests"]
+    page = S.render(g["ticket"], g["blocks"], g["rows"], list(entries.values()), root)
+    assert 'data-cov="covered"' not in page.split('class="rm-legend"')[1].split("</div>", 1)[1]
+    assert f'data-s="{book}" data-cov="unconfirmed"' in page
+    # The legend names the state it introduces, and only when the page uses it.
+    assert 'class="rm-lg" data-cov="unconfirmed"' in page
+    assert 'class="rm-lg" data-cov="narrowed"' not in page
+
+
+def _answer(book, edit, pirate, book_verdict="confirm"):
+    keep = book_verdict == "confirm"
+    return {"schema": "test-mapping/1", "sentences": [
+        {"id": book, "coverage": "covered" if keep else "missing",
+         "tests": [{"id": "test/VisitTest.java:3", "strength": "asserted",
+                    "why": "asserts the saved vet is null"}] if keep else [],
+         "review": [{"id": "test/VisitTest.java:3", "verdict": book_verdict,
+                     "why": "reads the vet back" if keep else "never reads the vet"}]},
+        {"id": edit, "coverage": "narrowed", "decision": "d1",
+         "tests": [{"id": "test/VisitTest.java:8", "strength": "asserted",
+                    "why": "asserts the new vet"}],
+         "review": [{"id": "test/VisitTest.java:8", "verdict": "confirm",
+                     "why": "changes the vet and reads it back"}]},
+        {"id": pirate, "coverage": "missing", "tests": []}]}
+
+
+def _with_decision(review):
+    (review / "review-points.json").write_text(json.dumps({"assumptions": [
+        {"title": "Only the vet's name is editable", "alternative": "edit any field",
+         "why": "the ticket's scope"}], "findings": []}), encoding="utf-8")
+
+
+def test_the_model_confirms_rejects_and_narrows_in_one_answer(tmp_path):
+    root, review = _repo(tmp_path)
+    _with_decision(review)
+    g = S.gather(S._spec(review), review, root)
+    book, edit, pirate = _sids(g)
+    assert [d["id"] for d in g["decisions"]] == ["d1"]
+    asked = S.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"],
+                          g["decisions"])
+    assert asked["decisions"][0]["text"].startswith("Assumed: Only the vet's name is editable")
+    links = S.scripted_links(g["scripted"])
+    ok = _answer(book, edit, pirate)
+    assert S.problems(ok, {x["id"] for x in asked["sentences"]},
+                      {t["id"] for t in asked["tests"]}, links, {"d1"}) == []
+
+    entries = {e["id"]: e for e in S.merge(g["sentences"], g["scripted"], ok, g["decisions"])}
+    assert entries[book]["coverage"] == "covered" and entries[book]["by"] == "model"
+    # The script's evidence stays beside the link the model confirmed.
+    assert entries[book]["tests"][0]["evidence"]
+    assert entries[edit]["coverage"] == "narrowed"
+    page = S.render(g["ticket"], g["blocks"], g["rows"], list(entries.values()), root)
+    data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
+    assert "Only the vet's name is editable" in data["sentences"][edit]["gap"]
+    assert data["sentences"][edit]["gapKind"] == "requirement"
+
+    # Rejected: off the sentence's tests, on its record with the reason, and not green.
+    no = _answer(book, edit, pirate, book_verdict="reject")
+    entries = {e["id"]: e for e in S.merge(g["sentences"], g["scripted"], no, g["decisions"])}
+    assert entries[book]["coverage"] == "missing" and entries[book]["tests"] == []
+    assert entries[book]["rejected"] == [{"id": "test/VisitTest.java:3",
+                                         "why": "never reads the vet"}]
+    assert S.split_counts(list(entries.values()))["rejected"] == 1
+
+
+@pytest.mark.parametrize("mutate, says", [
+    (lambda d: d["sentences"][0].pop("review"), "neither confirmed nor rejected"),
+    (lambda d: d["sentences"][0]["review"][0].update(verdict="reject"),
+     "rejected but still in `tests`"),
+    (lambda d: d["sentences"][0]["tests"].clear() or d["sentences"][0].update(
+        coverage="missing"), "confirmed but not in `tests`"),
+    (lambda d: d["sentences"][2].update(review=[
+        {"id": "test/VisitTest.java:3", "verdict": "reject", "why": "x"}]),
+     "not a link the script made"),
+    (lambda d: d["sentences"][1].pop("decision"), "names the recorded decision"),
+    (lambda d: d["sentences"][1].update(decision="d9"), "not one of the decisions listed"),
+    (lambda d: d["sentences"][0]["review"][0].pop("why"), "missing required `why`"),
+])
+def test_an_answer_that_skips_or_fudges_a_verdict_is_refused(tmp_path, mutate, says):
+    root, review = _repo(tmp_path)
+    g = S.gather(S._spec(review), review, root)
+    doc = _answer(*_sids(g))
+    mutate(doc)
+    got = S.problems(doc, None, None, S.scripted_links(g["scripted"]), {"d1"})
+    assert any(says in p for p in got), got
+
+
+# --- the OpenSpec change under the issue ---------------------------------------------------
+
+SPEC_MD = """# Spec Delta
+
+## ADDED Requirements
+
+### Requirement: Paging inputs
+The API SHALL use pages of 5, 10 or 20 owners.
+
+#### Scenario: Invalid size
+- **WHEN** a user supplies `size=7`
+- **THEN** the API returns HTTP 400
+
+### Requirement: Business-key sorting
+The API SHALL accept only `sort=name` or `sort=city`.
+
+## REMOVED Requirements
+
+### Requirement: Unbounded list
+The API SHALL return every owner.
+"""
+
+
+def _with_spec(root):
+    d = root / "openspec" / "changes" / "paginate-owners"
+    (d / "specs" / "owner-list").mkdir(parents=True)
+    (d / "specs" / "owner-list" / "spec.md").write_text(SPEC_MD, encoding="utf-8")
+    (d / "proposal.md").write_text(
+        "## Why\n\nIssue #7 asks for it.\n\n- Sorting is limited to Name and City, "
+        "narrowing the original request.\n- Out of scope: sorting by Telephone.\n",
+        encoding="utf-8")
+
+
+def test_the_spec_requirements_are_numbered_under_the_issue_and_paired_too(tmp_path):
+    """Run 5: the issue had 2 bullets, its OpenSpec change 10 requirements, and the matrix
+    mapped only the 2. The change is found by the issue number its proposal mentions."""
+    root, review = _repo(tmp_path)
+    _with_spec(root)
+    g = S.gather(S._spec(review), review, root)
+    heading = S.SPEC_HEADING.format(name="paginate-owners")
+    kinds = [(b["kind"], b.get("text")) for b in g["blocks"]]
+    assert ("h", heading) in kinds
+    spec_ol = g["blocks"][kinds.index(("h", heading)) + 1]
+    assert spec_ol["kind"] == "ol" and len(spec_ol["items"]) == 2, "REMOVED is not a claim"
+    first = spec_ol["items"][0]["sentences"][0]
+    assert first["text"].startswith("Paging inputs — The API SHALL use pages of 5, 10 or 20")
+    assert first["requirement"] == "Paging inputs"
+    assert first["scenarios"] == ["Invalid size: WHEN a user supplies size=7 THEN the API "
+                                  "returns HTTP 400"]
+    # The issue still comes first, and the provenance line says both, in plain words.
+    assert g["sentences"][0]["text"] == "Booking a visit lets you leave the vet unassigned."
+    assert g["ticket"]["origin"].endswith(
+        "then the 2 requirements of the OpenSpec change paginate-owners")
+    asked = S.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"],
+                          g["decisions"])
+    by_req = [x for x in asked["sentences"] if x.get("requirement") == "Paging inputs"]
+    assert by_req and by_req[0]["scenarios"]
+    # The proposal's scope cuts are decisions the model reads.
+    texts = [d["text"] for d in g["decisions"]]
+    assert any("Sorting is limited to Name and City" in t for t in texts), texts
+    assert any("Out of scope: sorting by Telephone" in t for t in texts), texts
+
+
+def test_a_change_for_another_issue_is_not_appended(tmp_path):
+    root, review = _repo(tmp_path)
+    _with_spec(root)
+    (root / "openspec" / "changes" / "paginate-owners" / "proposal.md").write_text(
+        "Issue #70 asks for it.\n", encoding="utf-8")
+    g = S.gather(S._spec(review), review, root)
+    assert not any(b["kind"] == "h" for b in g["blocks"])
+    assert "OpenSpec" not in g["ticket"]["origin"]
+
+
+# --- why a test is on the card --------------------------------------------------------------
+
+def test_every_test_says_why_it_is_listed_and_the_ones_about_the_change_come_first(tmp_path):
+    root, review = _repo(tmp_path)
+    g = S.gather(S._spec(review), review, root)
+    rows = {r["id"]: dict(r) for r in g["rows"]}
+    rows["test/VisitTest.java:8"]["status"] = "unchanged"
+    rows["test/VisitTest.java:8"]["aimed"] = False
+    paired = {"test/VisitTest.java:3"}
+    assert S.test_rank(rows["test/VisitTest.java:3"], paired) == 0
+    assert S.test_rank(rows["test/VisitTest.java:8"], set()) == 3
+    assert S.test_rank({**rows["test/VisitTest.java:8"], "aimed": True}, set()) == 2
+    assert S.test_rank({**rows["test/VisitTest.java:8"], "status": "new"}, set()) == 1
+    assert S.test_why(rows["test/VisitTest.java:3"]) == \
+        "its coverage ran changed lines of Visit.java 3–4"
+    page = S.render(g["ticket"], g["blocks"], g["rows"],
+                    S.merge(g["sentences"], g["scripted"], None), root)
+    data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
+    assert data["tests"]["test/VisitTest.java:3"]["why"].startswith("its coverage ran")
+    assert set(data["ranks"]) == {"0", "1", "2", "3"}
+    js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
+    assert "rank(a)-rank(b)" in js and "rm-tgroup" in js and "t.why" in js
+
+
+# --- the model step, end to end, with `claude` stubbed --------------------------------------
+
+def _fake_claude(tmp_path, answer: dict) -> Path:
+    """A `claude` on PATH that records its stdin and answers with `answer` in the CLI's JSON
+    envelope — no network, no spend."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    exe = bin_dir / "claude"
+    exe.write_text("#!/usr/bin/env python3\nimport json, sys\n"
+                   f"open({str(tmp_path / 'prompt.txt')!r}, 'w').write(sys.stdin.read())\n"
+                   "print(json.dumps({'total_cost_usd': 0.0021, 'result': json.dumps("
+                   + repr(answer) + ")}))\n", encoding="utf-8")
+    exe.chmod(0o755)
+    return bin_dir
+
+
+def test_the_model_step_asks_about_every_scripted_link_in_one_call(tmp_path, monkeypatch):
+    """The run-5 hole: every sentence had a scripted link, so rerun-model.py wrote "the
+    script paired every sentence; no model was asked" and the keyword match went out green."""
+    root, review = _repo(tmp_path)
+    _with_decision(review)
+    g = S.gather(S._spec(review), review, root)
+    answer = _answer(*_sids(g))
+    import os
+    monkeypatch.setenv("PATH", f"{_fake_claude(tmp_path, answer)}{os.pathsep}"
+                               + os.environ["PATH"])
+    monkeypatch.chdir(root)
+    RM = _load("rerun_model", "rerun-model.py")
+    assert RM.main(["--dir", str(review)]) == 0
+    prompt = (tmp_path / "prompt.txt").read_text()
+    assert prompt.count('"scripted"') == 3 and '"decisions"' in prompt
+    assert "test/VisitTest.java:3" in prompt
+    written = json.loads((review / S.MAPPING).read_text())
+    assert written == answer
+    said = S.write_fragment(S._spec(review), review, root)
+    assert "1 rejected" not in said and "by model" in said
+    page = (review / S.FRAGMENT).read_text()
+    book, edit, _ = _sids(g)
+    assert f'data-s="{book}" data-cov="covered" data-src="model"' in page
+    assert f'data-s="{edit}" data-cov="narrowed" data-src="model"' in page
+
+
+def test_a_sentence_missing_a_verdict_is_dropped_and_stays_unconfirmed(tmp_path, monkeypatch):
+    """One sentence's slip costs that sentence, not the whole paid answer — and never turns
+    it green: dropped, it shows its scripted links as unconfirmed."""
+    root, review = _repo(tmp_path)
+    _with_decision(review)
+    g = S.gather(S._spec(review), review, root)
+    book, edit, _ = _sids(g)
+    answer = _answer(*_sids(g))
+    answer["sentences"][0].pop("review")
+    import os
+    monkeypatch.setenv("PATH", f"{_fake_claude(tmp_path, answer)}{os.pathsep}"
+                               + os.environ["PATH"])
+    monkeypatch.chdir(root)
+    RM = _load("rerun_model", "rerun-model.py")
+    assert RM.main(["--dir", str(review)]) == 0
+    written = json.loads((review / S.MAPPING).read_text())
+    assert [e["id"] for e in written["sentences"]] == [edit, _sids(g)[2]]
+    assert "1 sentence(s) dropped" in written["note"] and book in written["note"]
+    assert (review / ".model-prev" / "test-mapping.refused.json").is_file()
+    S.write_fragment(S._spec(review), review, root)
+    assert f'data-s="{book}" data-cov="unconfirmed"' in (review / S.FRAGMENT).read_text()
+
+
+def test_a_reply_that_is_not_the_document_is_refused_whole(tmp_path, monkeypatch):
+    root, review = _repo(tmp_path)
+    answer = {"sentences": []}                      # no `schema`: not the document asked for
+    import os
+    monkeypatch.setenv("PATH", f"{_fake_claude(tmp_path, answer)}{os.pathsep}"
+                               + os.environ["PATH"])
+    monkeypatch.chdir(root)
+    RM = _load("rerun_model", "rerun-model.py")
+    assert RM.main(["--dir", str(review)]) == 5
+    assert not (review / S.MAPPING).exists()
+    assert (review / ".model-prev" / "test-mapping.refused.json").is_file()
+
+
+def test_the_model_is_handed_its_reply_already_laid_out(tmp_path):
+    root, review = _repo(tmp_path)
+    g = S.gather(S._spec(review), review, root)
+    asked = S.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"])
+    form = {e["id"]: e for e in asked["answer"]["sentences"]}
+    assert set(form) == {x["id"] for x in asked["sentences"]}
+    book = _sids(g)[0]
+    assert form[book]["review"] == [{"id": "test/VisitTest.java:3", "verdict": "", "why": ""}]
+
+
 # --- where the requirement text comes from ----------------------------------------------
 #
 # hr-try-4 had no PR and no `#N` anywhere, so the Tests tab was empty, although the branch
@@ -391,7 +687,12 @@ def test_the_page_says_which_source_the_ticket_came_from(tmp_path, monkeypatch):
                                     encoding="utf-8")
     assert S.write_fragment(S._spec(review), review, root)
     frag = (review / S.FRAGMENT).read_text()
-    assert '<span class="rm-src">Requirement text: the implementation conversation' in frag
+    # Plain words, on a line of its own under the header strip — no file, no key.
+    src = frag.split('<p class="rm-src">')[1].split("</p>")[0]
+    assert src.startswith("From the first request of the conversation"), src
+    assert ".md" not in src and ".json" not in src and "`" not in src
+    head = frag.split('<div class="rm-tkhead">')[1].split("</div>")[0]
+    assert "rm-src" not in head, "the provenance is squeezed into the header row again"
     T = importlib.import_module("hrbuild.tabs.tests")
     out = T.reqmap_layout(frag, S._spec(review), review, root)
     assert "Requirement: the implementation conversation&#x27;s first request" in out

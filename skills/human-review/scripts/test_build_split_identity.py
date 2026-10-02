@@ -230,7 +230,11 @@ def _top_level_names(path: Path):
 #: snapshot of a counter that has since moved. Reading one of them off
 #: `build-review-html.py` is a bug waiting to happen, and so is patching one there — the
 #: module that declares it is the only honest handle.
-REBOUND = {"_LIST_OFFSET", "_LEDE_SHOWN"}
+#:
+#: And `SNIPPET_BASE`, which `set_diff_base` moves once per build to the page's one base
+#: (`chips.page_base`) — before that the snippets measured from `origin/main` while the
+#: tabs around them measured from the base the review audited.
+REBOUND = {"_LIST_OFFSET", "_LEDE_SHOWN", "SNIPPET_BASE"}
 
 
 def test_nothing_else_in_the_package_rebinds_a_module_global():

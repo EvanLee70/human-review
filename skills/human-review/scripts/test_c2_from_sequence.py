@@ -368,6 +368,40 @@ def test_a_chattier_call_is_a_count_not_a_colour():
     assert e["operationsDelta"] == 2
 
 
+def test_a_count_on_a_database_line_and_a_new_summary_are_no_change_of_shape():
+    """Eval run 5: `modified`, red Diff frame, over an old and a new render that were byte
+    for byte the same. The line into the database had gained a statement — a count that
+    line never prints — and one operation behind Browser→Backend had a new summary, which
+    only the popup shows. Neither is on the picture, so the card is UNCHANGED, plain."""
+    old = graph("""
+        @startuml
+        Browser -> Backend: List owners\\nGET /api/owners
+        Backend -> DB: select owners
+        @enduml
+    """)
+    new = graph("""
+        @startuml
+        Browser -> Backend: List owners, one page at a time\\nGET /api/owners
+        Backend -> DB: select owners
+        Backend -> DB: select count(*) from owners
+        @enduml
+    """)
+    d = c2.diff(old, new)
+    assert next(e for e in d["edges"] if e["to"] == "DB")["operationsDelta"] == 1
+    web = next(e for e in d["edges"] if e["to"] == "Backend")
+    assert web["detail"][0]["name"] == "List owners, one page at a time"
+    assert not c2.shape_changed(d)
+    # …while a count the label DOES print is a change: `2 ops (was 1)` is on the picture.
+    wider = graph("""
+        @startuml
+        Browser -> Backend: GET /api/owners
+        Browser -> Backend: GET /api/owners/count
+        Backend -> DB: select owners
+        @enduml
+    """)
+    assert c2.shape_changed(c2.diff(old, wider))
+
+
 # --------------------------------------------------------------------------- the popup
 
 
@@ -709,6 +743,36 @@ def test_a_branch_whose_base_had_no_sequences_is_added_not_modified(tmp_path):
     # Nothing to compare against means nothing to paint: a diagram where every box is
     # green says "all of this changed" when what happened is "this is the first picture".
     assert c2.ADDED not in (out / "C2-Containers.diff.puml").read_text()
+
+
+def test_a_branch_that_only_added_a_statement_files_its_view_as_unchanged(tmp_path):
+    root = _repo(tmp_path)
+    (root / "test" / "a.spec.ts.flow.genseq.puml").write_text(
+        "@startuml\nBrowser -> Backend: GET /api/owners\nBackend -> DB: select owners\n"
+        "Backend -> DB: select count(*) from owners\n@enduml\n")
+    assert c2.main(["--root", str(root), "--base", "main"]) == 0
+    header, row = (root / ".human-review/assets/c2/MANIFEST.tsv").read_text().splitlines()
+    fields = dict(zip(header.split("\t"), row.split("\t")))
+    assert fields["status"] == "unchanged"
+    assert fields["note"] == "", "the sequences were not said to be stale"
+
+
+def test_a_view_projected_from_sequences_nobody_re_traced_says_so_on_its_card(tmp_path):
+    """The Sequence tab carries an amber band when its suites drew nothing; this card is
+    drawn from the very same committed diagrams and used to say nothing at all."""
+    root = _repo(tmp_path)
+    assets = root / ".human-review" / "assets"
+    assets.mkdir(parents=True)
+    (assets / "sequence.verdict.json").write_text(json.dumps({"state": "skipped"}))
+    assert c2.main(["--root", str(root), "--base", "main"]) == 0
+    header, row = (assets / "c2" / "MANIFEST.tsv").read_text().splitlines()
+    note = dict(zip(header.split("\t"), row.split("\t")))["note"]
+    assert "committed on the branch" in note and "not re-run" in note
+    # A red or a clean run drew this run's pictures: nothing to warn about.
+    (assets / "sequence.verdict.json").write_text(json.dumps({"state": "red"}))
+    assert c2.main(["--root", str(root), "--base", "main"]) == 0
+    header, row = (assets / "c2" / "MANIFEST.tsv").read_text().splitlines()
+    assert dict(zip(header.split("\t"), row.split("\t")))["note"] == ""
 
 
 if __name__ == "__main__":

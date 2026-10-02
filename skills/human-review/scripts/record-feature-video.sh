@@ -23,7 +23,7 @@
 # captions light up word by word in time with the voice. It also fixes the pacing problem the
 # hardcoded pauses below could never solve — a pause tuned for reading a sentence is not the
 # time it takes to say it — so every pause() is now a MINIMUM, stretched when the narration
-# needs longer. Set NARRATION=off to film silently; NARRATION_VOICE / NARRATION_RATE pick the
+# needs longer, and say() itself returns only once its sentence has been spoken. Set NARRATION=off to film silently; NARRATION_VOICE / NARRATION_RATE pick the
 # voice (`say -v "?"` lists them) and its speed. With a Fish Audio key (see narrate-cue.py) the
 # cues are ALSO spoken by each cloned voice in NARRATION_FISH_VOICES — by default 🐘 (Trump)
 # and Discovery (a nature-documentary narrator) — and one more film is cut from the same take
@@ -410,6 +410,13 @@ const get = async (url) => {
       }
     }
     cues.push(cue);
+    // The shot HOLDS while the line is spoken, whatever the script does next. say() used to
+    // return at once and only pause() waited, so a script writing say() then a click moved
+    // the screen under its own sentence: eval run 5 captioned "Harry and Beatrix Potter are
+    // the two matches" over the no-match screen the next search had already drawn, and
+    // "hides the paginator" over the full list after it, ten seconds behind by the end.
+    // The longest voice decides, so every cut of the take holds the same screen.
+    await page.waitForTimeout(Math.max(0, spokenUntil + 350 - Date.now()));
   };
   // Every hardcoded pause is a floor, never a ceiling: the shot also has to last long enough
   // for the sentence being spoken over it to finish, plus a beat before the next one starts.

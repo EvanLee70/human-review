@@ -24,6 +24,7 @@ Run with:  python3 -m pytest test_feature_video_app.py
 """
 from __future__ import annotations
 
+import html
 import http.server
 import importlib.util
 import json
@@ -189,6 +190,96 @@ def test_a_project_with_no_app_block_films_exactly_as_it_did_before(tmp_path, mo
     assert sh.first("record-feature-video.sh").startswith(str(steps.HERE))
 
 
+# ── the screens are shot on the seed, never on what a suite left behind ─────────────
+# Eval run 5 (3 Oct 2026): city's Playwright suite wrote into the commit's stack, and the
+# design-system audit and the film then shot that same stack. Three of the audit's four
+# "changed" screens were test data (`Join 26` → `Join 28 happy pet owners`, an e2e visit),
+# and the film opened its sorted list on two junk owners.
+
+def _reused(tmp_path, monkeypatch, app, posts=None, port="63241"):
+    """A run whose stack is already up — started by an earlier step of the same run."""
+    sh = Recorder([("git rev-parse HEAD", 0, SHA + "\n"),
+                   ("git rev-parse --short HEAD", 0, SHORT + "\n"),
+                   ("start-docker.sh url", 0, "http://localhost:51999\n"),
+                   ("start-docker.sh up", 0, f"recreated\n   http://localhost:{port}\n")])
+    ctx, sh = _ctx(tmp_path, monkeypatch, app=app, recorder=sh)
+    monkeypatch.setattr(steps, "answers", lambda url, timeout=3.0: True)
+    monkeypatch.setattr(steps, "_post", lambda url, timeout=30.0: (posts.append(url), True)[1]
+                        if posts is not None else True)
+    return ctx, sh
+
+
+def test_a_stack_another_step_wrote_into_is_reset_before_it_is_filmed(tmp_path, monkeypatch):
+    posts = []
+    ctx, sh = _reused(tmp_path, monkeypatch, {**APP, "reset": "/__reset"}, posts)
+    steps._video(ctx)
+    # The endpoint the page's own Reset button presses, on the instance the film is of.
+    assert posts == ["http://localhost:51999/__reset"]
+    assert "BASE_URL=http://localhost:51999" in sh.first("record-feature-video.sh")
+    # Reused, so left up for the steps after it — the reset is not a reason to tear down.
+    assert not sh.has("start-docker.sh up") and not sh.has("start-docker.sh down")
+
+
+def test_a_reset_that_is_a_command_runs_with_the_instance_named(tmp_path, monkeypatch):
+    ctx, sh = _reused(tmp_path, monkeypatch,
+                      {**APP, "reset": "./start-docker.sh reset petclinic-{shortsha}"})
+    steps._video(ctx)
+    assert sh.ran.index(f"./start-docker.sh reset petclinic-{SHORT}") < \
+        sh.ran.index(sh.first("record-feature-video.sh"))
+
+
+def test_without_a_reset_a_stack_found_running_is_recycled_from_its_seed(tmp_path, monkeypatch):
+    """Slower than a reset and never wrong: `down` drops the volume, `up` seeds it again —
+    and the film is pointed at the port the instance came back on."""
+    ctx, sh = _reused(tmp_path, monkeypatch, APP, port="64000")
+    steps._video(ctx)
+    down = sh.ran.index(f"./start-docker.sh down petclinic-{SHORT}")
+    up = sh.ran.index(sh.first("start-docker.sh up"))
+    film = sh.ran.index(sh.first("record-feature-video.sh"))
+    assert down < up < film
+    assert "BASE_URL=http://localhost:64000" in sh.ran[film]
+    assert any("app.reset" in n for n in ctx.notes), "the note says how to make it cheap"
+    assert sh.ran.count(f"./start-docker.sh down petclinic-{SHORT}") == 1, \
+        "found running, so left running for the steps after it"
+
+
+def test_a_stack_this_step_started_needs_no_second_start(tmp_path, monkeypatch):
+    ctx, sh = _ctx(tmp_path, monkeypatch)          # nothing up: `up` starts it from the seed
+    steps._video(ctx)
+    assert sh.ran.count(sh.first("start-docker.sh up")) == 1
+    assert sh.ran.index(sh.first("start-docker.sh up")) < \
+        sh.ran.index(sh.first("record-feature-video.sh"))
+
+
+def test_the_design_system_audit_resets_both_sides_before_it_shoots(tmp_path, monkeypatch):
+    posts = []
+    ctx, sh = _reused(tmp_path, monkeypatch, {**APP, "reset": "/__reset"}, posts)
+    ctx.cfg["steps"]["dsaudit"] = {"app": "video"}
+    sh.answers.insert(0, ("git rev-parse 1111111", 0, "1" * 40 + "\n"))
+    with steps._dsaudit_origins(ctx, ctx.step_cfg("dsaudit"), "1111111") as (new, old):
+        assert len(posts) == 2, "both instances were brought back to their seed first"
+    assert all(p.endswith("/__reset") for p in posts)
+
+
+def test_every_step_that_shoots_the_screens_resets_first():
+    """Read off the source, the way the convention is kept: a new capture step that forgets
+    `clean=True` shoots whatever the last suite left in the database."""
+    import inspect
+    for name in steps.CAPTURES:
+        fn = {"video": steps._video, "dsaudit": steps._dsaudit_origins}[name]
+        assert "clean=True" in inspect.getsource(fn), name
+
+
+def test_say_holds_the_shot_until_its_sentence_is_spoken():
+    """Eval run 5's film fell a step behind its own narration: say() returned at once, the
+    script clicked on, and "Harry and Beatrix Potter are the two matches" was captioned over
+    the no-match screen the next search had already drawn."""
+    src = RECORDER.read_text(encoding="utf-8")
+    body = src[src.index("const say = async"):src.index("const pause =")]
+    tail = body[body.index("cues.push(cue);"):]
+    assert "waitForTimeout" in tail and "spokenUntil" in tail
+
+
 # ── the verdict nobody can lose ───────────────────────────────────────────────────
 
 EXIT3_LOG = """\
@@ -253,6 +344,63 @@ def _section(tmp_path, verdict=None, film=True):
     if verdict is not None:
         (assets / "feature.verdict.json").write_text(json.dumps(verdict), encoding="utf-8")
     return build.video_html({"video": "assets/feature.webm"}, tmp_path)
+
+
+# ── what the Demo tab shows when the content file said nothing ──────────────────────
+# Eval run 5's model wrote no `video` section, so its Demo tab had no Deployed-app row and
+# no linked words in the transcript — while everything behind both was on disk.
+
+def _project(tmp_path, app=None):
+    root = tmp_path / "repo"
+    (root / ".human-review" / "assets").mkdir(parents=True)
+    run = lambda *a: subprocess.run(["git", "-C", str(root), *a], check=True,
+                                    capture_output=True, text=True).stdout.strip()
+    run("init", "-q")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x")
+    (root / "human-review.json").write_text(json.dumps(
+        {"steps": {"video": {"app": app or {**APP, "reset": "/__reset"}}}}))
+    out = root / ".human-review"
+    (out / "assets" / "feature.cues.json").write_text(json.dumps([
+        {"t": 1.0, "text": "The Owners grid is now paginated on the server."},
+        {"t": 4.0, "text": "Clearing the search brings every owner back."}]))
+    (out / "assets" / "feature.webm").write_bytes(b"\x1a\x45\xdf\xa3")
+    return root, out, run("rev-parse", "HEAD"), run("rev-parse", "--short", "HEAD")
+
+
+def test_the_deployed_app_row_is_the_films_own_app_block(tmp_path):
+    root, out, sha, short = _project(tmp_path)
+    page = build.video_html({"video": "assets/feature.webm"}, out)
+    assert "Deployed app" in page and "Start App in Docker" in page
+    assert html.escape(f"cd {root} && ./start-docker.sh up --ref {sha} --ttl 1800") in page
+    assert html.escape(f"./start-docker.sh down petclinic-{short}") in page
+    assert 'data-reset="/__reset"' in page
+    # What the content file says still wins.
+    mine = build.video_html({"video": "assets/feature.webm",
+                             "runtime": {"command": "make up"}}, out)
+    assert "make up" in mine and "start-docker.sh up" not in mine
+
+
+def test_a_reset_that_is_a_command_is_not_a_button(tmp_path):
+    _, out, _, _ = _project(tmp_path, {**APP, "reset": "./start-docker.sh reset x"})
+    page = build.video_html({"video": "assets/feature.webm"}, out)
+    assert "Start App in Docker" in page
+    assert "start-docker.sh reset" not in page, "a browser cannot press a shell command"
+
+
+def test_the_screens_this_branch_changed_are_linked_on_the_words_that_name_them(tmp_path):
+    _, out, _, _ = _project(tmp_path)
+    changed = {"dom": {"added": ["x"], "removed": [], "changed": []}, "elements": {}}
+    same = {"dom": {"added": [], "removed": [], "changed": []}, "elements": {}}
+    quiet = {"regressions": [], "improvements": []}
+    (out / "assets" / "ds-audit.json").write_text(json.dumps({"screens": [
+        {"screen": "Owners", "route": "/owners", "delta": changed, "summary": quiet},
+        {"screen": "Welcome", "route": "/welcome", "delta": changed, "summary": quiet},
+        {"screen": "Vets", "route": "/vets", "delta": same, "summary": quiet}]}))
+    page = build.video_html({"video": "assets/feature.webm"}, out)
+    assert 'The <a data-app="/owners" href="/owners">Owners</a> grid' in page
+    # Changed and never named on film: a fact about the film's coverage, said once.
+    assert "Not filmed." in page and ">welcome</a>" in page
+    assert "/vets" not in page, "a screen the branch did not change is not linked"
 
 
 def test_a_film_that_held_carries_no_band(tmp_path):
@@ -576,6 +724,11 @@ MVN_NO_TESTS = (
     "[ERROR]   FunctionalCucumberTest » NoTestsDiscovered Suite "
     "[x.functional.FunctionalCucumberTest] did not discover any tests\n"
     "[INFO] BUILD FAILURE\n")
+GENERATOR_SKIPPED_ALL = (
+    "> ts-node src/genseq/generate.ts\n"
+    "⚠️  \"Add a visit to an existing pet from the owner detail page\": fetch failed — skipped\n"
+    "⚠️  \"adds a visit to an existing pet\": fetch failed — skipped\n"
+    "📊 Generated 0 diagram(s)\n")
 HR_TRY_4 = ["cd petclinic-test && ./run-tests-with-tracing.sh",
             "cd petclinic-backend && mvn -o -Pgenseq test -Dgroups=genseq",
             "cd petclinic-test && GENSEQ_REFRESH=1 npm run trace:diagram"]
@@ -594,7 +747,7 @@ def test_suites_that_could_not_start_are_skipped_with_their_reason_not_red(
     monkeypatch.chdir(tmp_path)
     sh = Recorder([("run-tests-with-tracing.sh", 1, TRACING_ABORT),
                    ("mvn -o -Pgenseq", 1, MVN_NO_TESTS),
-                   ("trace:diagram", 0, "📊 Generated 0 diagram(s)\n")])
+                   ("trace:diagram", 0, GENERATOR_SKIPPED_ALL)])
     monkeypatch.setattr(steps, "sh", sh)
     ctx = steps.Ctx("origin/main", {"steps": {"sequence": {"commands": HR_TRY_4}}}, dry=False)
 
@@ -607,7 +760,12 @@ def test_suites_that_could_not_start_are_skipped_with_their_reason_not_red(
     assert "collector" in row["reason"]
     verdict = json.loads(Path(".human-review/assets/sequence.verdict.json").read_text())
     assert verdict["state"] == "skipped"
-    assert [r["outcome"] for r in verdict["runs"]] == ["failed", "no-tests", "ran"]
+    # Eval run 5: the generator exited 0 after skipping every scenario, and the band said
+    # `passed` under "drew no diagram". A zero exit that drew nothing is its own outcome.
+    assert [r["outcome"] for r in verdict["runs"]] == ["failed", "no-tests", steps.DREW_NOTHING]
+    assert verdict["runs"][2]["detail"] == \
+        "exit 0, and drew no diagram — “fetch failed — skipped” ×2"
+    assert "passed" not in row["reason"]
 
 
 def test_a_tag_filter_that_matched_nothing_is_not_a_failure():

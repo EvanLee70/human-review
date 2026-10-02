@@ -527,6 +527,71 @@ def test_the_breaking_panel_names_both_counts():
         "Breaking change · 1 change, 1 breaking across 1 endpoint ·")
 
 
+def _entry(level, rule, op="GET", path="/api/owners"):
+    return {"id": rule, "operation": op, "path": path, "level": level, "text": rule}
+
+
+def test_one_break_among_additions_counts_as_one_break():
+    """Run 5: oasdiff rated one entry breaking (the 200 body went array → object) and five
+    INFO (three optional params, two response properties). The band said "6 breaking",
+    because every entry of an operation with *any* WARN+ entry was filed as breaking."""
+    entries = [_entry(3, "response-body-type-changed")] + [
+        _entry(1, f"new-optional-request-parameter-{p}") for p in ("page", "size", "sort")] + [
+        _entry(1, f"response-required-property-added-{p}") for p in ("content", "total")]
+    result = oac.read_changelog(entries)
+    assert result["state"] == oac.INCOMPATIBLE
+    assert oac.breaking_count(result) == 1
+    assert oac.change_count(result) == 6
+    text = _panel_text(oac.panel(result, {"breaking": ["GET /api/owners — replaced"],
+                                          "subjects": 2}))
+    assert text.startswith("Breaking change · 6 changes, 1 breaking across 1 endpoint ·"), text
+    # The INFO entries are not dropped: the operation's compatible movement lists them.
+    fragment = oac.render(result, None, "provenance", "")
+    assert re.search(r'What breaks <span class="oac-count">1<', fragment), fragment
+    assert "5 compatible changes besides the break above" in fragment
+    # A WARN entry is breaking too — oasdiff's own `breaking` command is level >= 2.
+    warn = oac.read_changelog([_entry(2, "request-param-enum-value-removed"),
+                               _entry(1, "x")])
+    assert oac.breaking_count(warn) == 1 and oac.change_count(warn) == 2
+
+
+def test_a_different_count_under_the_same_verdict_is_said_on_the_band():
+    """Both differs say breaking, but count it differently: the band names both numbers
+    rather than letting the second report contradict it silently."""
+    result = _result(oac.INCOMPATIBLE, breaks=[_op("GET", "/api/owners", 1)],
+                     additive=[_op("GET", "/api/owners", 5)])
+    text = _panel_text(oac.panel(result, {"breaking": ["a", "b", "c"], "subjects": 2}))
+    assert _panel_class(oac.panel(result, {"breaking": ["a"], "subjects": 2})) == "red"
+    assert "which counts 3 breaking where oasdiff counts 1" in text, text
+    same = _panel_text(oac.panel(result, {"breaking": ["a"], "subjects": 2}))
+    assert "counts" not in same, same
+
+
+def test_the_counts_wrap_beside_the_verdict_not_under_it():
+    """A whole `.n` span dropping onto line two opened that line with a stray '·'. Basis 0
+    keeps the box beside the verdict and wraps its words inside it."""
+    css = oac.PANEL_CSS
+    rule = re.search(r"\.apiverdict \.n\{([^}]*)\}", css).group(1)
+    assert "flex:1 1 0" in rule and "min-width:0" in rule, rule
+
+
+def test_a_replaced_schema_is_one_breaking_change_not_three():
+    """`type: array` + `items` → `$ref`: one node swapped its shape. Ours used to list
+    `$ref added`, `items removed`, `type removed` — 3 breaking beside oasdiff's 1."""
+    before = {"responses": {"200": {"content": {"application/json": {"schema": {
+        "type": "array", "items": {"$ref": "#/components/schemas/OwnerDto"}}}}}}}
+    after = {"responses": {"200": {"content": {"application/json": {"schema": {
+        "$ref": "#/components/schemas/OwnerPageDto"}}}}}}
+    changes = oad.changes_from_leaves(before, after)
+    breaking = [c for c in changes if c.level == oad.BREAKING]
+    assert len(breaking) == 1, [c.text for c in changes]
+    assert "OwnerDto[]" in breaking[0].text and "OwnerPageDto" in breaking[0].text
+    # A lone `format` change is still its own line — only a moved $ref/type folds.
+    lone = oad.changes_from_leaves({"schema": {"type": "string", "format": "date"}},
+                                   {"schema": {"type": "string", "format": "date-time"}})
+    assert len(lone) == 1 and "date-time" in lone[0].text
+
+
 def test_nothing_moved_says_so_and_gets_out_of_the_way():
     same = oac.panel(_result(oac.NO_CHANGES, identical=True), {"breaking": [], "subjects": 0})
     assert _panel_text(same).startswith("No API changes · 0 changes · checked by")

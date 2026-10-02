@@ -533,6 +533,39 @@ def diff(old: Graph, new: Graph) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
+def shape_changed(delta: dict) -> bool:
+    """Whether the picture of the delta differs from the picture of either side.
+
+    A box or a line added or removed does, and so does a count the label prints — `6 ops
+    (was 5)` on a line between two systems. Nothing else does. Eval run 5 filed its C2 as
+    `modified`, red Diff frame and all, over two renders that were byte-identical: one
+    line into the database had gained an operation (a count a datastore line never prints,
+    see `is_datastore_edge`), and one operation had a new summary in the popup behind a
+    line. Neither is on the picture, and a card that frames an unchanged picture as a
+    change is the rule `24aa9a9` wrote down — unchanged is a plain card — broken by its
+    own producer."""
+    return any(n["status"] != "same" for n in delta["nodes"].values()) or any(
+        e["status"] != "same" or (e["operationsDelta"] and not is_datastore_edge(e))
+        for e in delta["edges"])
+
+
+def stale_note(verdict_path: Path) -> str:
+    """The line under the card when the traces it is projected from were not re-run.
+
+    `run-steps.py` `_sequence` leaves `sequence.verdict.json` beside the assets whenever
+    the traced suites drew nothing; the Sequence tab says so in a band, and this card —
+    drawn from the same diagrams — has to say it too, or it reads as this run's evidence."""
+    try:
+        doc = json.loads(verdict_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(doc, dict) or doc.get("state") != "skipped":
+        return ""
+    return ("Projected from the sequence diagrams committed on the branch: the traced suites "
+            "were not re-run on this run (see the Sequence tab), so this view may be stale "
+            "against the code under review.")
+
+
 def is_datastore_edge(e: dict) -> bool:
     """Whether this line goes into a datastore, where counting is noise.
 
@@ -849,6 +882,9 @@ def main(argv=None) -> int:
     ap.add_argument("--name", default="",
                     help="manifest name and file stem (default: steps.c2.name, "
                          f"else {DEFAULT_NAME!r})")
+    ap.add_argument("--sequence-verdict", default="",
+                    help="the Sequence step's verdict (default: sequence.verdict.json beside "
+                         "--out-dir); a 'skipped' one puts a stale note under the card")
     ap.add_argument("--print", action="store_true", dest="dump",
                     help="print the projected graph as JSON and write nothing")
     a = ap.parse_args(argv)
@@ -932,8 +968,7 @@ def main(argv=None) -> int:
     new_svg = side(new, f"{name}.new", new_details)
     old_svg = side(old, f"{name}.old", old_details)
 
-    changed = any(n["status"] != "same" for n in delta["nodes"].values()) or \
-        any(e["status"] != "same" or e["operationsDelta"] for e in delta["edges"])
+    changed = shape_changed(delta)
     (out / f"{name}.diff.puml").write_text(
         render(delta["nodes"], delta["edges"], title=title, system=system,
                caption=caption, coloured=bool(old.edges), details=new_details),
@@ -956,14 +991,20 @@ def main(argv=None) -> int:
                     "base": mb}, indent=2) + "\n", encoding="utf-8")
 
     status = "added" if not old.edges else ("modified" if changed else "unchanged")
-    src_rel = (out / f"{name}.new.puml").relative_to(root).as_posix()
+    # Relative to the repository, as every manifest's `source` is — or absolute, for an
+    # `--out-dir` outside it (a scratch rebuild), which `root / source` still resolves.
+    new_puml = out / f"{name}.new.puml"
+    src_rel = (new_puml.relative_to(root) if new_puml.is_relative_to(root)
+               else new_puml).as_posix()
     manifest = out / "MANIFEST.tsv"
+    note = stale_note(Path(a.sequence_verdict) if a.sequence_verdict
+                      else out.parent / "sequence.verdict.json")
     manifest.write_text(
         "name\tsource\tkind\tstatus\tdiff_puml\tsvg\tfocus\tnew_svg\told_svg\t"
-        "old_details\tnew_details\n"
+        "old_details\tnew_details\tnote\n"
         + "\t".join([name, src_rel, "structural", status,
                      f"{name}.diff.puml", diff_svg, "", new_svg, old_svg,
-                     old_json, new_json])
+                     old_json, new_json, note])
         + "\n", encoding="utf-8")
 
     print(f"[c2] {len(new.nodes)} container(s), {len(new.edges)} call(s), projected from "

@@ -4,6 +4,8 @@ from __future__ import annotations
 import html
 import json
 import re
+import shlex
+import subprocess
 from pathlib import Path
 
 from ..shared.commands import _app_anchor, runtime_html
@@ -160,6 +162,108 @@ def voice_switch(rel: str, voices: list[tuple[str, str, str]]) -> str:
             + "</div>")
 
 
+# ── what the content file used to have to type ─────────────────────────────────────
+#
+# The Deployed-app row and the dotted links in the transcript were both drawn only from
+# what the review's model wrote into the `video` section: `runtime` and `appLinks`. Eval
+# run 5's model wrote no `video` section at all, so its Demo tab had neither — while every
+# fact behind them was on disk: how the film's own instance is started, named and stopped
+# (`steps.video.app`), and which screens this branch changed (the design-system audit).
+# What the content file says still wins; this is what the page says when it says nothing.
+
+
+def _project_root(out_dir: Path) -> Path | None:
+    """The repository the review is of: the nearest directory above the page that holds
+    `human-review.json`, which is where `run-steps.py` reads the same block from."""
+    here = Path(out_dir).resolve()
+    for d in (here, *here.parents):
+        if (d / "human-review.json").is_file():
+            return d
+    # A page written outside the repository (`--out` elsewhere) is still built from inside
+    # it: the build runs at the repository's top level.
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True,
+                         text=True).stdout.strip()
+    return Path(top) if top and (Path(top) / "human-review.json").is_file() else None
+
+
+def derived_runtime(out_dir: Path) -> dict:
+    """`runtime` off `steps.video.app` — the very commands the film was made with, for the
+    commit under review, so the reader's Start brings up what the film showed.
+
+    `reset` only as a path (`/__reset`): the row's Reset button POSTs it to whatever
+    instance is up, and a shell command is nothing a browser can press."""
+    root = _project_root(out_dir)
+    if root is None:
+        return {}
+    try:
+        cfg = json.loads((root / "human-review.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    app = ((cfg.get("steps") or {}).get("video") or {}).get("app")
+    if not isinstance(app, dict) or not app.get("up"):
+        return {}
+
+    def git(*args):
+        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    sha = git("rev-parse", "HEAD")
+    if not sha:
+        return {}
+    slots = {"sha": sha, "shortsha": git("rev-parse", "--short", "HEAD") or sha[:8]}
+
+    def line(template: str) -> str:
+        for name, value in slots.items():
+            template = (template.replace("{" + name + "}", value)
+                        .replace("{" + name.replace("sha", "SHA") + "}", value))
+        return f"cd {shlex.quote(str(root))} && {template}"
+    rt = {"command": line(app["up"]), "base": ""}
+    if app.get("down"):
+        rt["stop"] = line(app["down"])
+    if app.get("url"):
+        rt["urlCommand"] = line(app["url"])
+    if str(app.get("reset") or "").startswith("/"):
+        rt["reset"] = app["reset"]
+    return rt
+
+
+def _screen_changed(screen: dict) -> bool:
+    """`ds-audit.py`'s own test for a screen this branch changed (`screen_changed`)."""
+    delta = screen.get("delta") or {}
+    dom = delta.get("dom") or {}
+    if dom.get("added") or dom.get("removed") or dom.get("changed"):
+        return True
+    if any((st or {}).get("status") == "restyled"
+           for st in (delta.get("elements") or {}).values()):
+        return True
+    counts = screen.get("summary") or {}
+    return bool(counts.get("regressions") or counts.get("improvements"))
+
+
+def derived_app_links(out_dir: Path, cues: list[dict]) -> list[dict]:
+    """`appLinks` off the design-system audit: each screen it found changed, linked on the
+    first caption that names it — `Owners` in "The Owners grid is now paginated…" becomes a
+    link into `/owners` on whatever instance is up. A changed screen no caption names is
+    still listed, after the transcript, as touched and not filmed."""
+    try:
+        doc = json.loads((Path(out_dir) / "assets" / "ds-audit.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    links = []
+    for screen in doc.get("screens") or [] if isinstance(doc, dict) else []:
+        name, route = str(screen.get("screen") or ""), str(screen.get("route") or "")
+        if not (name and route.startswith("/") and _screen_changed(screen)):
+            continue
+        link = {"href": route, "label": name.lower()}
+        rx = re.compile(r"\b" + re.escape(name) + r"\b", re.I)
+        for cue in cues:
+            m = rx.search(str(cue.get("text") or ""))
+            if m:
+                link["anchor"] = m.group(0)
+                break
+        links.append(link)
+    return links
+
+
 def video_html(s, out_dir: Path) -> str:
     """The player and its transcript — or, when the recording failed, the transcript alone.
 
@@ -172,8 +276,9 @@ def video_html(s, out_dir: Path) -> str:
     rel = s["video"]
     cues_path = out_dir / rel.replace(".webm", ".cues.json")
     cues = json.loads(cues_path.read_text(encoding="utf-8")) if cues_path.is_file() else []
-    rt = s.get("runtime") or {}
-    items, unplaced = _link_captions(cues, s.get("appLinks", []), bool(rt.get("drive")))
+    rt = s.get("runtime") or derived_runtime(out_dir)
+    links = s["appLinks"] if "appLinks" in s else derived_app_links(out_dir, cues)
+    items, unplaced = _link_captions(cues, links, bool(rt.get("drive")))
     voices = voice_films(rel, out_dir) if (out_dir / rel).is_file() else []
     # The same take, cue for cue, in every voice, so caption.js swaps the source and keeps
     # the second the reader was at; the transcript and its timestamps are shared by all.

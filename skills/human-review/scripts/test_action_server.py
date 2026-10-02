@@ -1207,8 +1207,8 @@ def test_the_model_step_spends_nothing_on_a_dry_run(tmp_path):
     assert "claude -p --model haiku" in out.stdout
     assert '--tools ""' in out.stdout
     assert "dry run" in out.stdout
-    # The prompt goes in on stdin and is named, not quoted, with what is open beside it.
-    assert "< matrix-prompt.md + 1 open sentences" in out.stdout
+    # The prompt goes in on stdin and is named, not quoted, with what is asked beside it.
+    assert "< matrix-prompt.md + 1 sentences" in out.stdout
     # And it wrote nothing: a dry run that had already copied files away would be a dry
     # run with a side effect.
     assert not (review / ".model-prev").exists()

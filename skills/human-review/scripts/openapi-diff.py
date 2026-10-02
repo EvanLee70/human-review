@@ -257,9 +257,50 @@ class _Whole:
 WHOLE = _Whole()
 
 
+#: The keys that together *are* a schema's shape. When two or more of them move at one
+#: node — `type: array` + `items` gone, `$ref` arrived — that is one change, the schema
+#: was replaced, and counting it three times made this differ report "3 breaking" beside
+#: an oasdiff that rightly said 1 (`response-body-type-changed`).
+SHAPE_KEYS = ("$ref", "type", "items", "format")
+
+
+def fold_replaced_shapes(leaves: list) -> list:
+    """Every node whose `$ref`/`type` moved together with another shape key, as one leaf
+    `(node trail, old shape, new shape)` tagged by `_Shape`; everything else as it was."""
+    groups: dict = {}
+    for trail, old, new in leaves:
+        if trail and trail[-1] in SHAPE_KEYS:
+            groups.setdefault(trail[:-1], []).append((trail[-1], old, new))
+    folded = {node for node, g in groups.items()
+              if len(g) >= 2 and any(k in ("$ref", "type") for k, _, _ in g)}
+    out, done = [], set()
+    for leaf in leaves:
+        node = leaf[0][:-1]
+        if leaf[0] and leaf[0][-1] in SHAPE_KEYS and node in folded:
+            if node not in done:
+                done.add(node)
+                g = groups[node]
+                out.append((node, _Shape({k: o for k, o, _ in g if o is not None}),
+                            _Shape({k: n for k, _, n in g if n is not None})))
+            continue
+        out.append(leaf)
+    return out
+
+
+class _Shape(dict):
+    """A schema node's shape keys only, as they were (or are) — rendered by `type_of`."""
+
+
 def changes_from_leaves(before, after, trail=()) -> list:
     changes = []
-    for path, old, new in collapse_subtrees(deep_changes(before, after, trail)):
+    for path, old, new in fold_replaced_shapes(
+            collapse_subtrees(deep_changes(before, after, trail))):
+        if isinstance(old, _Shape):
+            # One node, its shape swapped: a caller reading the old shape breaks.
+            changes.append(Change(BREAKING, f"<code>{html.escape(pretty_trail(path))}</code> "
+                                             f"replaced: {html.escape(type_of(old) or '—')} "
+                                             f"&rarr; {html.escape(type_of(new) or '—')}"))
+            continue
         level = classify(path, old, new)
         label = pretty_trail(path)
         if new is WHOLE or old is WHOLE:

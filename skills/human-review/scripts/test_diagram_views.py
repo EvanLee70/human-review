@@ -1480,3 +1480,133 @@ def test_a_diagram_named_in_only_is_found_by_its_file_name(tmp_path):
     _schema_repo(tmp_path)
     assert build.find_diagram_source("DB", tmp_path) == "docs/DB.puml"
     assert build.find_diagram_source("Nope", tmp_path) is None
+
+
+# ── an unchanged picture over a schema that did change ───────────────────────────────
+
+def test_a_picture_unchanged_over_a_schema_that_changed_wears_its_own_badge(tmp_path):
+    """Eval run 5: DB wore UNCHANGED, and the line under it said `DB.sql changed: indexes
+    added` — read by two judges as the page contradicting itself. The picture is still the
+    plain card; the badge says which half changed."""
+    row = dict(build.unchanged_row("DB", "docs/DB.puml"),
+               new_svg=_svg(tmp_path / "db.new.svg", "whole current picture"),
+               _unseen="Not drawn on the diagram — DB.sql changed: indexes added on owners.")
+    (tmp_path / "M.tsv").write_text("")
+    out = build.render_diagrams({"manifest": "M.tsv"}, tmp_path, tmp_path, [row])
+    assert ">schema only</span>" in out and 'class="badge sev-med"' in out
+    assert '<span class="badge sev-info">unchanged</span>' not in out
+    assert "indexes added on owners" in out
+    assert 'class="dgmviews"' not in out, "still the plain card: there is no delta to switch"
+    # Without the line, it is the ordinary UNCHANGED card.
+    row.pop("_unseen")
+    assert '<span class="badge sev-info">unchanged</span>' in build.render_diagrams(
+        {"manifest": "M.tsv"}, tmp_path, tmp_path, [row])
+
+
+def test_a_producers_line_about_its_row_is_printed_under_the_card_as_text(tmp_path):
+    row = dict(build.unchanged_row("C2-Containers", "c2/C2.new.puml"),
+               new_svg=_svg(tmp_path / "c2.new.svg", "whole current picture"),
+               note="Projected from the sequence diagrams committed on the branch <b>x</b>")
+    (tmp_path / "M.tsv").write_text("")
+    out = build.render_diagrams({"manifest": "M.tsv"}, tmp_path, tmp_path, [row])
+    assert ('<p class="sub dgm-stale">Projected from the sequence diagrams committed on the '
+            'branch &lt;b&gt;x&lt;/b&gt;</p>') in out
+
+
+# ── the tests beside the sequences are derived, never typed ──────────────────────────
+
+FEATURE = """Feature: owners
+
+  Scenario: Plain listing
+    When I open the owners page
+
+  @generate_sequence
+  Scenario: Searching shows the first page
+    When I open the owners page
+    Then the first 10 owners are listed
+
+  Scenario: Untagged one after it
+    When I do something else
+"""
+
+SPEC = """import {test} from '@playwright/test';
+
+test('Add a visit',
+  {tag: [GENERATE_SEQUENCE_TAG]},
+  async ({page}) => {
+    await page.goto('/owners');
+    if (true) { await page.click('x'); }
+  });
+
+test('not tagged', async () => {});
+"""
+
+JAVA = """class AddVisitApiTest {
+    @Test
+    void untagged() {
+    }
+
+    @GenerateSequence
+    @Test
+    void addsAVisit() throws Exception {
+        call("{x}");
+        if (true) {
+            then("ok");
+        }
+    }
+}
+"""
+
+
+def _tagged_repo(tmp_path):
+    run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                                    capture_output=True, text=True)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    files = {"t/owners.feature": FEATURE, "t/add-visit.spec.ts": SPEC,
+             "b/src/test/java/AddVisitApiTest.java": JAVA}
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    # Two of the three tagged scenarios came back as pictures; the Java one did not.
+    gen = tmp_path / "t" / "generated"
+    gen.mkdir()
+    (gen / "owners.feature.searching.genseq.puml").write_text(
+        "@startuml\ntitle [[src://t/owners.feature:7{Click to open the test} "
+        "Searching shows the first page]]\nparticipant Browser\nparticipant Backend\n"
+        "Browser -> Backend: GET /api/owners\n@enduml\n")
+    (gen / "add-visit.spec.ts.add-a-visit.genseq.puml").write_text(
+        "@startuml\ntitle [[src://t/add-visit.spec.ts:3{Click to open the test} "
+        "Add a visit]]\nparticipant Browser\nparticipant Backend\n"
+        "Browser -> Backend: POST /api/visits\n@enduml\n")
+    run("add", "-A")
+    return tmp_path
+
+
+def test_each_scenario_is_quoted_from_its_tag_to_its_last_line(tmp_path):
+    root = _tagged_repo(tmp_path)
+    seq = importlib.import_module("hrbuild.tabs.sequence")
+    seq.genseq_by_test.cache_clear()
+    drawn, undrawn = seq.derived_snippets(root)
+    assert [x["ref"] for x in drawn] == ["t/add-visit.spec.ts:3-8", "t/owners.feature:6-9"]
+    # Tagged, and no picture came back: quoted all the same, for the group that says so.
+    assert [x["ref"] for x in undrawn] == ["b/src/test/java/AddVisitApiTest.java:6-13"]
+
+
+def test_the_sequence_tab_quotes_what_the_tags_and_the_pictures_say(tmp_path, monkeypatch):
+    """Eval run 5 typed the snippets into content.json — another branch's line ranges. The
+    layout now hands the block `{"auto": "genseq"}` and the tab derives the rest."""
+    root = _tagged_repo(tmp_path)
+    seq = importlib.import_module("hrbuild.tabs.sequence")
+    seq.genseq_by_test.cache_clear()
+    monkeypatch.setattr(seq, "_context_svg", lambda rel, root, out: (None, "<p>pic</p>"))
+    block = {"type": "testpairs", "id": "sequences", "kind": "sequence",
+             "snippets": {"auto": "genseq"},
+             "unpaired": {"id": "tests-nosequence",
+                          "title": "Tagged for tracing, and no diagram came back"}}
+    out, weight, _ = seq.render_testpairs(block, {}, [], root, root / ".human-review")
+    assert '<h3 id="sequences">Sequence diagrams of tests</h3>' in out
+    assert out.count('class="testpair" open') == 2
+    assert "Searching shows the first page" in out and "Add a visit" in out
+    tail = out[out.index("Tagged for tracing, and no diagram came back"):]
+    assert "AddVisitApiTest.java" in tail
+    assert weight == 3

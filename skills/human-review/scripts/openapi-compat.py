@@ -187,13 +187,22 @@ def read_changelog(entries: list) -> dict:
     breaks, additive = [], []
     for (method, path), found in ops.items():
         subject = {"method": method, "path": path}
-        reasons = [([e.get("id", "")], oas_reason(e)) for e in found]
-        if any(int(e.get("level") or LEVEL_INFO) >= LEVEL_WARN for e in found):
-            breaks.append({**subject, "reasons": reasons})
-        else:
-            n = len(reasons)
-            additive.append({**subject, "reasons": reasons,
-                             "note": f"{n} compatible change{'s' if n != 1 else ''}"})
+        # Split per *entry*, not per operation. An operation with one breaking change and
+        # five optional additions used to land whole under "What breaks", and every count
+        # read off it said "6 breaking" over a diff showing one: oasdiff's own `breaking`
+        # command is "level >= WARN", entry by entry, and so is this. The INFO entries of
+        # the same operation are still shown — as its compatible movement.
+        hurts = [e for e in found if int(e.get("level") or LEVEL_INFO) >= LEVEL_WARN]
+        safe = [e for e in found if int(e.get("level") or LEVEL_INFO) < LEVEL_WARN]
+        if hurts:
+            breaks.append({**subject,
+                           "reasons": [([e.get("id", "")], oas_reason(e)) for e in hurts]})
+        if safe:
+            n = len(safe)
+            additive.append({**subject,
+                             "reasons": [([e.get("id", "")], oas_reason(e)) for e in safe],
+                             "note": f"{n} compatible change{'s' if n != 1 else ''}"
+                                     + (" besides the break above" if hurts else "")})
 
     if not entries:
         state = NO_CHANGES
@@ -578,7 +587,9 @@ PANEL_CSS = """<style>
  padding:.75rem 1.1rem;border-radius:8px;font-weight:600;font-size:1rem;
  margin:.2rem 0 1.2rem;flex-wrap:wrap}
 .apiverdict .dot{width:.7rem;height:.7rem;border-radius:50%;background:currentColor;flex:none}
-.apiverdict .n{font-weight:400;opacity:.85;font-size:.94rem}
+.apiverdict .n{font-weight:400;opacity:.85;font-size:.94rem;flex:1 1 0;min-width:0}
+/* Basis 0: the counts wrap *inside* their own box, beside the verdict, instead of the box
+   dropping whole onto a second line that then opens with a stray '·'. */
 .apiverdict a{color:inherit;text-decoration:underline;text-underline-offset:2px}
 /* Smaller and quieter than the name it follows: the verdict is what this band says, and
    the report is where to go and check it. Same colour, so it still reads as one clause. */
@@ -617,6 +628,9 @@ def change_count(result: dict) -> int:
 
 
 def breaking_count(result: dict) -> int:
+    """The breaking changes alone. `breaks[].reasons` holds only the entries the engine
+    rated WARN or worse (`read_changelog`); an operation's compatible entries live on its
+    `additive` row and are counted by `change_count`, never here."""
     return sum(len(b.get("reasons") or []) or 1 for b in result.get("breaks") or [])
 
 
@@ -672,6 +686,16 @@ def panel(result: dict, ours: dict | None,
     checked = (f"checked by {engine}, double-checked by our {ours_label}"
                if ours is not None else
                f"checked by {engine} alone — the cross-check did not run")
+    # Same verdict, different count: said, not smoothed over. The two differs cut a change
+    # differently (oasdiff one entry per rule, ours one per spec node), and a reader who
+    # opens the second report and finds "3 breaking" under a band that said 1 deserves to
+    # have been told first.
+    ours_n = len(ours["breaking"]) if ours is not None else 0
+    if ours is not None and we_break and they_break and ours_n != n_break:
+        # The engine by name, not by a second copy of its link.
+        name = "oasdiff" if result.get("source") == "oasdiff" else "openapi-diff"
+        checked += (f", which counts {ours_n} breaking where {name} counts {n_break} — "
+                    "same verdict, cut differently")
 
     if disputed:
         cls, verdict = "red", "Verdict disputed"

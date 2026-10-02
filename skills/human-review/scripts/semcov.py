@@ -55,7 +55,7 @@ if str(HERE) not in sys.path:
 SKILL = HERE.parent
 SCHEMA_PATH = SKILL / "reference" / "test-mapping.schema.json"
 SCHEMA_VERSION = "test-mapping/1"
-INPUT_VERSION = "test-mapping-input/1"
+INPUT_VERSION = "test-mapping-input/2"
 #: The model's answer, under the review directory — the one model-owned file of the tab.
 MAPPING = "test-mapping.json"
 #: What the page shows: script and model merged, with who paired what. Written by the
@@ -86,12 +86,22 @@ LEGEND = ('<div class="rm-legend"><span class="rm-lgt">Legend:</span>'
           'reaches it">missing</span>'
           '<span class="rm-lg" data-cov="none" data-tip="Not a claim, so nothing to cover">'
           'N/A</span></div>')
+#: The two states only some matrices use, added to the legend when one of them is on it:
+#: a scripted pairing no model has confirmed, and a sentence a recorded decision narrowed.
+LEGEND_EXTRA = {
+    "unconfirmed": ('<span class="rm-lg" data-cov="unconfirmed" data-tip="Paired on shared '
+                    'words only; no model has confirmed a test asserts it">unconfirmed</span>'),
+    "narrowed": ('<span class="rm-lg" data-cov="narrowed" data-tip="Not delivered as written: '
+                 'a scope decision the branch recorded narrows it">narrowed</span>')}
 #: The mapping's coverage word → the renderer's `data-cov` and its hover.
 COV_ATTR = {"covered": "covered", "partial": "partly", "exercised": "exercised",
-            "missing": "missing", "n/a": "none", "unmapped": "unmapped"}
+            "missing": "missing", "n/a": "none", "unmapped": "unmapped",
+            "unconfirmed": "unconfirmed", "narrowed": "narrowed"}
 COV_LABEL = {"covered": "covered", "partial": "partly covered",
              "exercised": "exercised, never asserted", "missing": "no covering tests",
-             "n/a": "not a claim", "unmapped": "not paired yet"}
+             "n/a": "not a claim", "unmapped": "not paired yet",
+             "unconfirmed": "paired on shared words, not confirmed",
+             "narrowed": "narrowed on purpose — not delivered as written"}
 
 
 def _tests_tab():
@@ -250,10 +260,115 @@ def openspec_change(root: Path, branch: str, number: int | None) -> tuple[str, l
                                or (len(tail) >= 4 and tail in name)))
         if not hit and number is not None:
             hit = bool(re.search(rf"(?:^|[-_]){number}(?:[-_]|$)", name))
+        if not hit and number is not None:
+            # `paginate-sort-owners` carries no number, but its proposal says which issue it
+            # answers ("narrowing the original request in #25"). That is the link run 5 had.
+            hit = any(re.search(rf"(?<![\w&])#{number}\b|/issues/{number}\b",
+                                _read(d / f)) for f in ("proposal.md", "tasks.md",
+                                                        "design.md", ".openspec.yaml"))
         specs = sorted((d / "specs").rglob("spec.md")) if (d / "specs").is_dir() else []
         if hit and specs:
             return d.name, specs
     return "", []
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def spec_requirements(paths: list[Path]) -> list[dict]:
+    """The requirements of OpenSpec spec deltas, in file order: `{"name", "text",
+    "scenarios"}` — the statement under `### Requirement:` (its SHALL sentences, joined into
+    one paragraph) and each `#### Scenario:` as one line of plain text. ADDED and MODIFIED
+    only: a REMOVED requirement is not something the branch has to prove."""
+    out: list[dict] = []
+    for path in paths:
+        removed, cur, scen = False, None, None
+        for ln in _read(path).splitlines():
+            h2 = re.match(r"^##\s+(.*)$", ln)
+            if h2 and not ln.startswith("###"):
+                removed = bool(re.match(r"(?i)removed\b", h2.group(1).strip()))
+                cur = scen = None
+                continue
+            req = re.match(r"^###\s+Requirement:\s*(.+?)\s*$", ln)
+            if req:
+                cur, scen = None, None
+                if not removed:
+                    cur = {"name": req.group(1), "text": [], "scenarios": []}
+                    out.append(cur)
+                continue
+            if cur is None:
+                continue
+            sc = re.match(r"^####\s+Scenario:\s*(.+?)\s*$", ln)
+            if sc:
+                scen = [sc.group(1) + ":"]
+                cur["scenarios"].append(scen)
+                continue
+            if not ln.strip():
+                continue
+            if scen is not None:
+                scen.append(_plain(re.sub(r"^\s*[-*]\s+", "", ln)))
+            else:
+                cur["text"].append(ln.strip())
+    return [{"name": r["name"], "text": " ".join(r["text"]),
+             "scenarios": [" ".join(s) for s in r["scenarios"]]} for r in out]
+
+
+#: The heading the spec's requirements go under, below the issue, in the left column.
+SPEC_HEADING = "Requirements of the OpenSpec change {name}"
+
+
+def spec_markdown(name: str, reqs: list[dict]) -> str:
+    """The requirements as the numbered list the left column draws below the issue: the
+    requirement's name in bold, then its statement — each sentence of it pairable alone."""
+    items = "\n".join(f"{i}. **{r['name']}** — {r['text']}" if r["text"]
+                      else f"{i}. **{r['name']}**" for i, r in enumerate(reqs, 1))
+    return f"---\n\n### {SPEC_HEADING.format(name=name)}\n\n{items}\n"
+
+
+#: Words that mark a line of a proposal or design as a scope decision.
+_SCOPE_LINE = re.compile(r"out of scope|non[- ]?goals?|not in scope|\bnarrow(?:s|ed|ing)\b|"
+                         r"limited to|\bonly\b.*\binstead of\b|deferred|won'?t", re.I)
+
+
+def recorded_decisions(out_dir: Path, change_dir: Path | None = None) -> list[dict]:
+    """What the branch decided *not* to do, as `{"id": "d1", "text"}` — the model reads these
+    to tell a sentence the tests miss from one the change deliberately narrowed.
+
+    From the review record (`review-points.json`): every assumption (what was decided, and
+    the alternative it ruled out) and every finding read and declined. From the OpenSpec
+    change, when there is one: its proposal's and design's lines that name a scope cut."""
+    out: list[str] = []
+    rp = _read_json(out_dir / "review-points.json") or {}
+
+    def clean(x) -> str:
+        return _plain(html.unescape(re.sub(r"<[^>]+>", "", str(x or "")))).strip()
+    for a in rp.get("assumptions") or []:
+        bits = [clean(a.get("title"))]
+        if a.get("alternative"):
+            bits.append(f"instead of: {clean(a['alternative'])}")
+        if a.get("why"):
+            bits.append(f"because {clean(a['why'])}")
+        out.append("Assumed: " + "; ".join(b for b in bits if b))
+    for f in rp.get("findings") or []:
+        out.append(f"Declined: {clean(f.get('title'))} — {clean(f.get('why'))}")
+    if change_dir is not None:
+        for name in ("proposal.md", "design.md"):
+            for ln in _read(change_dir / name).splitlines():
+                if ln.lstrip().startswith("#"):
+                    continue                      # a heading names a section, decides nothing
+                t = _plain(re.sub(r"^\s*[-*]\s+", "", ln))
+                if t and _SCOPE_LINE.search(t):
+                    out.append(f"Scope ({change_dir.name}/{name}): {t}")
+    seen, uniq = set(), []
+    for t in out:
+        if t and t not in seen:
+            seen.add(t)
+            uniq.append(t[:400])
+    return [{"id": f"d{i}", "text": t} for i, t in enumerate(uniq, 1)]
 
 
 #: Where the implementation conversation is exported, relative to the review directory.
@@ -305,7 +420,9 @@ def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | 
         if got:
             return {**got, "source": "github",
                     "via": f"GitHub issue #{got['number']}, named by review-points.md "
-                           f"`ticket: {fm_value}`"}
+                           f"`ticket: {fm_value}`",
+                    "origin": f"From GitHub issue #{got['number']}, which the review "
+                              "record names"}
         number = fm_issue[0]
     ref = _tests_tab().ticket_ref(spec, out_dir)
     if ref:
@@ -316,14 +433,19 @@ def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | 
                         or spec.get("issue"))
             return {**got, "source": "github",
                     "via": f"GitHub issue #{got['number']}, named by "
-                           + ("content.json `pr.ticket`" if declared else "the PR title")}
+                           + ("content.json `pr.ticket`" if declared else "the PR title"),
+                    "origin": f"From GitHub issue #{got['number']}, "
+                              + ("the ticket this review is for" if declared
+                                 else "named in the pull request's title")}
         number = number or ref["number"]
     b_issue = branch_issue(branch) if branch else None
     if b_issue is not None:
         got = _issue(b_issue, slug, out_dir)
         if got:
             return {**got, "source": "github",
-                    "via": f"GitHub issue #{got['number']}, named by the branch `{branch}`"}
+                    "via": f"GitHub issue #{got['number']}, named by the branch `{branch}`",
+                    "origin": f"From GitHub issue #{got['number']}, named by the branch "
+                              f"{branch}"}
         number = number or b_issue
 
     plain = {"number": None, "url": "", "author": "", "avatar": "", "createdAt": ""}
@@ -331,14 +453,17 @@ def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | 
         return {**plain, "title": "the ticket text in review-points.md", "body": fm_text,
                 "source": "front-matter",
                 "via": "the `ticket:` text in review-points.md's front-matter — not a "
-                       "GitHub issue"}
+                       "GitHub issue",
+                "origin": "From the ticket text the review record gives — there is no "
+                          "GitHub issue"}
     name, specs = openspec_change(root, branch, number)
     if specs:
         body = "\n\n".join(p.read_text(encoding="utf-8") for p in specs)
         rel = ", ".join(f"`{p.relative_to(root)}`" for p in specs)
         return {**plain, "title": f"OpenSpec change {name}", "body": body,
                 "source": "openspec", "via": f"the OpenSpec change `{name}` ({rel}) — not a "
-                                             "GitHub issue"}
+                                             "GitHub issue",
+                "origin": f"From the OpenSpec change {name} — there is no GitHub issue"}
     conv = out_dir / IMPL_CONVERSATION
     body = first_request(conv)
     if body:
@@ -349,7 +474,9 @@ def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | 
         return {**plain, "title": "the implementation conversation's first request",
                 "body": body, "source": "conversation",
                 "via": f"the implementation conversation's first request (`{where}`, "
-                       "request 0) — not a GitHub issue"}
+                       "request 0) — not a GitHub issue",
+                "origin": "From the first request of the conversation that implemented "
+                          "this — there is no GitHub issue"}
     return None
 
 
@@ -913,7 +1040,12 @@ def _best(units: list[set], lits: set, d: dict, idf, df, n):
 def match(sentences: list[dict], rows: list[dict], root: Path,
           docs: dict | None = None) -> dict:
     """The scripted pairing: `{"decided": [mapping entries], "open": {sid: [candidate test
-    ids, best first]}}`.
+    ids, best first]}, "candidates": {sid: [the best-scoring test ids]}}`.
+
+    A decided entry's links are *candidates* too, not proof: they were made on shared words,
+    and "sortable by any column" shares `grid` and `sort` with a test that checks the page
+    size. `merge` shows them as unconfirmed until the model has confirmed or rejected each
+    one (`model_input` puts every one of them in front of it).
 
     A sentence under an *Out of scope* heading is `n/a`. Otherwise each test is scored
     against the sentence and each of its clauses (`_score`, `_best`), and the sentence is
@@ -924,7 +1056,7 @@ def match(sentences: list[dict], rows: list[dict], root: Path,
     links that only run through it make it `exercised`."""
     docs = docs if docs is not None else test_documents(rows, root)
     idf, df, n = _idf(docs)
-    decided, open_ = [], {}
+    decided, open_, cands = [], {}, {}
     for s in sentences:
         if _OUT_OF_SCOPE.search(s.get("section") or ""):
             decided.append({"id": s["id"], "coverage": "n/a", "tests": [], "by": "script",
@@ -943,6 +1075,7 @@ def match(sentences: list[dict], rows: list[dict], root: Path,
             if sc > 0:
                 scored.append((round(sc, 6), r["id"], strength, ev))
         scored.sort(key=lambda x: (-x[0], x[1]))
+        cands[s["id"]] = [x[1] for x in scored if x[0] >= CANDIDATE_AT][:MAX_CANDIDATES]
         best = scored[0][0] if scored else 0.0
         near = [x for x in scored if x[0] >= LINK_AT and x[0] >= NEAR_BEST * best]
         links = near[:MAX_LINKS]
@@ -977,29 +1110,61 @@ def match(sentences: list[dict], rows: list[dict], root: Path,
             else:
                 entry["coverage"] = "covered"
         decided.append(entry)
-    return {"decided": decided, "open": open_}
+    return {"decided": decided, "open": open_, "candidates": cands}
 
 
 # --- the model's half -------------------------------------------------------------------
 
+def scripted_links(scripted: dict) -> dict:
+    """`{sentence id: [test id, …]}` — the links the script made, which the model must
+    confirm or reject one by one."""
+    return {e["id"]: [t["id"] for t in e["tests"]]
+            for e in scripted["decided"] if e["coverage"] != "n/a"}
+
+
 def model_input(ticket: dict, sentences: list[dict], rows: list[dict], scripted: dict,
-                docs: dict) -> dict:
-    """What the cheap model is asked about: only the open sentences, each with its few
-    candidate tests, and those tests' bodies. Nothing it is not asked to decide."""
+                docs: dict, decisions: list[dict] | None = None) -> dict:
+    """What the cheap model is asked, in one call: every sentence that makes a claim — each
+    with the links the script made on shared words (`scripted`, to confirm or reject) and
+    the other tests that scored best (`candidates`, to read) — plus the scope decisions the
+    branch recorded, and the bodies of every test named. Out-of-scope sentences are not
+    asked about: the ticket itself already said there is nothing to cover."""
     by_id = {s["id"]: s for s in sentences}
     rows_by = {r["id"]: r for r in rows}
-    want: list[str] = []
-    for sid, cands in scripted["open"].items():
-        for t in cands:
-            if t not in want:
+    links = {e["id"]: e for e in scripted["decided"]}
+    cands = scripted.get("candidates") or {}
+    asked, want = [], []
+    for s in sentences:
+        sid = s["id"]
+        e = links.get(sid)
+        if e is not None and e["coverage"] == "n/a":
+            continue
+        made = [{"id": t["id"], "why": t.get("why") or ""} for t in (e or {}).get("tests") or []]
+        made_ids = {t["id"] for t in made}
+        pool = scripted["open"].get(sid) if e is None else cands.get(sid)
+        others = [t for t in (pool or []) if t not in made_ids][:MAX_CANDIDATES]
+        item = {"id": sid, "text": by_id[sid]["text"],
+                "section": by_id[sid].get("section") or "",
+                "scripted": made, "candidates": others}
+        if by_id[sid].get("requirement"):
+            item["requirement"] = by_id[sid]["requirement"]
+            item["scenarios"] = by_id[sid].get("scenarios") or []
+        asked.append(item)
+        for t in [m["id"] for m in made] + others:
+            if t not in want and t in rows_by:
                 want.append(t)
+    # The reply's skeleton, every verdict slot already in place: a cheap model fills in a
+    # form far more reliably than it builds one from rules, and the first real run on the
+    # demo PR came back with most `review` lists simply missing.
+    skeleton = [{"id": x["id"], "coverage": "", "tests": [],
+                 "review": [{"id": t["id"], "verdict": "", "why": ""} for t in x["scripted"]]}
+                for x in asked]
     return {
         "schema": INPUT_VERSION,
         "ticket": {"number": ticket.get("number"), "title": ticket.get("title", "")},
-        "sentences": [{"id": sid, "text": by_id[sid]["text"],
-                       "section": by_id[sid].get("section") or "",
-                       "candidates": cands}
-                      for sid, cands in scripted["open"].items()],
+        "sentences": asked,
+        "answer": {"schema": SCHEMA_VERSION, "sentences": skeleton},
+        "decisions": decisions or [],
         "context": [s["text"] for s in sentences],
         "tests": [{"id": t, "title": rows_by[t]["title"], "kind": CATS[rows_by[t]["cat"]],
                    "status": rows_by[t]["status"],
@@ -1011,13 +1176,17 @@ def load_schema() -> dict:
     return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
-def problems(doc, allowed_sentences=None, allowed_tests=None) -> list[str]:
+def problems(doc, allowed_sentences=None, allowed_tests=None, scripted=None,
+             decisions=None) -> list[str]:
     """Every way a mapping departs from the schema, or from the facts it is about.
 
     The schema is checked by `review_points_schema.problems` — the skill's own small
     draft-2020-12 checker, so no `jsonschema` is needed on a trainee's laptop. Then what a
     schema cannot say: no sentence twice, a sentence id this ticket has, a test id from the
-    list the model was given, and a coverage word its own links can stand behind."""
+    list the model was given, a coverage word its own links can stand behind — and, when
+    `scripted` (`{sid: [test ids]}`) is given, a verdict on every link the script made, each
+    confirmed link kept and each rejected one dropped. `narrowed` names the recorded decision
+    it rests on, one of `decisions` (ids) when those are given."""
     import review_points_schema
     out = review_points_schema.problems(doc, load_schema())
     if out or not isinstance(doc, dict):
@@ -1042,7 +1211,75 @@ def problems(doc, allowed_sentences=None, allowed_tests=None) -> list[str]:
             out.append(f"{at}: `{cov}` needs at least one asserted test")
         if cov == "exercised" and (not s["tests"] or "asserted" in strengths):
             out.append(f"{at}: `exercised` means tests run through it and none asserts it")
+        if cov == "narrowed":
+            if not s.get("decision"):
+                out.append(f"{at}: `narrowed` names the recorded decision it rests on "
+                           "(`decision`)")
+            elif decisions is not None and s["decision"] not in decisions:
+                out.append(f"{at}: decision {s['decision']} is not one of the decisions listed")
+        kept = {t["id"] for t in s["tests"]}
+        verdicts: dict = {}
+        for j, v in enumerate(s.get("review") or []):
+            if v["id"] in verdicts:
+                out.append(f"{at}.review[{j}]: {v['id']} is judged twice")
+            verdicts[v["id"]] = v["verdict"]
+            if scripted is not None and v["id"] not in (scripted.get(s["id"]) or []):
+                out.append(f"{at}.review[{j}]: {v['id']} is not a link the script made for "
+                           "this sentence")
+            if v["verdict"] == "confirm" and v["id"] not in kept:
+                out.append(f"{at}.review[{j}]: {v['id']} is confirmed but not in `tests`")
+            if v["verdict"] == "reject" and v["id"] in kept:
+                out.append(f"{at}.review[{j}]: {v['id']} is rejected but still in `tests`")
+        if scripted is not None:
+            for tid in scripted.get(s["id"]) or []:
+                if tid not in verdicts:
+                    out.append(f"{at}: the script's link to {tid} is neither confirmed nor "
+                               "rejected")
     return out
+
+
+def salvage(doc, allowed_sentences=None, allowed_tests=None, scripted=None,
+            decisions=None) -> tuple[dict | None, list[str], list[str]]:
+    """`(the answer to install or None, every problem found, the sentence ids dropped)`.
+
+    A problem that belongs to one sentence — a verdict missing, an id it was not shown —
+    costs that sentence, not the whole paid answer: the sentence is dropped, so the page
+    shows its scripted links as unconfirmed (never as covered), and the rest is installed.
+    A problem with the document itself refuses it whole.
+
+    One slip is repaired rather than dropped, because the repair can only make the answer
+    *less* flattering: a link the model confirmed but forgot to list in `tests` is added as
+    `exercised` — confirming says the test at least runs the claim, never that it asserts
+    it, and `covered` still needs an asserted test the model named itself."""
+    if isinstance(doc, dict) and isinstance(doc.get("sentences"), list):
+        doc = json.loads(json.dumps(doc))
+        for e in doc["sentences"]:
+            if not isinstance(e, dict) or not isinstance(e.get("tests"), list):
+                continue
+            listed = {t.get("id") for t in e["tests"] if isinstance(t, dict)}
+            for v in e.get("review") or []:
+                if isinstance(v, dict) and v.get("verdict") == "confirm" \
+                        and v.get("id") not in listed:
+                    e["tests"].append({"id": v["id"], "strength": "exercised",
+                                       **({"why": v["why"]} if v.get("why") else {})})
+                    listed.add(v["id"])
+    found = problems(doc, allowed_sentences, allowed_tests, scripted, decisions)
+    if not found:
+        return doc, [], []
+    bad_idx = set()
+    for p in found:
+        m = re.match(r"\$\.sentences\[(\d+)\]", p)
+        if not m:
+            return None, found, []
+        bad_idx.add(int(m.group(1)))
+    kept = [e for i, e in enumerate(doc["sentences"]) if i not in bad_idx]
+    dropped = [doc["sentences"][i].get("id", f"#{i}") for i in sorted(bad_idx)]
+    if not kept:
+        return None, found, dropped
+    out = {**doc, "sentences": kept}
+    if problems(out, allowed_sentences, allowed_tests, scripted, decisions):
+        return None, found, dropped
+    return out, found, dropped
 
 
 def load_model_mapping(review: Path) -> dict | None:
@@ -1059,20 +1296,50 @@ def load_model_mapping(review: Path) -> dict | None:
     return doc
 
 
-def merge(sentences: list[dict], scripted: dict, model: dict | None) -> list[dict]:
-    """One entry per ticket sentence, in reading order: the script's where it decided, the
-    model's where it did not and the model answered, `unmapped` where neither has."""
+#: Said on a sentence the script paired on shared words and no model has read yet.
+UNCONFIRMED_GAP = ("Paired on shared words only — no model has read these tests to confirm "
+                   "one asserts this sentence's claim, so it is not shown as covered. Run the "
+                   "🤖 beside the Tests tab.")
+
+
+def merge(sentences: list[dict], scripted: dict, model: dict | None,
+          decisions: list[dict] | None = None) -> list[dict]:
+    """One entry per ticket sentence, in reading order.
+
+    A scripted link is a *candidate*: shared words say a test is worth reading, not that it
+    asserts the claim. So a sentence is coloured by the model's answer wherever there is one
+    — the links it confirmed (keeping the script's evidence beside them), any test it added,
+    the coverage it read off the bodies, the links it rejected and why. Where the model has
+    not answered, the script's links stand as `unconfirmed`, never as covered. Sentences the
+    ticket itself puts out of scope stay `n/a`; one nobody paired is `unmapped`."""
     script = {e["id"]: e for e in scripted["decided"]}
     answer = {e["id"]: e for e in (model or {}).get("sentences") or []}
+    said = {d["id"]: d["text"] for d in decisions or []}
     out = []
     for s in sentences:
-        if s["id"] in script:
-            out.append(script[s["id"]])
-        elif s["id"] in answer:
+        sc = script.get(s["id"])
+        if sc is not None and sc["coverage"] == "n/a":
+            out.append(sc)
+            continue
+        if s["id"] in answer:
             e = json.loads(json.dumps(answer[s["id"]]))
             e["by"] = "model"
+            made = {t["id"]: t for t in (sc or {}).get("tests") or []}
+            verdicts = {v["id"]: v for v in e.pop("review", None) or []}
             for t in e["tests"]:
                 t["by"] = "model"
+                if t["id"] in made and made[t["id"]].get("evidence"):
+                    t["evidence"] = made[t["id"]]["evidence"]
+            rejected = [{"id": v["id"], "why": v.get("why") or ""}
+                        for v in verdicts.values() if v["verdict"] == "reject"]
+            if rejected:
+                e["rejected"] = rejected
+            if e.get("decision") in said:
+                e["decisionText"] = said[e["decision"]]
+            out.append(e)
+        elif sc is not None:
+            e = json.loads(json.dumps(sc))
+            e["coverage"], e["gap"], e["gapKind"] = "unconfirmed", UNCONFIRMED_GAP, "tests"
             out.append(e)
         else:
             out.append({"id": s["id"], "coverage": "unmapped", "tests": [], "by": "script"})
@@ -1128,11 +1395,14 @@ def _ticket_html(ticket: dict, blocks: list[dict], entries: dict) -> str:
     head = (av + f'<span class="rm-who">{html.escape(login)}</span>'
             + f'<span class="rm-when">{html.escape(_when(ticket.get("createdAt", "")))}</span>'
             if login or ticket.get("number") is not None else "")
-    # Where the left column's text came from, said on the frame that holds it.
-    if ticket.get("via"):
-        head += f'<span class="rm-src">Requirement text: {_inline(ticket["via"])}</span>'
-    return ('<div class="rm-ticket"><div class="rm-tkhead">' + head
-            + '</div><div class="rm-issue">' + "".join(body) + "</div></div>")
+    # Where the left column's text came from, in plain words, on a muted line of its own
+    # under the header strip. It used to sit *in* the strip as "Requirement text: GitHub
+    # issue #25, named by content.json pr.ticket" — a file and a key a reviewer never needs,
+    # squeezing the author and the date into a four-line column beside it.
+    src = (f'<p class="rm-src">{html.escape(ticket["origin"])}</p>'
+           if ticket.get("origin") else "")
+    return ('<div class="rm-ticket"><div class="rm-tkhead">' + head + '</div>' + src
+            + '<div class="rm-issue">' + "".join(body) + "</div></div>")
 
 
 def _sentence_data(entry: dict, rows_by: dict) -> dict:
@@ -1153,14 +1423,66 @@ def _sentence_data(entry: dict, rows_by: dict) -> dict:
                                "sum": ", ".join(f"×{n} {k}" for k, n in sorted(counts.items()))})
     d = {"cov": COV_ATTR[entry["coverage"]], "label": COV_LABEL[entry["coverage"]],
          "by": entry.get("by") or "script", "groups": out_groups}
+    if entry.get("rejected"):
+        # What the model read and turned down, so a reader can see the keyword match that
+        # used to paint this sentence green, and why it does not prove it.
+        d["rejected"] = [{"id": r["id"], "why": r.get("why") or ""} for r in entry["rejected"]]
+    if entry.get("decisionText"):
+        d["decision"] = entry["decisionText"]
     if entry.get("gap"):
         d["gap"] = entry["gap"]
-        d["gapKind"] = entry.get("gapKind") or "tests"
+        # A narrowed sentence is a fact about the requirement, whatever the model tagged it.
+        d["gapKind"] = ("requirement" if entry["coverage"] == "narrowed"
+                        else entry.get("gapKind") or "tests")
+    elif entry["coverage"] == "narrowed":
+        d["gap"] = ("Not delivered as the sentence says: " + entry.get("decisionText", "a "
+                    "scope decision the branch recorded narrows it") + ".")
+        d["gapKind"] = "requirement"
     elif entry["coverage"] == "unmapped":
         d["gap"] = ("The script found no test that shares this sentence's words, and no "
                     "model has been asked yet — run the 🤖 beside the Tests tab.")
         d["gapKind"] = "tests"
     return d
+
+
+#: The covering-tests card, grouped by why a test is on it — the ones about the change
+#: first. A test is listed because its own coverage ran a line this PR changed, and on a
+#: change to a shared class (an exception advice) that pulls in tests about something else
+#: entirely: they go last, each saying on its stamp which lines brought it here.
+RANK_LABELS = {
+    "0": "Paired with a sentence of the ticket",
+    "1": "Written or edited by this branch, paired with no sentence",
+    "2": "Untouched and unpaired — run a changed line few other tests run",
+    "3": "Untouched and unpaired — only pass through changed code most tests run",
+}
+
+
+def test_rank(r: dict, paired: set) -> int:
+    """0 paired with a sentence; 1 a test the branch wrote, edited or deleted; 2 an
+    untouched test aimed at the change (`coverage_join`'s `aimed`); 3 one that only passes
+    through changed lines most of its suite runs."""
+    if r["id"] in paired:
+        return 0
+    if r.get("status") in ("new", "changed", "deleted"):
+        return 1
+    return 2 if r.get("aimed", True) else 3
+
+
+def test_why(r: dict) -> str:
+    """Why the test is on the card, in a line: the changed lines its own coverage ran, per
+    file — `ExceptionControllerAdvice.java 56–58, 70`. Empty without a coverage run."""
+    hits = r.get("hits") or {}
+    if not hits:
+        return ""
+    T = _tests_tab()
+    files = sorted(hits.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    def lines(ls) -> str:
+        runs = T._cov_ranges(ls).split(", ")
+        return ", ".join(runs[:3]) + (f" and {len(runs) - 3} more" if len(runs) > 3 else "")
+    parts = [f"{Path(f).name} {lines(ls)}" for f, ls in files[:4]]
+    if len(files) > 4:
+        parts.append(f"{len(files) - 4} more file{'s' if len(files) > 5 else ''}")
+    return "its coverage ran changed lines of " + "; ".join(parts)
 
 
 def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dict],
@@ -1169,17 +1491,23 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
     T = _tests_tab()
     by_sid = {e["id"]: e for e in entries}
     rows_by = {r["id"]: r for r in rows}
+    paired = {t["id"] for e in entries for t in e["tests"]}
     tests = {}
     for r in rows:
         part = T._cov_part(root, r["file"], r["line"]) if r["status"] != "deleted" else None
         tests[r["id"]] = {"title": r["title"] or r["id"], "cat": r["cat"],
-                          "status": r["status"], "parts": [part] if part else []}
-    data = {"cats": CATS, "tests": tests,
+                          "status": r["status"], "parts": [part] if part else [],
+                          "rank": test_rank(r, paired), "why": test_why(r)}
+    used = {e["coverage"] for e in entries}
+    legend = LEGEND.replace("</div>", "".join(v for k, v in LEGEND_EXTRA.items()
+                                              if k in used) + "</div>")
+    data = {"cats": CATS, "tests": tests, "ranks": RANK_LABELS,
             "sentences": {e["id"]: _sentence_data(e, rows_by) for e in entries
                           if e["coverage"] != "n/a"},
             # For the layout's title row (`tests.py:reqmap_layout`): the ticket this matrix
             # was drawn against, so the heading never names a different one.
-            "ticket": {k: ticket.get(k) for k in ("number", "title", "url", "source", "via")}}
+            "ticket": {k: ticket.get(k) for k in ("number", "title", "url", "source", "via",
+                                                  "origin")}}
     blob = json.dumps(data, ensure_ascii=False, sort_keys=False).replace("</", "<\\/")
     who = ("Tests that cover files modified in this PR" if measured
            else "Tests this branch added or changed")
@@ -1189,7 +1517,7 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
             'ticket by a script, and by AI where the script could not">🤖</span>'
             + f'<span class="rm-who">{who}</span></div>'
             + '<div class="rm-list"></div></aside></div>')
-    text = ('<div class="rm-text">' + LEGEND + _ticket_html(ticket, blocks, by_sid)
+    text = ('<div class="rm-text">' + legend + _ticket_html(ticket, blocks, by_sid)
             + '<div class="rm-gap" hidden></div></div>')
     css = (ASSETS / "reqmap.css").read_text(encoding="utf-8")
     js = (ASSETS / "reqmap.js").read_text(encoding="utf-8")
@@ -1205,26 +1533,62 @@ def gather(spec: dict, out_dir: Path, root: Path) -> dict | None:
     ticket = fetch_ticket(spec, out_dir, root)
     if ticket is None:
         return None
+    # The OpenSpec change the branch implements, when there is one: under an issue, its
+    # requirements are drawn as a numbered list below the issue's own text and paired like
+    # it — run 5's issue had two bullets and its spec ten requirements, and the matrix showed
+    # only the two. When the change *is* the ticket (no issue), `fetch_ticket` already drew it.
+    name, specs = openspec_change(root, branch_name(spec, root), ticket.get("number"))
+    reqs = spec_requirements(specs) if specs and ticket.get("source") != "openspec" else []
+    if reqs:
+        ticket = {**ticket, "body": (ticket.get("body") or "").rstrip() + "\n\n"
+                  + spec_markdown(name, reqs),
+                  "origin": (ticket.get("origin") or "") + f", then the {len(reqs)} "
+                  f"requirement{'s' if len(reqs) != 1 else ''} of the OpenSpec change {name}",
+                  "spec": {"name": name, "requirements": len(reqs)}}
     blocks = parse_ticket(ticket.get("body") or "")
+    if reqs:
+        _attach_scenarios(blocks, SPEC_HEADING.format(name=name), reqs)
     sentences = ticket_sentences(blocks)
     rows, measured = covering_tests(spec, out_dir, root)
     docs = test_documents(rows, root)
     scripted = match(sentences, rows, root, docs)
+    change_dir = root / "openspec" / "changes" / name if name else None
     return {"ticket": ticket, "blocks": blocks, "sentences": sentences, "rows": rows,
-            "measured": measured, "docs": docs, "scripted": scripted}
+            "measured": measured, "docs": docs, "scripted": scripted,
+            "decisions": recorded_decisions(out_dir, change_dir)}
+
+
+def _attach_scenarios(blocks: list[dict], heading: str, reqs: list[dict]) -> None:
+    """Hang each requirement's name and scenarios on the sentences of its list item, so the
+    model judges a SHALL sentence against the scenarios that say what it means."""
+    after = False
+    for b in blocks:
+        if b["kind"] == "h" and _plain(b["text"]) == _plain(heading):
+            after = True
+            continue
+        if after and b["kind"] == "ol":
+            for item, r in zip(b["items"], reqs):
+                for snt in item["sentences"]:
+                    snt["requirement"] = r["name"]
+                    snt["scenarios"] = r["scenarios"]
+            return
 
 
 def split_counts(entries: list[dict]) -> dict:
+    """Links by who stands behind them — `script` (shared words, unconfirmed) or `model` —
+    plus how many scripted links the model rejected, and sentences by who coloured them."""
     links = {"script": 0, "model": 0}
     sents = {"script": 0, "model": 0, "unmapped": 0}
+    rejected = 0
     for e in entries:
         if e["coverage"] == "unmapped":
             sents["unmapped"] += 1
             continue
         sents[e.get("by") or "script"] += 1
+        rejected += len(e.get("rejected") or [])
         for t in e["tests"]:
             links[t.get("by") or e.get("by") or "script"] += 1
-    return {"links": links, "sentences": sents}
+    return {"links": links, "sentences": sents, "rejected": rejected}
 
 
 def write_fragment(spec: dict, out_dir: Path, root: Path) -> str | None:
@@ -1242,7 +1606,7 @@ def write_fragment(spec: dict, out_dir: Path, root: Path) -> str | None:
     g = gather(spec, out_dir, root)
     if g is None:
         return None
-    entries = merge(g["sentences"], g["scripted"], model)
+    entries = merge(g["sentences"], g["scripted"], model, g["decisions"])
     page = render(g["ticket"], g["blocks"], g["rows"], entries, root, g["measured"])
     if old and GENERATED not in old:
         # The model-written matrix this replaces is a paid judgement; keep one copy.
@@ -1254,14 +1618,17 @@ def write_fragment(spec: dict, out_dir: Path, root: Path) -> str | None:
     frag.write_text(page, encoding="utf-8")
     c = split_counts(entries)
     merged = {"schema": SCHEMA_VERSION,
-              "note": (f"{c['links']['script']} links by script, {c['links']['model']} by "
-                       f"model; {c['sentences']['unmapped']} sentences not paired yet"),
+              "note": (f"{c['links']['script']} links by script (unconfirmed), "
+                       f"{c['links']['model']} by model, {c['rejected']} script links "
+                       f"rejected by the model; {c['sentences']['unmapped']} sentences not "
+                       "paired yet"),
               "sentences": [e for e in entries if e["coverage"] != "unmapped"]}
     (out_dir / MERGED).write_text(json.dumps(merged, indent=1, ensure_ascii=False) + "\n",
                                   encoding="utf-8")
     return (f"{len(g['sentences'])} sentences × {len(g['rows'])} tests — "
-            f"{c['links']['script']} links by script, {c['links']['model']} by model, "
-            f"{c['sentences']['unmapped']} sentences not paired yet")
+            f"{c['links']['script']} links by script (unconfirmed), {c['links']['model']} by "
+            f"model, {c['rejected']} rejected, {c['sentences']['unmapped']} sentences not "
+            "paired yet")
 
 
 # --- agreement with a model-written matrix ----------------------------------------------
@@ -1342,7 +1709,10 @@ def main(argv=None) -> int:
         g = gather(spec, review, root)
         sids = {s["id"] for s in g["sentences"]} if g else None
         tids = {r["id"] for r in g["rows"]} if g else None
-        bad = problems(doc, sids, tids) if doc is not None else [f"{path}: not JSON"]
+        links = scripted_links(g["scripted"]) if g else None
+        dids = {d["id"] for d in g["decisions"]} if g else None
+        bad = problems(doc, sids, tids, links, dids) if doc is not None \
+            else [f"{path}: not JSON"]
         for b in bad:
             print(b, file=sys.stderr)
         print(f"[semcov] {path}: " + ("valid" if not bad else f"{len(bad)} problem(s)"))
@@ -1357,7 +1727,7 @@ def main(argv=None) -> int:
         return 0
     if args.command == "inputs":
         print(json.dumps(model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"],
-                                     g["docs"]), indent=1, ensure_ascii=False))
+                                     g["docs"], g["decisions"]), indent=1, ensure_ascii=False))
         return 0
     ref = Path(args.reference or review / ".model-prev" / "requirements-map.html")
     entries = merge(g["sentences"], g["scripted"], load_model_mapping(review))

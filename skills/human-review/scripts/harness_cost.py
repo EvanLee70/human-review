@@ -198,9 +198,14 @@ def session_kind(text: str | None) -> str:
 
 def entry(harness: str, session: str, what: str, window=(None, None), tokens: int = 0,
           models: dict | None = None, usd: float | None = None, aic: float | None = None,
-          calls: int = 0, model_seconds: float = 0.0, note: str | None = None) -> dict:
+          calls: int = 0, model_seconds: float = 0.0, note: str | None = None,
+          subagent_models: list[str] | None = None) -> dict:
     """One harness session's share of one component. `usd` is a Claude list price, `aic`
-    Copilot credits; never both, so a reader always knows which kind of number it is."""
+    Copilot credits; never both, so a reader always knows which kind of number it is.
+
+    `subagent_models` names the models of the agents the session forked inside the window,
+    apart from its own: in the review component those agents ARE the reviewers, and the
+    session around them is the orchestrator briefing them, usually on a bigger model."""
     out = {"harness": harness, "session": session, "what": what,
            "window": [iso(window[0]), iso(window[1])],
            "tokens": int(tokens or 0),
@@ -210,6 +215,8 @@ def entry(harness: str, session: str, what: str, window=(None, None), tokens: in
            "calls": int(calls or 0), "modelSeconds": round(float(model_seconds or 0), 1)}
     if note:
         out["note"] = note
+    if subagent_models:
+        out["subagentModels"] = list(subagent_models)
     return out
 
 
@@ -296,13 +303,50 @@ def claude_entry(session: str | None, lo, hi, what: str) -> dict | None:
     if not data.get("messages"):
         return None
     spans = claude_model_spans(path, lo, hi)
+    sub_models: list[str] = []
     for agent in rc().subagent_transcripts(path):
         first, _last = rc().agent_span([agent])
         if first is not None and _within(first, lo, hi):
             spans += claude_model_spans(Path(agent), lo, hi)
+            sub_models += [m for m in transcript_models(Path(agent)) if m not in sub_models]
     return entry(CLAUDE, session, what, (lo, hi), data["tokens"], data.get("models"),
                  usd=data["cost"], calls=data["messages"],
-                 model_seconds=_intervals_union(spans))
+                 model_seconds=_intervals_union(spans), subagent_models=sub_models)
+
+
+_MODEL_FIELD = re.compile(r'"model"\s*:\s*"([^"]+)"')
+
+
+@functools.lru_cache(maxsize=256)
+def _transcript_model_ids(path: str, size: int, mtime: int) -> tuple[str, ...]:
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ()
+    seen: dict[str, None] = {}
+    for raw in _MODEL_FIELD.findall(text):
+        if raw.startswith("claude-"):
+            seen.setdefault(raw, None)
+    return tuple(seen)
+
+
+def transcript_model_ids(path: Path) -> list[str]:
+    """Every Claude model id a transcript's assistant turns name, in order of first use."""
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return []
+    return list(_transcript_model_ids(str(path), st.st_size, st.st_mtime_ns))
+
+
+def transcript_models(path: Path) -> list[str]:
+    """`transcript_model_ids`, as the labels the cost rows use (`Sonnet 5.5`)."""
+    out: list[str] = []
+    for raw in transcript_model_ids(path):
+        name = rc().label(raw)
+        if name not in out:
+            out.append(name)
+    return out
 
 
 def claude_authors(root: Path, base: str) -> list[dict]:
@@ -407,10 +451,13 @@ def copilot_entry(session: str, lo, hi, what: str, note: str | None = None) -> d
         note = ((note + "; ") if note else "") + (
             f"{subs} subagent(s) inside: {sub_aic:.1f} AIC on {', '.join(sub_models)}, "
             f"the main agent {aic - sub_aic:.1f}")
+    else:
+        sub_models = []
     return entry(COPILOT_CLI, session, what,
                  (min(e["when"] for e in events), max(e["when"] for e in events)),
                  tokens, models, aic=aic, calls=len(events),
-                 model_seconds=_intervals_union(spans), note=note)
+                 model_seconds=_intervals_union(spans), note=note,
+                 subagent_models=[rc().label(m) for m in sub_models])
 
 
 def copilot_last_subagent_call(sessions: list[str], lo, hi) -> "dt.datetime | None":
@@ -774,6 +821,105 @@ def _front(root: Path) -> dict:
     return dict(re.findall(r"^([A-Za-z-]+):\s*(.*)$", m.group(1), re.M)) if m else {}
 
 
+#: The families a `reviewers:` line in the front matter may name in prose.
+FAMILIES = ("Opus", "Sonnet", "Haiku", "Fable", "Mythos")
+
+
+def _session_model_ids(session: str) -> list[str]:
+    """Every Claude model id the session and the agents it forked answered with."""
+    path = rc().transcript(session) if session else None
+    if path is None:
+        return []
+    ids = transcript_model_ids(path)
+    for agent in rc().subagent_transcripts(path):
+        ids += [m for m in transcript_model_ids(Path(agent)) if m not in ids]
+    return ids
+
+
+def relabel(row: dict) -> dict:
+    """A recorded row's model names, as `review-cost.py:label` spells them now.
+
+    A `review-cost.json` recorded before `label` read the version names
+    `claude-opus-5-5` `Opus 5`. The transcript is still on disk on the machine that
+    recorded it, and says which id that name stood for: when exactly one id of the session
+    carries the old name, the row takes the new one. Anything ambiguous, or a transcript
+    that is gone, keeps the name it was recorded with."""
+    for e in row.get("entries") or []:
+        models = e.get("models") or {}
+        if e.get("harness") != CLAUDE or not models or not e.get("session"):
+            continue
+        upgrade: dict[str, set] = {}
+        for raw in _session_model_ids(e["session"]):
+            upgrade.setdefault(rc().legacy_label(raw), set()).add(rc().label(raw))
+        renamed: dict[str, int] = {}
+        for name, tok in models.items():
+            names = upgrade.get(name) or set()
+            key = next(iter(names)) if len(names) == 1 else name
+            renamed[key] = renamed.get(key, 0) + tok
+        e["models"] = renamed
+    return row
+
+
+def reviewer_models(root: Path, review: Path | None = None) -> list[str]:
+    """The model(s) that did the reviewing — the reviewers, not the session briefing them.
+
+    The review chip used to name the first model of the run's whole bill, which is the
+    implementation's: `Reviewed by Opus 5` over four Sonnet reviewers. In order:
+
+      1. `subagentModels` on the recorded review row — the agents forked in its window;
+      2. for a record that predates that field, the same answer read off the session's
+         subagent transcripts that started inside the review window (`state.json`);
+      3. the families the front matter's `reviewers:` line names in prose, versioned from
+         the review row's own models where one matches;
+      4. the review row's models, largest first — an inline review, with no agents to
+         name, was done by the session itself.
+    Empty when nothing says."""
+    root = Path(root)
+    review = Path(review) if review else root / ".human-review"
+    rec = read_record(root) or {}
+    row = next((c for c in rec.get("components") or [] if c.get("key") == "review"), {})
+    names: list[str] = []
+
+    def add(found) -> None:
+        names.extend(m for m in found if m and m not in names)
+
+    for e in row.get("entries") or []:
+        add(e.get("subagentModels") or [])
+    if names:
+        return names
+    try:
+        state = json.loads((review / "review" / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    # Never open-ended: an agent the page build forked hours later is not a reviewer.
+    lo = parse(state.get("reviewStartedAt"))
+    hi = parse(state.get("reviewersDoneAt")) or parse((state.get("finishes") or [None])[0])
+    harness = normalize_harness(state.get("harness") or rec.get("harness") or CLAUDE)
+    if lo and hi and harness == CLAUDE:
+        for sid in state.get("sessions") or [state.get("session")]:
+            path = rc().transcript(sid) if sid else None
+            if path is None:
+                continue
+            for agent in rc().subagent_transcripts(path):
+                first, _last = rc().agent_span([agent])
+                if _within(first, lo, hi):
+                    add(transcript_models(Path(agent)))
+        if names:
+            return names
+    recorded = {}
+    for e in row.get("entries") or []:
+        for name, tok in (e.get("models") or {}).items():
+            recorded[name] = recorded.get(name, 0) + tok
+    prose = _front(root).get("reviewers") or ""
+    for fam in FAMILIES:
+        if re.search(rf"\b{fam}\b", prose, re.I):
+            add([n for n in recorded if n.lower().startswith(fam.lower())] or [fam])
+    if names:
+        return names
+    add(sorted(recorded, key=lambda n: -recorded[n]))
+    return names
+
+
 def _from_phase(row: dict | None, key: str, session: str | None, what: str) -> dict | None:
     if not row or not row.get("measured"):
         return None
@@ -1125,7 +1271,7 @@ def components(root: Path, base: str, review: Path, phases: dict | None = None,
             guide = _guide_from_phases(phases) or guide
         guide["source"] = "derived"
     refreshes = (report or {}).get("refreshes") or []
-    rows = list(first3) + [guide]
+    rows = [relabel(c) for c in list(first3) + [guide]]
     usd = sum(c.get("usd") or 0.0 for c in rows if c.get("measured"))
     aic = sum(c.get("aic") or 0.0 for c in rows if c.get("measured"))
     return {"rows": rows, "recorded": not rec.get("derived"),

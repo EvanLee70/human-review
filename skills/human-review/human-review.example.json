@@ -215,11 +215,17 @@
       "//14": "exported as BOTH BASE_URL and API_URL: the container's nginx proxies /api/",
       "//15": "on its own origin, and two different values is how a film drives one",
       "//16": "instance's screens against another instance's data.",
+      "//17": "`reset` puts the database back to its seed before the film and the UX audit",
+      "//18": "shoot: a path is POSTed to the instance (the Demo tab's Reset button presses",
+      "//19": "the same one), anything else is a command. Without it, an instance another",
+      "//20": "step already wrote into (the browser suite) is recycled — down, then up.",
+      "//21": "This block is also the Demo tab's Deployed-app row when content.json has none.",
       "out": ".human-review/assets/feature.webm",
       "app": {
         "up": "./start-docker.sh up --ref {sha} --ttl 1800",
         "url": "./start-docker.sh url petclinic-{shortsha}",
-        "down": "./start-docker.sh down petclinic-{shortsha}"
+        "down": "./start-docker.sh down petclinic-{shortsha}",
+        "reset": "/__reset"
       }
     },
     "//complexity": [

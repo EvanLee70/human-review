@@ -251,3 +251,29 @@ def test_the_review_records_its_own_cost_in_the_harness_that_ran_it(tmp_path):
     doc = json.loads((r / "review-cost.json").read_text())
     assert len(doc["rounds"]) == 2
     assert {c["key"]: c for c in doc["components"]}["autofix"]["aic"] == 5.0
+
+
+# ── what the prompt asks of the record, held to the words the page depends on ───────
+
+PROMPT = (HERE.parent.parent / "record-review" / "prompt.md").read_text(encoding="utf-8")
+
+
+def test_the_prompt_files_a_refuted_finding_under_ignored_at_info_with_its_evidence():
+    """Run 5 kept a disproved finding at medium, and the page counted it as worth a look."""
+    flat = " ".join(PROMPT.split())
+    assert "**refute**" in flat and "goes here too, never under Fixed and never dropped" in flat
+    assert "`severity: info`" in flat and "names the evidence that disproves it" in flat
+    assert "severity: high|medium|low|info" in flat
+
+
+def test_the_prompt_asks_an_assumption_why_its_confidence_is_what_it_is():
+    flat = " ".join(PROMPT.split())
+    assert "Assumptions: 1-2 sentences" in flat
+    assert "what holds the confidence where it is" in flat
+
+
+def test_the_prompt_asks_a_fixed_item_to_anchor_every_place_the_fix_changed():
+    """The page deals the fix commit's hunks out by these lines; an unanchored hunk is
+    listed apart, so a fix that names one of its three places loses the other two."""
+    flat = " ".join(PROMPT.split())
+    assert "(Fixed: one per place the fix changed, tests too)" in flat

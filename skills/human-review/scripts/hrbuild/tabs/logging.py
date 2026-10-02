@@ -256,6 +256,19 @@ def _hint_arguments(snippet: str, h: dict) -> str:
     return (snippet[:pre.start("rows")] + "\n".join(lines) + snippet[pre.end("rows"):])
 
 
+def _change_line(h: dict) -> str:
+    """One muted line over a snippet: new logging, or an old statement rewritten — and,
+    when rewritten, the call it replaced. Nothing when the scan ran without a base."""
+    if h.get("change") == "added":
+        return '<p class="lg-change lg-new">New log statement</p>'
+    if h.get("change") != "modified":
+        return ""
+    what = ("Rewritten, not new — it logs the same text as before"
+            if h.get("same_output") else "Rewritten, not new — its arguments changed")
+    was = (f'. Was <code>{html.escape(h["was"])}</code>' if h.get("was") else "")
+    return f'<p class="lg-change lg-mod">{what}{was}</p>'
+
+
 def _logging_listing(added: list, root: Path) -> str:
     """The leading answer: one code snippet per logging statement this change set
     actually added or modified — the same `.snippet` figure every other quoted line on
@@ -277,6 +290,12 @@ def _logging_listing(added: list, root: Path) -> str:
     # the statement already marks the added lines with `+`, and every block on this tab is
     # here *because* the branch added or rewrote that logging line.
     BADGE_RE = re.compile(r'<span class="code-badge"[^>]*>[^<]*</span>')
+    # …except that a `+` line is not always a new statement. `logextract.py` tells the two
+    # apart (`pair_with_old_calls`: the same hunk deleted a call to the same logger
+    # method), and a literal swapped for a constant must not read as new logging. New
+    # statements first — they are what the tab is for — then the rewritten ones, each
+    # saying what it was. Stable within each group, so the extractor's order survives.
+    added = sorted(added, key=lambda h: h.get("change") == "modified")
     for h in added:
         # The bar's own link opens at the *first* line of the window, which with origin
         # lines pulled in is the declaration rather than the statement. Re-aimed at the
@@ -285,10 +304,10 @@ def _logging_listing(added: list, root: Path) -> str:
         snippet = snippet_html(_logging_ref(h), None, root, exact=True,
                                link_at=(h["line"], h.get("column", 1)))
         snippet = BADGE_RE.sub("", snippet, count=1)
-        boxes.append(_hint_arguments(snippet, h))
+        boxes.append(_change_line(h) + _hint_arguments(snippet, h))
     return "".join(boxes)
 
-def logging_fragment(block, root: Path):
+def logging_fragment(block, root: Path, base: str | None = None):
     """What this change set will say for itself at 3 a.m., found structurally.
 
     Grep cannot answer this question. `log.info(...)` is a hit and `Math.log(x)` is not, and
@@ -308,8 +327,9 @@ def logging_fragment(block, root: Path):
     disappears with a loud line in the build log, which is a different, visible failure
     mode from a real, rendered zero."""
     paths = block.get("paths") or ["."]
-    base = subprocess.run(["git", "merge-base", block.get("base", "origin/main"), "HEAD"],
-                          cwd=root, capture_output=True, text=True).stdout.strip()
+    # `base` is the page's one base (`chips.page_base`); the block's own still wins.
+    base = subprocess.run(["git", "merge-base", block.get("base") or base or "origin/main",
+                           "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
     with tempfile.TemporaryDirectory() as td:
         report = Path(td) / "logging.json"
         proc = subprocess.run(

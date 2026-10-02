@@ -176,6 +176,29 @@ def answers(url: str, timeout: float = 3.0) -> bool:
         return False
 
 
+def run_base(named: str) -> str:
+    """The base every producer measures from: the one `build-review-html.py` measures from.
+
+    `named` is the ref the branch merges into. When `review-points.md` records the base its
+    reviewers audited, and that commit is on this branch past the fork point, the producers
+    measure from it instead — the same choice `hrbuild/shared/chips.py:page_base` makes for
+    the header, CODEOWNERS and the snippets, so no tab counts a range the others do not. A
+    branch carrying commits from before the review (a plan, an AGENTS.md) otherwise had its
+    API tab measured from one commit and its header from another."""
+    try:
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        from hrbuild.shared.chips import page_base
+        st = page_base(Path.cwd(), None, named)
+    except Exception:  # noqa: BLE001 - no answer is the named base, as before
+        return named
+    if st and st.get("diffBaseSource") == "audited":
+        print(f"[run-steps] base {st['diffBase'][:12]}: the base the review audited "
+              f"(review-points.md), inside {named}", file=sys.stderr)
+        return st["diffBase"]
+    return named
+
+
 def merge_base(ctx: Ctx) -> str:
     """Where this branch forked, not where the base ref points now.
 
@@ -514,7 +537,7 @@ def _sequence(ctx: Ctx):
             print(out, end="", flush=True)
             outcome, detail = suite_outcome(r.returncode, out)
             runs.append({"command": cmd, "exit": r.returncode, "outcome": outcome,
-                         "detail": detail, "log": _tail(out)})
+                         "detail": detail, "log": _tail(out), "skips": skipped_lines(out)})
     # Before the restore below, which rewrites the files it puts back and would otherwise
     # read as diagrams this run drew.
     drawn = [] if ctx.dry else sorted(p for p, st in genseq_stamps().items()
@@ -548,9 +571,14 @@ def _sequence(ctx: Ctx):
     # step with a RED note — on every run of a machine without the trace collector up, and
     # the tab kept showing the committed pictures as if they were this branch's.
     if not drawn:
+        # A command that exited 0 and drew nothing did not pass anything: the generator
+        # that says `fetch failed — skipped` three times and `Generated 0 diagram(s)` exits
+        # 0, and the band used to print it as `passed` under "drew no diagram".
+        for r in runs:
+            if r["outcome"] == RAN:
+                r["outcome"], r["detail"] = DREW_NOTHING, drew_nothing(r.get("skips"))
         said = "; ".join(f"{r['command']} — " + (
-            f"exit {r['exit']}: {r['detail']}" if r["outcome"] == FAILED
-            else r["detail"] if r["outcome"] == NO_TESTS else "passed, drew nothing")
+            f"exit {r['exit']}: {r['detail']}" if r["outcome"] == FAILED else r["detail"])
             for r in runs) or "no commands configured"
         reason = ("the traced suites drew no diagram on this run, so the Sequence tab shows "
                   "the committed ones, not this branch re-traced: " + said)
@@ -590,6 +618,11 @@ SEQ_VERDICT = ART / "sequence.verdict.json"
 #: suite with no such scenario) throws NoTestsDiscovered and turns Maven red, and that is a
 #: statement about the filter, not about the code under review.
 NO_TESTS = "no-tests"
+#: A command that exited 0 on a run that drew no diagram at all. Not `ran`: what the step
+#: is for is the picture, and a zero exit with none is the generator skipping every scenario
+#: (`fetch failed — skipped`) because the traces it reads were never recorded.
+DREW_NOTHING = "drew-nothing"
+_SKIP_LINE = re.compile(r"(?:\"[^\"]*\"|'[^']*')\s*:\s*(?P<why>.*\bskipped\b.*)$", re.I)
 _NO_TESTS_RX = re.compile(r"NoTestsDiscovered|did not discover any tests|No tests to run"
                           r"|No tests were executed|No tests found", re.I)
 _UNDISCOVERED = re.compile(r"Suite \[([^\]]+)\] did not discover any tests")
@@ -621,6 +654,27 @@ def suite_outcome(code: int, output: str) -> tuple[str, str]:
                           else "the runner found no test to run")
     last = _tail(output, 1)
     return FAILED, last[0].strip()[:240] if last else f"exit {code}"
+
+
+def skipped_lines(output: str) -> list[str]:
+    """What a generator said it skipped, one reason per scenario: `⚠️ "Add a visit…": fetch
+    failed — skipped` -> `fetch failed — skipped`. The scenario names are dropped because
+    the reasons are what repeat, and a reason said three times is one cause."""
+    out = []
+    for line in _ANSI.sub("", output or "").splitlines():
+        m = _SKIP_LINE.search(line)
+        if m:
+            out.append(m["why"].strip())
+    return out
+
+
+def drew_nothing(skips) -> str:
+    """`exit 0, and drew no diagram — "fetch failed — skipped" ×3`."""
+    counts: dict[str, int] = {}
+    for why in skips or ():
+        counts[why] = counts.get(why, 0) + 1
+    said = ", ".join(f"“{w}”" + (f" ×{n}" if n > 1 else "") for w, n in counts.items())
+    return "exit 0, and drew no diagram" + (f" — {said}" if said else "")
 
 
 def genseq_stamps() -> dict[str, tuple[int, int]]:
@@ -741,6 +795,10 @@ def _city(ctx: Ctx):
     city = ctx.step_cfg("city")
     regen, out = city.get("regenerate"), city.get("out")
     page = ART / "codecity" / "codecity.html"
+    # The city lights what changed since the run's base, not since origin/main, which
+    # code-city picks on its own — its "since origin/main" was the page's second base.
+    mb = merge_base(ctx)
+    os.environ["HEATMAP_CHANGED_BASE"] = mb[:12] if re.fullmatch(r"[0-9a-f]{40}", mb) else mb
     if regen:
         # A project's own command may only know how to write in place. `html` says where,
         # and the original bytes are put back after the new page has been copied out.
@@ -877,8 +935,74 @@ def expand_vars(template: str, found: dict[str, str]) -> str:
     return template
 
 
+#: The steps whose output is a picture of the running app's screens. Each one brings the
+#: instance's database back to its seed before it shoots (`app_instance(clean=True)`), and
+#: each one holds the `stack` lane in `USES`, so no step that writes into that database can
+#: run between the reset and the last capture. On 3 Oct 2026 (eval run 5) the design-system
+#: audit shot the stack the Playwright suite had just written into: three of its four
+#: "changed" screens were test data — `Join 26` → `Join 28 happy pet owners`, an e2e visit
+#: row — and the film, on the same stack, opened its sorted list on two junk owners and
+#: missed a caption that counted 26 of them.
+CAPTURES = ("video", "dsaudit")
+
+
+def _post(url: str, timeout: float = 30.0) -> bool:
+    """POST with an empty body; True on any 2xx. The reset path a review page's own Reset
+    button presses (`runtime.reset`), so the run and the reader reset the same way."""
+    try:
+        req = urllib.request.Request(url, data=b"", method="POST")
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return 200 <= r.status < 300
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def to_seed(ctx: Ctx, cfg: dict, inst: "AppInstance", expand) -> str:
+    """Bring a running instance's database back to its seed, before anything is captured.
+
+    `app.reset` is how, when the project says: a path (`/__reset`) is POSTed to the
+    instance — the very endpoint the page's Reset button calls — and anything else is a
+    command (`./start-docker.sh reset petclinic-{shortsha}`, `{url}` = the instance). It is
+    run even on an instance this step started: an `up` that found a stopped instance keeps
+    its old volume, and a reset costs a second.
+
+    Without `reset`, an instance this step started is taken as seeded — nothing has
+    written to it yet — and one it found running (city's suite, the traces' cucumber run,
+    a previous run's leftover) is recycled: `down` and `up` again, which drops the volume.
+    Slower, never wrong; the note says how to make it cheap. Returns how it got there."""
+    reset = (cfg.get("reset") or "").strip()
+    if reset:
+        ok = (_post(inst.base.rstrip("/") + reset) if reset.startswith("/") else
+              sh(expand(reset).replace("{url}", inst.base), ctx, check=False).returncode == 0)
+        if ok:
+            return f"reset ({reset})"
+        print(f"    reset did not answer ({reset}) — recycling the instance instead", flush=True)
+    elif inst.started:
+        return "started by this step, so still at its seed"
+    if not (cfg.get("up") and cfg.get("down")):
+        raise RuntimeError(
+            f"the app at {inst.base} was already running — another step may have written "
+            "into its database — and there is no `app.reset`, nor `up`/`down` to start it "
+            "again from its seed")
+    sh(expand(cfg["down"]), ctx, check=False)
+    up = sh(expand(cfg["up"]), ctx, capture=True, check=False)
+    print((up.stdout or "") + (up.stderr or ""), end="", flush=True)
+    if up.returncode != 0:
+        raise RuntimeError(f"the app would not start again from its seed: {expand(cfg['up'])}")
+    found = APP_URL.findall(up.stdout or "")
+    if not found and cfg.get("url"):
+        got = sh(expand(cfg["url"]), ctx, capture=True, check=False)
+        found = APP_URL.findall(got.stdout or "")
+    if not found:
+        raise RuntimeError("the app came back from its seed and printed no URL to reach it at")
+    inst.base = found[-1].rstrip(".,)")
+    ctx.notes.append(f"recycled {inst.base} (down + up) so the capture starts from the seed — "
+                     "an `app.reset` in human-review.json would do it in a second")
+    return "recycled: down + up"
+
+
 @contextlib.contextmanager
-def app_instance(ctx: Ctx, cfg: dict, sha: dict):
+def app_instance(ctx: Ctx, cfg: dict, sha: dict, clean: bool = False):
     """`up` the app this step runs against, hand back where it landed, `down` it after.
 
     Extracted from `_video`, which had it inline and alone. The reason it existed there is
@@ -895,6 +1019,9 @@ def app_instance(ctx: Ctx, cfg: dict, sha: dict):
     the film is not automatically right for a suite that needs a collector behind it.
 
     `{sha}`/`{shortsha}` come from `git rev-parse HEAD`, never from the config.
+
+    `clean` is for the steps in `CAPTURES`: the database is brought back to its seed
+    (`to_seed`) before the step gets the instance, whoever started it.
     """
     if isinstance(cfg, str):
         if cfg != "video":
@@ -942,6 +1069,9 @@ def app_instance(ctx: Ctx, cfg: dict, sha: dict):
         if not inst.base and not ctx.dry:
             raise RuntimeError("the app started and printed no URL to reach it at — "
                                "`app.up` has to print it, or `app.url` has to")
+        # Before the env is written: a recycled instance comes back on another port.
+        if clean and inst.base and not ctx.dry:
+            print(f"    seed: {to_seed(ctx, cfg, inst, expand)}", flush=True)
         if inst.base:
             names = cfg.get("env") or APP_ENV_DEFAULT
             inst.env = "".join(
@@ -998,7 +1128,8 @@ def _video(ctx: Ctx):
     logs = Path(f"{ART}/feature.run.log")
     verdict_path = Path(f"{ART}/feature.verdict.json")
 
-    with app_instance(ctx, cfg.get("app"), _app_slots(ctx) if cfg.get("app") else {}) as app:
+    with app_instance(ctx, cfg.get("app"), _app_slots(ctx) if cfg.get("app") else {},
+                      clean=True) as app:
         if app.base:
             ctx.notes.append(f"filmed against {app.base}, started by this run from the commit "
                              "under review — not whatever was already listening on :4200")
@@ -1278,8 +1409,8 @@ def _dsaudit_origins(ctx: Ctx, c: dict, mb: str):
             "this branch IS its own merge-base, so there is no second build to compare it "
             "against — and two instances of one commit report 'no screen changed', which is "
             "the same sentence a clean audit prints")
-    with app_instance(ctx, cfg, new_slots) as fresh, \
-            app_instance(ctx, cfg, old_slots) as before:
+    with app_instance(ctx, cfg, new_slots, clean=True) as fresh, \
+            app_instance(ctx, cfg, old_slots, clean=True) as before:
         if fresh.started or before.started:
             ctx.notes.append(
                 f"the design-system audit compared {fresh.base} (this branch) against "
@@ -1505,6 +1636,8 @@ STEP_INPUTS = {
                                "../puml-diff/puml_diff.py", "../puml-diff/seq_puml_diff.py"),
                      "outputs": ("assets/diagrams",)},
     "c2":           {"paths": ("*.genseq.puml",),
+                     # whether those were re-traced on this run: the card says so
+                     "reads": ("assets/sequence.verdict.json",),
                      "tools": ("c2-from-sequence.py",),
                      "outputs": ("assets/c2",)},
     "complexity":   {"paths": ("*.java",),
@@ -1811,6 +1944,9 @@ NEEDS = {
 #: when it ends — under another step still using it. `sequence` and `testcov` both run
 #: `mvn test` in the same module, and two Maven builds in one `target/` corrupt each
 #: other. Everything else reads git and files, and runs alongside anything.
+#: The lane is also what keeps a capture honest: `video` and `dsaudit` (`CAPTURES`) reset
+#: the database first, and only because they hold `stack` can no writer — city's suite,
+#: the cucumber run — land between that reset and their last screenshot.
 USES = {
     "city":     {"stack"},
     "traces":   {"stack"},             # its cucumber run writes to that stack's database
@@ -1993,7 +2129,7 @@ def main(argv=None) -> int:
         return 0
 
     cfg = load_config(Path(args.config))
-    ctx = Ctx(args.base or cfg.get("base") or "origin/main", cfg, args.dry_run,
+    ctx = Ctx(run_base(args.base or cfg.get("base") or "origin/main"), cfg, args.dry_run,
               args.no_ledger)
     only = {s.strip() for s in args.only.split(",")} if args.only else None
     skip = {s.strip() for s in args.skip.split(",")} if args.skip else set()

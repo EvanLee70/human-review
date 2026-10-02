@@ -79,3 +79,23 @@ def test_needs_never_point_backwards_in_the_serial_order():
     for step, needs in rs.NEEDS.items():
         for need in needs:
             assert NAMES.index(need) < NAMES.index(step), (need, step)
+
+
+#: The steps that write into the commit's stack database: city's Playwright suite, the
+#: traces' cucumber run, and the film's own clicks.
+STACK_WRITERS = {"city", "traces", "video"}
+
+
+def test_a_capture_never_runs_beside_a_step_that_writes_into_its_stack():
+    """Eval run 5: the design-system audit shot the stack the Playwright suite had just
+    written into, and three of four 'changed' screens were test data. A capture resets the
+    database first (run-steps.py `to_seed`); that is only worth anything if no writer can run
+    between the reset and the last screenshot — which is what sharing a lane guarantees."""
+    for capture in rs.CAPTURES:
+        for writer in STACK_WRITERS - {capture}:
+            assert rs.USES.get(capture, set()) & rs.USES.get(writer, set()), (capture, writer)
+    spans = _trace(jobs=8, durations={n: 0.05 for n in set(rs.CAPTURES) | STACK_WRITERS})
+    for capture in rs.CAPTURES:
+        for writer in STACK_WRITERS - {capture}:
+            (s1, e1), (s2, e2) = spans[capture], spans[writer]
+            assert e1 <= s2 or e2 <= s1, f"{capture} overlapped {writer}"

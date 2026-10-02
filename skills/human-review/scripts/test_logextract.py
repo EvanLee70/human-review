@@ -206,6 +206,124 @@ class DiffRestrictionTest(unittest.TestCase):
         self.assertEqual("0", m.group(2))
 
 
+OLD_ADVICE = """\
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+class Advice {
+    private static final Logger log = LoggerFactory.getLogger(Advice.class);
+
+    void a(Object errors) {
+        log.warn("Validation failed: {}", errors);
+    }
+
+    void b(Object errors) {
+        log.warn("Validation failed: {}", errors);
+    }
+
+    void c(Object e) {
+        log.debug("type mismatch {}", e);
+    }
+
+    void d(Object who) {
+        log.info("Hello {}", who);
+    }
+}
+"""
+
+NEW_ADVICE = """\
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+class Advice {
+    private static final Logger log = LoggerFactory.getLogger(Advice.class);
+    private static final String VALIDATION_FAILED_LOG = "Validation failed: {}";
+
+    void a(Object errors) {
+        log.warn(VALIDATION_FAILED_LOG, errors);
+    }
+
+    void b(Object problems) {
+        log.warn(VALIDATION_FAILED_LOG, problems);
+    }
+
+    void c(Object e) {
+        log.warn("type mismatch {}", e);
+    }
+
+    void d(Object who, Object password) {
+        log.info("Hello {} {}", who, password);
+    }
+
+    void fresh(Object detail) {
+        log.warn(VALIDATION_FAILED_LOG, detail);
+    }
+}
+"""
+
+
+class NewOrRewrittenTest(unittest.TestCase):
+    """Run 5: three `log.warn` lines that only swapped a literal for a constant were listed
+    as new logging beside the one that really was. The rule: a hit is `modified` when its
+    own diff hunk deletes a call to the same logger method, `added` otherwise."""
+
+    def _scan(self, old: str, new: str):
+        import subprocess
+        import tempfile
+        tmp = os.path.realpath(tempfile.mkdtemp())  # git reports canonical paths
+        import shutil
+        self.addCleanup(shutil.rmtree, tmp, True)
+        git = ["git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t"]
+        subprocess.run(["git", "init", "-q", tmp], check=True)
+        path = os.path.join(tmp, "Advice.java")
+        with open(path, "w") as f:
+            f.write(old)
+        subprocess.run(git + ["add", "."], check=True)
+        subprocess.run(git + ["commit", "-qm", "base"], check=True)
+        base = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+        with open(path, "w") as f:
+            f.write(new)
+        hits, _, _ = logextract.extract([path], root=tmp)
+        rng = logextract.changed_ranges(tmp, base)
+        rel = lambda h: os.path.relpath(h.abs_file, os.path.realpath(tmp))  # noqa: E731
+        changed = [h for h in hits if logextract.in_ranges(h.line, rng.get(rel(h), []))]
+        logextract.pair_with_old_calls(changed, logextract.changed_hunks(tmp, base), tmp)
+        return {h.line: h for h in changed}
+
+    def test_a_literal_turned_constant_is_modified_and_logs_the_same_text(self):
+        by = self._scan(OLD_ADVICE, NEW_ADVICE)
+        a = by[9]
+        self.assertEqual("modified", a.change)
+        self.assertTrue(a.same_output, "the constant is declared with the very same literal")
+        self.assertEqual('log.warn("Validation failed: {}", errors)', a.was)
+
+    def test_a_renamed_variable_is_modified_but_not_claimed_identical(self):
+        # `errors` → `problems`: the same call rewritten, so not new logging; whether the
+        # value is the same is not something a diff can prove, so no `same_output`.
+        b = self._scan(OLD_ADVICE, NEW_ADVICE)[13]
+        self.assertEqual("modified", b.change)
+        self.assertFalse(b.same_output)
+
+    def test_a_new_method_with_a_log_line_is_added(self):
+        fresh = self._scan(OLD_ADVICE, NEW_ADVICE)[25]
+        self.assertEqual("added", fresh.change)
+        self.assertEqual("", fresh.was)
+
+    def test_a_raised_level_is_new_logging(self):
+        # debug → warn changes who reads the line: that is new logging at WARN.
+        self.assertEqual("added", self._scan(OLD_ADVICE, NEW_ADVICE)[17].change)
+
+    def test_a_new_argument_is_modified_and_not_the_same_text(self):
+        d = self._scan(OLD_ADVICE, NEW_ADVICE)[21]
+        self.assertEqual("modified", d.change)
+        self.assertFalse(d.same_output, "a second logged value is a different line")
+
+    def test_a_constant_with_a_different_value_is_not_the_same_text(self):
+        new = NEW_ADVICE.replace('= "Validation failed: {}"', '= "Rejected: {}"')
+        self.assertFalse(self._scan(OLD_ADVICE, new)[9].same_output)
+
+
 class SymbolTableTest(unittest.TestCase):
     def test_root_receiver_strips_this_and_chains(self):
         self.assertEqual("log", logextract.root_receiver("this.log"))

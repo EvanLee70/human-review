@@ -208,7 +208,7 @@ def _unmoved_since(rel: str, rev: str, root: Path) -> bool:
 
 
 def diff_html(rel: str, base: str, root: Path, caption: str | None = None,
-              head: str | None = None) -> str:
+              head: str | None = None, hunks=None) -> str:
     """One file's change, rendered as a GitHub-style two-gutter table.
 
     `head` is the right-hand side, and defaults to the working tree. Name it when the fix
@@ -220,7 +220,12 @@ def diff_html(rel: str, base: str, root: Path, caption: str | None = None,
     Same contract as `diff_link_html`: the before-side has to be real. A base that does not
     resolve, a file that did not exist in it, or a diff that comes back empty drops the
     whole block and says which on stderr — a fix illustrated with a diff of nothing is the
-    page lying about its own work, which is the one failure it exists to prevent."""
+    page lying about its own work, which is the one failure it exists to prevent.
+
+    `hunks` keeps only those hunks of the diff — 0-based, in the order `git diff
+    -U{DIFF_CONTEXT}` prints them — so one file a commit touched for two reasons can be
+    shown as two blocks, each under the card it answers (`tabs/review.py`,
+    `attribute_fix_hunks`). The stat then counts the kept lines only."""
     src = root / rel
     if not src.is_file():
         print(f"[review] diff: no file at {rel} — block dropped", file=sys.stderr)
@@ -238,7 +243,16 @@ def diff_html(rel: str, base: str, root: Path, caption: str | None = None,
         print(f"[review] diff: {rel} is unchanged since {base} — block dropped rather than "
               "rendering an empty diff", file=sys.stderr)
         return ""
-    rows = _parse_unified(proc.stdout)
+    text = proc.stdout
+    if hunks is not None:
+        # Split on the `@@` headers, not on parsed rows: a `\ No newline` line parses to
+        # the same row kind as a header and would shift every index after it.
+        keep = set(hunks)
+        parts = re.split(r"(?m)^(?=@@ )", text)
+        text = "".join(p for i, p in enumerate(parts[1:]) if i in keep)
+        if not text.strip():
+            return ""
+    rows = _parse_unified(text)
     adds = sum(1 for r in rows if r[0] == "add")
     dels = sum(1 for r in rows if r[0] == "del")
     body = []
@@ -406,6 +420,32 @@ def expand_snippets(text: str, root: Path) -> str:
 #: "new code *since this*", and the handle beside it opens exactly that comparison. Two
 #: bases would let the badge and the button disagree in a way nothing on the page shows.
 SNIPPET_BASE = os.environ.get("HUMAN_REVIEW_DIFF_BASE", "origin/main")
+
+
+def set_diff_base(base: str) -> str:
+    """Make `base` the ref every snippet on this page is measured from; returns the old one.
+
+    The build calls this once, with `page_base`'s answer, before the first snippet renders:
+    the NEW FILE / NEW CODE badge (`extract-snippet.py`'s `DIFF_BASE`) and the two diff
+    handles beside it (`SNIPPET_BASE` here) were both frozen at import to `origin/main`,
+    while the tabs around them measured from the base the review audited — so a file the
+    audited base already had was badged NEW FILE. The environment variable is set too, so
+    a subprocess started later reads the same answer.
+
+    A tab module that imported the name (`from ..shared.snippets import SNIPPET_BASE`)
+    holds a copy, so every loaded `hrbuild.*` module carrying one is updated with it."""
+    import sys
+    global SNIPPET_BASE
+    old = SNIPPET_BASE
+    SNIPPET_BASE = base
+    os.environ["HUMAN_REVIEW_DIFF_BASE"] = base
+    ext = _extract_module()
+    ext.DIFF_BASE = base
+    ext._diff_state.cache_clear()
+    for name, mod in list(sys.modules.items()):
+        if name.startswith("hrbuild.") and "SNIPPET_BASE" in vars(mod or object):
+            mod.SNIPPET_BASE = base
+    return old
 
 
 @functools.lru_cache(maxsize=1)

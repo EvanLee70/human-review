@@ -292,47 +292,27 @@ and struck through.
 ### `testpairs` (Step 3)
 
 ```json
-{"type":"testpairs","id":"sequences","kind":"sequence",
- "title":"Each test, beside the sequence its own run recorded",
- "snippets":[{"ref":"petclinic-test/features/add-visit.feature:12-27"}],
- "unpaired":{"id":"tests-nosequence",
-             "title":"Tagged for tracing, and no diagram came back","body":"…"}}
+{"type":"testpairs","id":"sequences","kind":"sequence"}
 ```
 
-**One snippet per test file, and no caption.** A pair is a fold: its summary is the file
-name, the quoted test is inside it, and the diagram is inside it too. Two entries for one
-file split that into two code blocks under one heading, and a reader counting blocks counts
-two tests. A file with several tagged scenarios is therefore *one* multi-span reference —
-`Test.java:60-61,70-94,124-155` — which prints a `⋯ N lines not shown` row between spans and
-keeps the file's real line numbers throughout.
+**Declare the block; write nothing in it.** The build fills it (`hrbuild/shared/layout.py`,
+`hrbuild/tabs/sequence.py` `derived_snippets`): the tests quoted beside the pictures are read
+off the pictures themselves — every `.genseq.puml` names the scenario that drew it in its
+`title [[src://<test>:<line> …]]` — and off the tags, `@generate_sequence` in a `.feature`,
+`@GenerateSequence` in Java, the Playwright `{tag: [GENERATE_SEQUENCE_TAG]}`. Each scenario is
+quoted from its tag to its last line, one multi-span reference per test file. A tagged
+scenario no picture names lands in the group *Tagged for tracing, and no diagram came back*.
+The heading is the skill's too: *Sequence diagrams of tests*.
 
-Span each scenario **from its tag**: `@generate_sequence` in a `.feature`, `@Test` and the
-`@Order`/`@WithMockUser` above the method in Java. That tag is why the diagram exists, and a
-range opening below it quotes a test that looks untagged. Open with the class's own tag line
-where there is one (`@GenerateSequence` and its `class` line, as a first span).
+A `snippets`, `title` or `body` typed here is dropped and named on stderr. Eval run 5
+(3 Oct 2026) typed its snippets by copying another branch's line ranges, and its
+`"title": ""` cost the tab the heading every other page opens on. There is nothing here a
+model knows better than the diagrams and the tags do.
 
-A caption on one of these is prose nobody asked for: the fold already names the file, the
-source bar already prints the path and the lines, and the diagram below is the same scenario
-drawn.
-
-⚠️ **The Sequence tab opens on the first pair, and carries no written prose at all.** No
-`section` block above the pairs, no `body` on the `testpairs` block, no caption on a
-snippet — the tab's `tip` is the only sentence it gets. Every paragraph an author has ever
-put here has been about the *pipeline*: why the tab was empty last time, which suite was
-not re-run, what the differ did with a stale `.genseq.puml`. That is a note about the
-machinery, written on the day it misbehaved, and it is stale by the next run while still
-sitting at the top of the tab telling the reviewer the diagrams below cannot be trusted.
-What the deltas amount to is on the pictures. If the pipeline itself is broken, fix the
-pipeline; the page already says so, on the pair that did not draw.
-
-**`title: ""`** drops the heading altogether, and the block opens straight on the first
-pair. Worth reaching for: each pair already names its scenarios and prints its own source
-path, so a heading over them restates the tab label in the one place the first diagram
-should be. Omitting `title` is not the same thing — that still gets the default.
-
-**`snippets`** is the pool the pairing draws from — you quote the tests, the block works out
-which diagram each belongs to, and you never name a diagram. **`unpaired`** names the group
-the leftovers land in; omitting it accepts the defaults rather than turning the group off.
+⚠️ **The Sequence tab carries no written prose at all.** No `section` block above the pairs —
+the tab's `tip` is the only sentence it gets. Every paragraph an author has ever put here has
+been about the *pipeline*: why the tab was empty last time, which suite was not re-run. When
+the suites were not re-traced, `run-steps.py` says so itself, in the band over the pairs.
 
 **The kind of test — `UI` / `API` / `unit` — is not authored.** Every pair leads with the
 Tests tab's own chip, read off the diagram it holds: the first lifeline is the end the run
@@ -588,22 +568,20 @@ it and strikes the label through.
   produce are dropped from every tab after Review, the six built-in sections are rebuilt
   from the build's own table, and a scope chip without `auto` is dropped — each named on
   stderr (*The tab strip*, *Top level*).
-- **`verdict.bullets` render nowhere.** `verdict.score` is the pill beside the title (and
-  the band of colour it wears); the bullets are kept in the file and never drawn. The
-  full-bleed amber band that used to hold them said the pill again one screenful lower and
-  pushed the findings below the fold. Reasons a reader needs before the list go in
-  `summary`, in a sentence.
-- `summary` **opens the first tab**, above that tab's own `intro`. They are
-  not a tab of their own: a tab is a question the reader chooses, and *what is this change,
-  and is it mergeable* is not chosen — it is what the page opens with. So do not declare an
-  Overview tab, and do not repeat the summary in the first tab's `intro`.
-- **Both `summary` and `verdict.bullets` are optional, and leaving them out is the normal
-  case once the findings say it better.** A lede that restates the first finding, and
-  bullets that restate the next three, are the same page twice — and the copy on top is
-  the one the reader has to get past to reach the list they came for. Write a summary only
-  for what the findings cannot say: what the change *is*, in a sentence. `{{tabcount}}` and
-  the walk-through check apply to a summary that exists; a page without one is not warned
-  about tabs it never promised to name.
+- **The grade's reasons are computed** (`hrbuild/tabs/review.py`, `grade_signals`): CI
+  from `.gate.json`, the open pile by severity, the unconfirmed assumptions, a breaking API
+  change (the API tab's verdict band), tabs carrying a reason instead of this run's
+  evidence (`assets/sequence.verdict.json`, `assets/feature.verdict.json`), code committed
+  after the review (`aftermath.json`) and commits in the PR before the reviewed range.
+  `verdict.bullets` (or `verdict.why`) add **at most two** lines under them — what only the
+  model knows; more are cut with a warning. `verdict.score` is the model's number, lowered
+  to the lowest ceiling those signals set (`GRADE_CAPS`: CI failed 4, open `high` 5, no
+  build proved the commit 6, two tabs without evidence 6, breaking API / one tab without
+  evidence / code after the review / unreviewed commits 7) — never raised; the panel shows
+  the model's number struck through beside the capped one.
+- **No `summary`.** It opened the first tab — the Review tab — as model prose above the
+  grade, where the reader arriving from the score expects the computed reasons; the build
+  drops it there and says so on stderr. Do not declare an Overview tab either.
 - The score beside the title **links to the tab that renders `findings`** — the reasons
   behind `5/10 not yet mergeable` — so keep the findings in one tab.
 - A tab whose every block came back empty is **dropped** and named in the build log.
@@ -709,18 +687,14 @@ takes them, so the page is a **tab strip over panels**, driven by a `tabs` array
   {"id":"requirements","label":"Tests",
    "blocks":[{"type":"section","id":"requirements-map"}]},
   {"id":"sequence","label":"Sequence",
-   "blocks":[{"type":"testpairs","id":"sequences","kind":"sequence",
-              "title":"Each test, beside the sequence its own run recorded",
-              "snippets":[{"ref":"petclinic-test/features/add-visit.feature:12-27","caption":"…"}],
-              "unpaired":{"id":"tests-nosequence",
-                          "title":"Tagged for tracing, and no diagram came back","body":"…"}}]},
+   "blocks":[{"type":"testpairs","id":"sequences","kind":"sequence"}]},
   {"id":"packages","label":"Structure",
    "blocks":[{"type":"diagrams","only":["Java packages"],
               "context":{"src":"petclinic-backend/docs/packages.puml","name":"Java packages","note":"…"}},
              {"type":"puml","src":"petclinic-backend/docs/generated/MavenModules.puml",
               "name":"Maven modules","status":"unchanged"},
              {"type":"diagrams","manifest":"assets/c2/MANIFEST.tsv","only":["C2-Containers"],
-              "id":"c2-containers","title":"C2 Containers"}]},
+              "id":"c2-containers"}]},
   {"id":"city","label":"Code City","blocks":[{"type":"codecity"}]},
   {"id":"dsaudit","label":"UX","tip":"Native controls sitting where a standardised component belongs — found by absence, not by labelling.",
    "blocks":[{"type":"section","id":"ds-audit"}]},
@@ -743,7 +717,7 @@ sections, which it rebuilds from its own table whatever `sections` says:
 
 | section | tab | what the build puts in it |
 | --- | --- | --- |
-| `video` | Demo | `assets/feature.webm` (yours: `video`, `appLinks`, `runtime`) — with no film, the recorder's verdict |
+| `video` | Demo | `assets/feature.webm` (yours: `video`, `appLinks`, `runtime` — when you give none, `runtime` is `steps.video.app` for HEAD and `appLinks` the screens the UX audit found changed, linked on the first caption naming them) — with no film, the recorder's verdict |
 | `swaggerdiff` | API | `includeHtml` `assets/openapi-verdict.html` + `embed` `assets/openapi-visual-diff.html#only-touched` |
 | `conceptual` | Data | `{{drawio:conceptual}}`, title `""` |
 | `requirements-map` | Tests | `includeHtml` `assets/requirements-map.html` (drawn by `semcov.py` at build time once `test-mapping.json` exists), `includeFirst` |
@@ -756,8 +730,9 @@ required section missing from its tab is added back, so a Demo tab declared `[]`
 says why there is no film; a Demo tab left out entirely is put back whenever the `video`
 step ran. A fragment its step did not write renders as a one-line *not produced* notice
 naming the step. Your per-branch choices on these tabs are selections, never prose:
-which diagrams (`only`, `context`), which tests to quote beside their sequences
-(`snippets`), the tab's `tip`.
+which diagrams (`only`, `context`) and the tab's `tip`. Not the tests quoted beside the
+sequences (derived, see `testpairs`), and not a heading that repeats the name on the card
+under it — `"title": "C2 Containers"` over the `C2-Containers` card is dropped.
 
 A tab's `id` becomes the panel's DOM id, so the Review tab's `intro` must **not** also carry
 `id="review"`, and the Complexity tab's section is `complexity-delta`, not `complexity`.

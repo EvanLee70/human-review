@@ -521,6 +521,21 @@ def test_each_statement_renders_as_the_page_s_one_snippet_style():
     assert "<figcaption" not in out and "<table" not in out
 
 
+def test_a_rewritten_statement_is_not_shown_as_new_logging():
+    """Run 5: three `log.warn` lines that only swapped a literal for a constant read as new
+    logging. The extractor now says which hits it paired with a deleted call; the tab lists
+    the new ones first and says what each rewritten one was."""
+    rewritten = {**INFO_HIT, "change": "modified", "same_output": True,
+                 "was": 'LOG.info("Booking {}", owner)'}
+    fresh = {**INFO_HIT, "change": "added"}
+    out = build._logging_listing([rewritten, fresh], REPO_ROOT)
+    assert out.index("New log statement") < out.index("Rewritten, not new")
+    assert "it logs the same text as before" in out
+    assert "Was <code>LOG.info(&quot;Booking {}&quot;, owner)</code>" in out
+    # Without a base there is no claim either way — no label at all.
+    assert "lg-change" not in build._logging_listing([INFO_HIT], REPO_ROOT)
+
+
 def test_the_declaration_of_a_logged_value_is_quoted_with_the_statement():
     out = build._logging_listing([INFO_HIT], REPO_ROOT)
     assert '<span class="ln">7</span>' in out and '<span class="ln">8</span>' in out
@@ -823,6 +838,25 @@ def test_a_blocked_tab_is_red_rather_than_wearing_an_exclamation_mark(tmp_path):
     assert '<span class="n alarm"' not in page and ">!</span>" not in page
     assert "button.tab.alarm { color:#c62828; }" in page, \
         "the pill's own colour, not a badge's"
+
+
+def test_a_breaking_contract_turns_the_api_pill_red(tmp_path):
+    """Run 5: the API band said *Breaking change* in red, and the pill above it was the
+    only one in the strip that did not say so — Sequence was amber, CODEOWNERS red."""
+    def page_with(band):
+        (tmp_path / "assets").mkdir(exist_ok=True)
+        (tmp_path / "assets" / "openapi-verdict.html").write_text(band, encoding="utf-8")
+        content = {**BARE, "tabs": [
+            BARE["tabs"][0],
+            {"id": "api", "label": "API", "blocks": [{"type": "section", "id": "swaggerdiff"}]}]}
+        page, _ = _build(tmp_path, content)
+        return re.search(r'<button[^>]*id="tabbtn-api"[^>]*>', page).group(0)
+
+    red = page_with('<div class="apiverdict red"><span class="v">Breaking change</span></div>')
+    assert "alarm" in red, red
+    green = page_with('<div class="apiverdict green"><span class="v">Backwards compatible'
+                      '</span></div>')
+    assert "alarm" not in green and "warn" not in green, green
 
 
 def test_the_tab_count_token_is_filled_in_from_the_tabs_that_were_emitted(tmp_path):
@@ -2330,6 +2364,164 @@ def test_the_mark_ends_the_ref_chip_and_carries_its_own_tooltip(tmp_path):
     assert "1 commit ahead of the fork point" in out
     # No repo named, so the refs link nowhere and carry no hover; the mark's is the only one.
     assert out.count("data-tip") == 1
+
+
+# --------------------------------------------------------------------------- #
+# one base per page: the review's audited base, when the branch records one
+# --------------------------------------------------------------------------- #
+def _reviewed_repo(tmp_path, audited: str = "plan"):
+    """`_drifting_repo`, plus the shape eval run 5 had: a plan committed on the branch
+    before the review, the review's `audited-base` recorded at that plan, and the change
+    the reviewers read on top of it. `audited` names which commit the record points at:
+    `plan`, `main-ahead` (a commit that is not on the branch at all), or None."""
+    import subprocess as sp
+    r = _drifting_repo(tmp_path, with_generated=False)
+
+    def run(*args):
+        return sp.run(["git", "-C", str(r), *args], check=True, capture_output=True, text=True)
+
+    (r / "docs").mkdir(exist_ok=True)
+    (r / "docs" / "plan.md").write_text("# plan\nstep one\nstep two\n")
+    run("add", "-A")
+    run("commit", "-qm", "plan the owners grid")
+    plan = run("rev-parse", "HEAD").stdout.strip()
+    (r / "src" / "Clinic.java").write_text("class Clinic {\n  int size;\n}\n")
+    (r / "docs" / "plan.md").write_text("# plan\nstep one\nstep two, done\n")
+    run("add", "-A")
+    run("commit", "-qm", "implement the owners grid")
+    review = r / ".human-review"
+    review.mkdir()
+    rev = {"plan": plan, "main-ahead": None, None: None}[audited]
+    if audited == "main-ahead":
+        run("checkout", "-q", "main")
+        (r / "src" / "Owner.java").write_text("class Owner {\n}\n")
+        run("add", "-A")
+        run("commit", "-qm", "something else on main")
+        rev = run("rev-parse", "HEAD").stdout.strip()
+        run("checkout", "-q", "feature")
+    if rev:
+        (review / "review-points.json").write_text(json.dumps(
+            {"provenance": {"auditedBase": rev, "base": rev}}))
+    return r, review, plan
+
+
+def test_the_page_measures_from_the_base_the_review_audited(tmp_path):
+    """Eval run 5: three commits sat on the branch before the review's audited base. The
+    header measured from origin/main's fork point (+3927 / -386) while every tab below it
+    measured from the audited base (+2091 / -2220). One base now, the audited one."""
+    r, review, plan = _reviewed_repo(tmp_path)
+    st = build.page_base(r, review, "main")
+    assert st["diffBase"] == plan and st["diffBaseSource"] == "audited"
+    assert st["mergeBase"] != plan, "the fork point is still known — the ref chip warns off it"
+    files, lines = build.diffstat_chips(r, st, None)
+    assert '<span class="added">+1</span>' in files["value"]      # Clinic.java
+    assert f"{build.PENCIL}1" in files["value"]                   # plan.md, edited
+    assert "Visit.java" not in files["tip"] and "1 added, 1 edited" in files["tip"], \
+        "VetPicker.java and Visit.java changed before the review: not this page's to count"
+    assert f"vs {plan[:8]} (the base the review audited)" in lines["tip"]
+
+
+def test_the_commits_before_the_audited_base_are_named_under_the_chips(tmp_path):
+    """Measuring from the audited base leaves a gap against GitHub's main...branch. It is
+    said, in one muted line, rather than left for a reader to stumble on."""
+    r, review, plan = _reviewed_repo(tmp_path)
+    st = build.page_base(r, review, "main")
+    assert [c["subject"] for c in st["outside"]] == ["plan the owners grid",
+                                                     "link a visit to its vet"]
+    note = build.outside_note(st, "https://github.com/acme/shop")
+    assert note.startswith('<p class="scopenote">2 earlier commits on this branch are '
+                           "outside the review: ")
+    assert f'href="https://github.com/acme/shop/commit/{plan}"' in note
+    page = build.masthead_html({"pr": {"branch": "feature", "base": "main"}}, "", "", "", st)
+    assert '<p class="scopenote">' in page, "the note rides in the masthead, under the chips"
+
+
+def test_the_lines_chip_opens_the_range_it_counted(tmp_path):
+    """`compare/main...feature` on such a branch is the wider diff the chip does NOT
+    count; the link has to open the audited range."""
+    r, review, plan = _reviewed_repo(tmp_path)
+    pr = {"repo": "https://github.com/acme/shop", "base": "main", "branch": "feature"}
+    _, lines = build.diffstat_chips(r, build.page_base(r, review, "main"), None, pr)
+    assert lines["href"] == f"https://github.com/acme/shop/compare/{plan}...feature"
+
+
+def test_with_no_review_record_the_page_measures_from_the_fork_point(tmp_path):
+    r, review, _ = _reviewed_repo(tmp_path, audited=None)
+    st = build.page_base(r, review, "main")
+    assert st["diffBaseSource"] == "merge-base" and st["diffBase"] == st["mergeBase"]
+    assert st["outside"] == [] and build.outside_note(st) == ""
+    assert "vs origin/main" in build.diffstat_chips(r, st, None)[1]["tip"]
+
+
+def test_an_audited_base_that_is_not_on_the_branch_is_not_believed(tmp_path):
+    """A record that points off the branch (a rebase since, a hand-edited front matter)
+    would measure the change against a tree it never grew from."""
+    r, review, _ = _reviewed_repo(tmp_path, audited="main-ahead")
+    st = build.page_base(r, review, "main")
+    assert st["diffBaseSource"] == "merge-base"
+
+
+def test_producers_that_ran_against_another_base_are_flagged(tmp_path):
+    """The tabs were drawn by `run-steps.py` before the build; if it was handed a different
+    base than the one the page settles on, the page says so instead of mixing silently."""
+    r, review, plan = _reviewed_repo(tmp_path)
+    fork = build.base_state(r, "main")["mergeBase"]
+    (review / "review-commits.json").write_text(json.dumps({"base": fork}))
+    st = build.page_base(r, review, "main")
+    assert st["diffBase"] == plan and st["stepsBase"] == fork
+    (review / "review-commits.json").write_text(json.dumps({"base": plan}))
+    assert build.page_base(r, review, "main")["stepsBase"] is None
+
+
+def test_a_snippet_badge_measures_from_the_page_base(tmp_path):
+    """`tasks.md` badged NEW FILE: it existed at the audited base, not at origin/main's
+    fork point, and the badge was asking origin/main."""
+    r, review, plan = _reviewed_repo(tmp_path)
+    ext = build._extract_module()
+    held = snippets.set_diff_base("origin/main")
+    try:
+        assert ext.block_status("docs/plan.md", r, [(1, 3)],
+                                (r / "docs/plan.md").read_text().splitlines())["diff"] == "new"
+        build.set_diff_base(plan)
+        assert snippets.SNIPPET_BASE == plan
+        assert importlib.import_module("hrbuild.tabs.sequence").SNIPPET_BASE == plan, \
+            "a module that imported the name holds a copy, and it moves too"
+        status = ext.block_status("docs/plan.md", r, [(1, 3)],
+                                  (r / "docs/plan.md").read_text().splitlines())
+        assert status["diff"] == "changed", "one line of three was edited after the plan"
+        quiet = ext.block_status("docs/plan.md", r, [(1, 2)],
+                                 (r / "docs/plan.md").read_text().splitlines())
+        assert f"(diffed against {plan[:12]})" in quiet["tip"], "a sha is named short"
+    finally:
+        snippets.set_diff_base(held)
+
+
+def test_codeowners_asks_the_page_base_not_origin_main(tmp_path):
+    """Eval run 5's false alarm: `@elders` approval demanded for a file changed before the
+    review's base. The tab is asked about the range the page counts."""
+    import subprocess as sp
+    r, review, plan = _reviewed_repo(tmp_path)
+    (r / ".github").mkdir()
+    (r / ".github" / "CODEOWNERS").write_text("/src/VetPicker.java @acme/elders\n")
+    sp.run(["git", "-C", str(r), "add", "-A"], check=True)
+    sp.run(["git", "-C", str(r), "commit", "-qm", "owners"], check=True)
+    _, wide = build.codeowners_fragment({}, r, review)
+    assert wide["state"] == "approval_required", "measured from the fork point, it fires"
+    _, narrow = build.codeowners_fragment({}, r, review, plan)
+    assert narrow["state"] != "approval_required", \
+        "VetPicker.java changed before the audited base: not this review's to approve"
+
+
+def test_without_a_pr_number_the_title_names_the_ticket():
+    """The reference reads `PR#49 Link Visit with Vet (#37)`; with no PR yet, the
+    ticket is the only number that says which request this answers."""
+    ticket = {"number": 25, "title": "Add pagination", "url": "https://x/issues/25"}
+    out = build.page_title({"title": "Owners grid", "pr": {"ticket": ticket}})
+    assert out.startswith("Owners grid (<a class=\"prref ticketref\" href=\"https://x/issues/25\"")
+    assert out.endswith(">#25</a>)")
+    assert build.page_title({"title": "Owners grid (#25)", "pr": {"ticket": ticket}}) \
+        == "Owners grid (#25)", "a title that already names it is not told twice"
+    assert build.page_title({"title": "Owners grid"}) == "Owners grid"
 
 
 def test_the_review_chip_leads_with_what_is_left_to_do(tmp_path):
@@ -4439,9 +4631,179 @@ def test_the_grade_reasons_are_short_and_come_from_the_content():
     assert 'id="grade-why"' in out and '<span class="gradewhy-n"><b>6</b>/10</span>' in out
     # The grade sits beside the bullets, not in a heading above them.
     assert "gradewhy-t" not in out and out.index("<ul>") < out.index("gradewhy-score")
+    # `why` no longer replaces the computed reasons: it is the model's line under them.
     spec["verdict"]["why"] = ["CI never ran"]
-    assert [s for s, _ in build.grade_reasons(spec)] == ["CI never ran"]
+    assert [s for s, _ in build.grade_reasons(spec)][-1] == "CI never ran"
+    assert [s for s, _ in build.grade_reasons(spec)][0].startswith("3 open review issues")
     assert build.grade_reasons_html({}) == ""
+
+
+def test_the_model_adds_at_most_two_lines_to_the_computed_reasons(capsys):
+    spec = {"verdict": {"score": 8, "bullets": ["One.", "Two.", "Three.", "Four."]},
+            "findings": [{"title": "a", "severity": "low"}]}
+    short = [s for s, _ in build.grade_reasons(spec)]
+    assert short == ["1 open review issue: 1 nit", "One", "Two"]
+    assert "shows the first 2" in capsys.readouterr().err
+
+
+def _signals_dir(tmp_path, gate="green", seq="skipped", api=True):
+    out = tmp_path / ".human-review"
+    (out / "assets").mkdir(parents=True)
+    (out / "assets" / "c2").mkdir()
+    if gate:
+        (out / ".gate.json").write_text(json.dumps({
+            "sha": "0746abc56242b1d8", "verdict": gate,
+            "caveat": f"{gate}: CI (run 37) for 0746abc56242",
+            "workflows": [{"name": "CI", "runId": 37,
+                           "verdict": "success" if gate == "green" else gate}]}))
+    if seq:
+        (out / "assets" / "sequence.verdict.json").write_text(json.dumps({"state": seq}))
+    if api:
+        (out / "assets" / "openapi-verdict.html").write_text(
+            '<style>.x{}</style><div class="apiverdict red"><span class="v">Breaking '
+            'changes</span> <span class="n">· 2 changes, 1 breaking across 1 endpoint '
+            '(<a class="rep">report&nbsp;&#8599;</a>)</span></div>')
+    return out
+
+
+def test_the_grade_reasons_are_computed_from_what_the_page_measured(tmp_path):
+    """Run 5: a green 8/10 whose two reasons were counts — nothing about the CI run, the
+    breaking API change, or the Sequence tab nobody re-traced (and C2 drawn from it)."""
+    out = _signals_dir(tmp_path)
+    spec = {"verdict": {"score": 8}, "findings": [{"title": "a", "severity": "medium"}],
+            "assumptions": [{"title": "x", "confidence": 0.5}]}
+    keys = [s["key"] for s in build.grade_signals(spec, out, root=None)]
+    assert keys == ["ci-green", "open", "assumptions", "api-breaking", "no-evidence"]
+    assert build.cap_grade(spec) == 7
+    assert spec["verdict"] == {"score": 7, "modelScore": 8}
+    reasons = dict(build.grade_reasons(spec))
+    assert reasons["CI green on 0746abc5"] == "green: CI (run 37) for 0746abc56242"
+    assert "1 breaking API change (caps the grade at 7)" in reasons
+    seq = next(full for short, full in reasons.items() if short.startswith("One tab carries"))
+    assert "Sequence: not re-traced" in seq and "C2 view on Structure" in seq
+    assert "report" not in reasons["1 breaking API change (caps the grade at 7)"]
+    panel = build.grade_reasons_html(spec)
+    assert '<b>7</b>/10' in panel and 'class="gradewhy-was"' in panel and ">was 8<" in panel
+
+
+@pytest.mark.parametrize("gate,cap", [("failure", 4), ("skipped", 6), ("green", None)])
+def test_the_ci_gate_caps_the_grade_and_never_raises_it(tmp_path, gate, cap):
+    out = _signals_dir(tmp_path, gate=gate, seq=None, api=False)
+    spec = {"verdict": {"score": 9}}
+    build.grade_signals(spec, out, root=None)
+    assert build.cap_grade(spec) == cap
+    assert spec["verdict"]["score"] == (cap or 9)
+    low = {"verdict": {"score": 3}}
+    build.grade_signals(low, out, root=None)
+    assert build.cap_grade(low) is None and low["verdict"]["score"] == 3
+
+
+def test_a_page_with_no_measurements_keeps_the_models_grade(tmp_path):
+    """No `.gate.json`, no verdict files: nothing is asserted, nothing is capped."""
+    spec = {"verdict": {"score": 8}}
+    assert build.grade_signals(spec, tmp_path, root=None) == []
+    assert build.cap_grade(spec) is None and spec["verdict"] == {"score": 8}
+
+
+def test_the_summary_no_longer_opens_the_review_tab(tmp_path, capsys):
+    spec = {"summary": "<p>Model prose.</p>",
+            "tabs": [{"id": "review", "blocks": [{"type": "findings"}]}]}
+    build.drop_model_summary(spec)
+    assert "summary" not in spec and "is not rendered" in capsys.readouterr().err
+    other = {"summary": "<p>x</p>", "tabs": [{"id": "data", "blocks": [{"type": "section"}]}]}
+    build.drop_model_summary(other)
+    assert other["summary"] == "<p>x</p>"
+
+
+def test_no_pull_request_means_no_publish_button(tmp_path):
+    """Run 5 offered 'Publish comment on GitHub PR' on a branch with no PR."""
+    assert not build.pr_exists({"pr": {"branch": "hr-claude-5"}}, tmp_path)
+    assert build.pr_exists({"pr": {"number": 49}}, tmp_path)
+    assert build.pr_exists({"pr": {"url": "https://github.com/o/r/pull/49"}}, tmp_path)
+    (tmp_path / build.PR_POSTED_JSON).write_text("{}")
+    assert build.pr_exists({"pr": {}}, tmp_path)
+
+
+def test_no_pull_request_declares_no_push_action(tmp_path):
+    repo = tmp_path
+    out = repo / ".human-review"
+    out.mkdir()
+    (out / build.PR_COMMENTS_JSON).write_text(json.dumps({"comments": [{"pile": "fixed"}]}))
+    spec = {"pr": {"branch": "b"}}
+    assert build.prepare_pr_push(spec, out, repo, HERE) is None
+    assert spec["_prPush"] is None and build.push_pr_button(spec) == ""
+    spec = {"pr": {"number": 7}}
+    assert build.prepare_pr_push(spec, out, repo, HERE)["count"] == 1
+
+
+def test_an_assumption_says_why_it_is_as_sure_as_its_chip_says():
+    out = build.render_assumptions([
+        {"title": "t", "confidence": 0.55, "why": "Inferred from a sentence about booking.",
+         "refs": []},
+        {"title": "u", "why": "No number given.", "refs": []}])
+    assert '<p class="f-why"><b>Why 55%:</b> Inferred from a sentence' in out
+    assert '<p class="f-why"><b>Why:</b> No number given.</p>' in out
+
+
+def _fix_repo(tmp_path):
+    """An implementation commit, then one `[auto-fix]` commit carrying two fixes in one
+    file (lines 3 and 40), and a third file no card names."""
+    def git(*a):
+        return subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                              capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    lines = [f"line {i}" for i in range(1, 51)]
+    (tmp_path / "a.py").write_text("\n".join(lines) + "\n")
+    (tmp_path / "c.py").write_text("x = 1\n")
+    git("add", ".")
+    git("commit", "-qm", "impl")
+    impl = git("rev-parse", "HEAD")
+    lines[2] = "line 3 fixed"
+    lines[39] = "line 40 fixed"
+    (tmp_path / "a.py").write_text("\n".join(lines) + "\n")
+    (tmp_path / "c.py").write_text("x = 2\n")
+    (tmp_path / "review-points.md").write_text("## Fixed\n")
+    git("add", ".")
+    git("commit", "-qm", "[auto-fix]")
+    return impl, git("rev-parse", "HEAD")
+
+
+def test_each_fixed_card_shows_only_its_own_hunks_and_the_rest_follow_the_pile(tmp_path):
+    """Run 5: one `[auto-fix]` commit, every card showing whole files against the
+    implementation — the same file under two fixes, and files no card named under none."""
+    impl, fix = _fix_repo(tmp_path)
+    out = tmp_path / ".human-review"
+    out.mkdir()
+    first = {"title": "first", "refs": ["a.py:3"], "snippets": [{"ref": "a.py:3"}],
+             "diffs": [{"path": "a.py", "base": impl}]}
+    second = {"title": "second", "refs": ["a.py:41"], "diffs": [{"path": "a.py", "base": impl}]}
+    spec = {"autofixes": [first, second],
+            "_reviewPoints": {"source": "review-points.md",
+                              "provenance": {"implementation": impl, "reviewCommit": fix}}}
+    build.attribute_fix_hunks(spec, out, root=tmp_path)
+    assert "line 3 fixed" in first["_fixDiffs"] and "line 40 fixed" not in first["_fixDiffs"]
+    assert "line 40 fixed" in second["_fixDiffs"] and "line 3 fixed" not in second["_fixDiffs"]
+    # Each card's stat counts its own hunk, not the file.
+    assert '<span class="added">+1</span>' in first["_fixDiffs"]
+    # The card no longer draws the whole file, and the snippet of lines its hunk shows goes.
+    assert first["diffs"] == [] and first["snippets"] == []
+    other = spec["_reviewPoints"]["fixOther"]
+    assert "Other changes in the fix commit" in other and "x = 2" in other
+    assert "review-points.md" not in other
+    built = build.render_pile_block(spec, {"type": "autofixes"})[0]
+    assert built.index("line 3 fixed") < built.index("Other changes in the fix commit")
+
+
+def test_a_hunk_beyond_reach_of_every_anchor_is_nobodys(tmp_path):
+    impl, fix = _fix_repo(tmp_path)
+    card = {"title": "far", "refs": ["a.py:3"], "diffs": [{"path": "a.py", "base": impl}]}
+    spec = {"autofixes": [card],
+            "_reviewPoints": {"provenance": {"implementation": impl, "reviewCommit": fix}}}
+    build.attribute_fix_hunks(spec, tmp_path, root=tmp_path)
+    assert "line 40 fixed" not in card["_fixDiffs"]
+    assert "line 40 fixed" in spec["_reviewPoints"]["fixOther"]
 
 
 def test_the_pr_button_says_publish_whether_or_not_it_was_pushed_before():
@@ -4511,7 +4873,11 @@ def test_the_data_tab_shows_every_named_diagram_and_says_what_the_erd_cannot(tmp
     page = (review / "review.html").read_text(encoding="utf-8")
     panel = page.split('id="data"', 1)[1].split("</section>", 1)[0]
     assert panel.index("<b>Domain Model</b>") < panel.index("<b>DB</b>"), "the asked order"
-    assert panel.count('<span class="badge sev-info">unchanged</span>') == 2
+    # The Domain Model is UNCHANGED; the DB picture is too, over a schema that did change —
+    # eval run 5's judges read UNCHANGED beside "DB.sql changed" as a contradiction, so
+    # that card wears its own word.
+    assert panel.count('<span class="badge sev-info">unchanged</span>') == 1
+    assert panel.count(">schema only</span>") == 1
     assert "domain picture" in panel and "erd picture" in panel
     assert "domain delta" not in panel and "dgmviews" not in panel
     assert "indexes added on owners (id)" in panel

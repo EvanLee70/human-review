@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import html
+import json
+import re
 import urllib.parse
 from pathlib import Path
 
@@ -119,6 +121,130 @@ def base_state(root: Path, named: str) -> dict | None:
     return state
 
 
+#: Where a run records which commit its review started from, in the order they are
+#: believed. `review-points.md` is the coding agent's own record of the range its
+#: reviewers read (`audited-base`, else `base`), parsed into `review-points.json` by the
+#: `reviewpoints` step; the front matter itself is the fallback for a page rebuilt before
+#: that step ran. `review-commits.json` is where `run-steps.py` wrote the merge-base of
+#: the base it was handed — the before-side every producer of a tab measured from.
+POINTS_JSON = "review-points.json"
+COMMITS_JSON = "review-commits.json"
+BASE_SOURCES = {
+    "audited": "the base the review audited",
+    "steps": "the base the producers ran against",
+    "merge-base": "the fork point",
+}
+
+
+def _front_matter(root: Path) -> dict:
+    """`review-points.md`'s front matter, as `key: value` pairs, or {}."""
+    try:
+        text = (root / "review-points.md").read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    m = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    return dict(re.findall(r"^([A-Za-z-]+):\s*(.*?)\s*$", m.group(1), re.M)) if m else {}
+
+
+def _recorded_bases(root: Path, out_dir: Path | None) -> list[tuple[str, str]]:
+    """`(source, rev)` for every base this run recorded, most authoritative first."""
+    found: list[tuple[str, str]] = []
+
+    def read(name: str) -> dict:
+        if out_dir is None:
+            return {}
+        try:
+            doc = json.loads((out_dir / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return doc if isinstance(doc, dict) else {}
+
+    prov = read(POINTS_JSON).get("provenance") or {}
+    front = _front_matter(root)
+    for rev in (prov.get("auditedBase"), prov.get("base"),
+                front.get("audited-base"), front.get("base")):
+        if rev and isinstance(rev, str):
+            found.append(("audited", rev.strip()))
+    rev = read(COMMITS_JSON).get("base")
+    if rev and isinstance(rev, str):
+        found.append(("steps", rev.strip()))
+    return found
+
+
+def _is_ancestor(root: Path, older: str, newer: str) -> bool:
+    return _git(root, "merge-base", "--is-ancestor", older, newer) is not None
+
+
+def page_base(root: Path, out_dir: Path | None, named: str) -> dict | None:
+    """The ONE commit every number on the page is measured from, and why that one.
+
+    A page used to carry two. The tabs a producer draws (API, Tests, Complexity, Logging)
+    measured from the base `run-steps.py` was handed — on a reviewed branch, the commit
+    the review audited — while everything the build computes for itself (the files and
+    lines chips, CODEOWNERS, the NEW FILE badge on a snippet, the Code City) measured from
+    `merge-base(origin/main)`. On a branch carrying three commits from before the review
+    the header said `+3927 / −386` over a change of `+2091 / −2220`, CODEOWNERS raised an
+    approval alarm over a file changed before the review began, and a file the base
+    already had was badged NEW FILE. Every consumer now takes its base from here.
+
+    In order: the base the review audited (`review-points.md`), the base the producers ran
+    against (`review-commits.json`), and the fork point from `named`. A recorded base is
+    used only when it is an ancestor of HEAD, and not when the base branch has since
+    absorbed it — measuring from a commit main already contains, past main's own fork
+    point, would charge the branch with main's commits.
+
+    Returns `base_state(named)` — the drift facts the ref chip warns about are about
+    `named` and stay so — extended with `diffBase` (the sha), `diffBaseSource` (a key of
+    `BASE_SOURCES`), `outside` (the commits on the branch between the fork point and the
+    chosen base, oldest last, as `{sha, subject}`), and `stepsBase` when the producers ran
+    against a different commit than the one chosen. None when nothing resolves at all.
+    """
+    state = base_state(root, named)
+    head = (state or {}).get("head") or _git(root, "rev-parse", "--verify", "--quiet",
+                                             "HEAD^{commit}")
+    if not head:
+        return None
+    mb = (state or {}).get("mergeBase")
+    chosen, steps = None, None
+    for source, rev in _recorded_bases(root, out_dir):
+        sha = _git(root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}")
+        if not sha:
+            continue
+        if source == "steps" and steps is None:
+            steps = sha
+        if chosen or not _is_ancestor(root, sha, head):
+            continue
+        if mb and sha != mb and _is_ancestor(root, sha, mb):
+            continue
+        chosen = (source, sha)
+    if chosen is None:
+        if not mb:
+            return None
+        chosen = ("merge-base", mb)
+    source, sha = chosen
+    out = dict(state or {"named": named, "ref": None, "sha": None, "head": head,
+                         "mergeBase": None, "ahead": None, "localRef": None,
+                         "localBehind": None})
+    out.update({"diffBase": sha, "diffBaseSource": source, "outside": [],
+                "stepsBase": steps if steps and steps != sha else None})
+    if mb and sha != mb and _is_ancestor(root, mb, sha):
+        log = _git(root, "log", "--format=%H%x1f%s", f"{mb}..{sha}") or ""
+        out["outside"] = [dict(zip(("sha", "subject"), line.split("\x1f", 1)))
+                          for line in log.splitlines() if "\x1f" in line]
+    return out
+
+
+def measured_from(state: dict | None) -> str:
+    """`origin/main`, or `b12c9bdb (the base the review audited)` — what a tooltip says
+    the numbers were counted against."""
+    if not state:
+        return ""
+    source = state.get("diffBaseSource")
+    if source and source != "merge-base":
+        return f"{state['diffBase'][:8]} ({BASE_SOURCES[source]})"
+    return state.get("ref") or (state.get("diffBase") or "")[:8]
+
+
 def base_warning(state: dict | None) -> str | None:
     """The sentence behind the `!` on the base chip, or None when the pair is current.
 
@@ -182,7 +308,7 @@ def _numstat(root: Path, rng: str, pathspecs: list[str]) -> tuple[int, int, int,
     return added, edited, deleted, adds, dels
 
 
-def _compare_href(pr: dict | None) -> str:
+def _compare_href(pr: dict | None, base: str | None = None) -> str:
     """`<repo>/compare/<base>...<branch>` — the diff the diffstat is a count of.
 
     Built from the two refs the page already names rather than from the shas it
@@ -193,10 +319,14 @@ def _compare_href(pr: dict | None) -> str:
 
     `origin/` is stripped: it names a remote in *this* checkout, and github.com has
     never heard of it. Empty when anything is missing, and the chip stays an inert pill
-    rather than linking somewhere that 404s."""
+    rather than linking somewhere that 404s.
+
+    `base` overrides the PR's base name when the page measures from a commit that is not
+    the fork point (`page_base`): the compare page must open the range the chip counted,
+    not `main...branch`, which on such a branch is a different and larger diff."""
     pr = pr or {}
     repo = (pr.get("repo") or "").rstrip("/")
-    base = (pr.get("base") or "").removeprefix("origin/")
+    base = (base or pr.get("base") or "").removeprefix("origin/")
     branch = pr.get("branch") or ""
     if not (repo and base and branch):
         return ""
@@ -226,20 +356,22 @@ def diffstat_chips(root: Path, state: dict | None, extra: list[str] | None,
     Returns [] when the base will not resolve: no base, no comparison, no chip. A page that
     cannot say what it measured against must not print a number as though it could.
     """
-    if not state or not state.get("mergeBase"):
+    start = (state or {}).get("diffBase") or (state or {}).get("mergeBase")
+    if not start:
         return []
     # `A...B` and `A..B` differ only when the base has moved ahead, and that is precisely
     # the case the `!` on the ref chip is about. Three dots is the pull request's own
     # reading -- what this branch did, not what has happened since it forked -- so the two
     # marks stay independent: the numbers describe the branch, the warning describes the
-    # gap.
-    rng = f"{state['mergeBase']}...{state['head']}"
+    # gap. The left side is `page_base`'s answer when there is one: the same commit every
+    # tab below was measured from, never a second one of the header's own.
+    rng = f"{start}...{state['head']}"
     excludes = [f":(exclude){p}" for p in GENERATED_PATHSPECS + list(extra or [])]
     a, e, d, adds, dels = _numstat(root, rng, excludes)
     fa, fe, fd, fadds, fdels = _numstat(root, rng, [])
     hidden = (fa + fe + fd) - (a + e + d)
 
-    where = f"vs {state['ref']}"
+    where = f"vs {measured_from(state)}"
     # The signs are the page's, not this chip's: `+` added, `-` removed, a pencil for
     # changed, and a zero is dropped rather than printed. A row of chips is read as a row
     # of signed numbers, and `-0` is noise that costs a glance to dismiss.
@@ -272,7 +404,8 @@ def diffstat_chips(root: Path, state: dict | None, extra: list[str] | None,
     # lines are. So it carries the compare page, and the file count beside it stays an
     # inert pill -- two identical-looking links to the same page is a row that teaches the
     # reader to ignore half of it.
-    href = _compare_href(pr)
+    off_fork = state.get("diffBaseSource") not in (None, "merge-base")
+    href = _compare_href(pr, start if off_fork else None)
     lines_tip = f"+{adds} / −{dels} {where}.{skipped}"
     if href:
         lines_tip += " Opens the whole diff on github.com."

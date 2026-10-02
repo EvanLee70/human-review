@@ -5,11 +5,14 @@
 free, safe to run again at any time. This is the other half, reduced to the smallest thing
 that can still be a *command*. The matrix used to be all of it — a model wrote
 `assets/requirements-map.html` and a `test-index/` catalogue, layout and CSS included, at
-$4–$10 a run. Now `semcov.py` draws the matrix and pairs most of the ticket's sentences
-with the tests that run this PR's changed lines on its own, from shared evidence; what is
-left is the sentences it could not pair, each with a handful of candidate tests. This
-program asks a model about exactly those and writes the answer — `test-mapping.json`,
-checked against `reference/test-mapping.schema.json` — and the build merges it in.
+$4–$10 a run. Now `semcov.py` draws the matrix and proposes pairings on its own, from shared
+evidence — but a shared word is a *candidate*, not proof: run 5 painted "sortable by any
+column" green over a test that checks the page size. So this program asks a model, in one
+call, to confirm or reject every link the script made (one line of reason each), to pair
+the sentences the script could not, and to mark a sentence a recorded scope decision
+narrowed — and writes the answer, `test-mapping.json`, checked against
+`reference/test-mapping.schema.json`. The build merges it in; without it no scripted link
+is shown as covering anything.
 
 The Demo film's script, the other model-written artifact, has a sibling of this program:
 `rerun-film.py`, which borrows its plumbing (`claude_argv`, `_priced`, `record_run`).
@@ -20,8 +23,9 @@ Four properties are the whole point:
   sentence is not work that needs more. `--model`, `"mappingModel"` in the repository's
   `human-review.json`, or `$HUMAN_REVIEW_MAPPING_MODEL` change it. Its price lands on the
   cost tab through `.model-runs.json`, read off the CLI's own `total_cost_usd`.
-- **Nothing is asked when nothing is open.** A ticket the script paired whole gets an empty
-  answer written and no model run at all.
+- **Every scripted link is a candidate, and the model confirms or rejects each one** — with
+  the open sentences, in the same single call. Only a ticket with no claim in it at all gets
+  an empty answer written and no model run.
 - **The previous answer is kept**, under `.human-review/.model-prev/`. Dot-prefixed,
   because `publish-demo.sh` publishes what does not start with a dot.
 - **It refuses rather than half-writes.** An answer that is not JSON, fails the schema,
@@ -29,7 +33,7 @@ Four properties are the whole point:
   its own links cannot stand behind, is not written: this exits non-zero, says why, and the
   file on disk stays what it was.
 
-    rerun-model.py                      # pair the open sentences, in .human-review/
+    rerun-model.py                      # confirm/reject the scripted links, pair the rest
     rerun-model.py --dry-run            # print the command and what is open, spend nothing
     rerun-model.py --prompt-only        # the whole prompt on stdout, for another harness
     rerun-model.py --answer reply.json  # validate and install an answer made elsewhere
@@ -57,8 +61,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 #: The prompt, beside the skill's other prose rather than inside this file. It is the thing
-#: being paid for, so it is reviewed like prose and diffed like prose. The open sentences
-#: and their candidate tests are appended to it as JSON.
+#: being paid for, so it is reviewed like prose and diffed like prose. The sentences, the
+#: links the script made for each, their candidate tests and the recorded scope decisions
+#: are appended to it as JSON.
 PROMPT = HERE.parent / "reference" / "matrix-prompt.md"
 
 #: What the model owns, in `refresh-report.MODEL_OWNED`'s own spelling minus `content.json`
@@ -196,14 +201,39 @@ def build_prompt(asked: dict) -> str:
             + json.dumps(asked, indent=1, ensure_ascii=False) + "\n```\n")
 
 
+def _facts(asked: dict) -> tuple:
+    return ({x["id"] for x in asked["sentences"]}, {t["id"] for t in asked["tests"]},
+            {x["id"]: [t["id"] for t in x.get("scripted") or []] for x in asked["sentences"]},
+            {d["id"] for d in asked.get("decisions") or []})
+
+
 def check_answer(doc, asked: dict) -> list[str]:
     """Every reason this answer may not be written: the schema, then the facts — only the
-    sentences asked about, only the tests shown."""
+    sentences asked about, only the tests shown, a verdict on every link the script made,
+    and only the decisions listed."""
     if doc is None:
         return ["the reply holds no JSON object"]
-    sc = _semcov()
-    return sc.problems(doc, {x["id"] for x in asked["sentences"]},
-                       {t["id"] for t in asked["tests"]})
+    return _semcov().problems(doc, *_facts(asked))
+
+
+def judged(doc, asked: dict):
+    """`(answer to install or None, problems, dropped sentence ids)` — `semcov.salvage`: a
+    sentence with a problem of its own is dropped (it stays unconfirmed on the page), a
+    problem with the whole document refuses it."""
+    if doc is None:
+        return None, ["the reply holds no JSON object"], []
+    return _semcov().salvage(doc, *_facts(asked))
+
+
+def keep_refused(review: Path, text: str) -> Path | None:
+    """The reply that was refused, kept where a reader can see what the model said."""
+    dest = review / PREV / "test-mapping.refused.json"
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+        return dest
+    except OSError:
+        return None
 
 
 def install(review: Path, doc: dict) -> Path:
@@ -287,7 +317,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dir", default=".human-review", help="the review directory")
-    ap.add_argument("--model", help="the model that pairs the open sentences "
+    ap.add_argument("--model", help="the model that judges the pairing "
                                     f"(default: {MAPPING_MODEL_KEY} in human-review.json, "
                                     f"else {MAPPING_MODEL_DEFAULT})")
     ap.add_argument("--dry-run", action="store_true",
@@ -321,20 +351,30 @@ def main(argv=None) -> int:
               "no impl-conversation.md request 0 — so there are no sentences to pair.",
               file=sys.stderr)
         return 2
-    asked = sc.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"])
+    asked = sc.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"],
+                           g["decisions"])
     decided = len(g["scripted"]["decided"])
     links = sum(len(e["tests"]) for e in g["scripted"]["decided"])
     print(f"[model] {len(g['sentences'])} sentences, {len(g['rows'])} tests: the script "
-          f"paired {decided} ({links} links); {len(asked['sentences'])} open.")
+          f"paired {decided} ({links} candidate links, each to confirm or reject), "
+          f"{len(g['scripted']['open'])} open; {len(asked['sentences'])} sentences to ask "
+          f"about, {len(asked['decisions'])} recorded decisions.")
 
     if args.answer:
-        doc = parse_answer(Path(args.answer).read_text(encoding="utf-8"))
-        bad = check_answer(doc, asked)
-        if bad:
+        doc, bad, dropped = judged(parse_answer(Path(args.answer).read_text(encoding="utf-8")),
+                                   asked)
+        if doc is None:
             print(f"[model] {args.answer} is refused:", file=sys.stderr)
             for b in bad:
                 print(f"  - {b}", file=sys.stderr)
             return 5
+        if dropped:
+            print(f"[model] {len(dropped)} sentence(s) of {args.answer} dropped — they stay "
+                  f"unconfirmed: {', '.join(dropped)}", file=sys.stderr)
+            for b in bad:
+                print(f"  - {b}", file=sys.stderr)
+            doc = {**doc, "note": f"{len(dropped)} sentence(s) dropped for failing the "
+                                  f"checks: {', '.join(dropped)}"}
         keep_previous(review)
         print(f"[model] {install(review, doc)} written from {args.answer}.")
         return 0
@@ -344,15 +384,19 @@ def main(argv=None) -> int:
         print(prompt)
         return 0
 
+    # Only a ticket with no claim in it at all is answered without a model. A sentence the
+    # script paired is *not* settled: its links were made on shared words, and run 5 painted
+    # "sortable by any column" green over a test that checks the page size because nothing
+    # ever asked a model to read it. Every scripted link goes to the model, in this one call.
     if not asked["sentences"]:
         if args.dry_run:
-            print("[model] dry run — nothing is open, so nothing would be asked of a model.")
+            print("[model] dry run — no sentence makes a claim, so nothing would be asked.")
             return 0
         keep_previous(review)
         install(review, {"schema": sc.SCHEMA_VERSION,
-                         "note": "the script paired every sentence; no model was asked",
+                         "note": "no sentence of the ticket makes a claim; no model was asked",
                          "sentences": []})
-        print("[model] the script paired every sentence — no model run, nothing spent.")
+        print("[model] no sentence makes a claim — no model run, nothing spent.")
         return 0
 
     model = mapping_model(args.model)
@@ -360,7 +404,7 @@ def main(argv=None) -> int:
     # Printed with the prompt named rather than quoted, always: a log line carrying all of
     # it is a log line nobody reads — including a reader checking what the button buys.
     print("[model] $ " + " ".join(a if a else '""' for a in argvec)
-          + f"  < {PROMPT.name} + {len(asked['sentences'])} open sentences, "
+          + f"  < {PROMPT.name} + {len(asked['sentences'])} sentences, "
           f"{len(asked['tests'])} candidate tests ({len(prompt)} chars)")
     if args.dry_run:
         print(f"[model] dry run — nothing was asked of {model} and nothing was paid for.")
@@ -384,17 +428,33 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 1
     doc = parse_answer(said or proc.stdout)
-    bad = check_answer(doc, asked)
-    if bad:
+    good, bad, dropped = judged(doc, asked)
+    if good is None:
+        where = keep_refused(review, said or proc.stdout)
         print(f"[model] {model}'s answer is refused, and {WRITES[0]} is left as it was "
-              f"(the previous one is also in {kept}/):", file=sys.stderr)
-        for b in bad:
+              f"(the previous one is also in {kept}/"
+              + (f"; the reply is in {where}" if where else "") + "):", file=sys.stderr)
+        for b in bad[:20]:
             print(f"  - {b}", file=sys.stderr)
+        if len(bad) > 20:
+            print(f"  - … and {len(bad) - 20} more", file=sys.stderr)
         return 5
+    if dropped:
+        keep_refused(review, said or proc.stdout)
+        print(f"[model] {len(dropped)} of {model}'s sentences are dropped — they stay "
+              f"unconfirmed on the page: {', '.join(dropped)}", file=sys.stderr)
+        for b in bad[:20]:
+            print(f"  - {b}", file=sys.stderr)
+        good = {**good, "note": f"{len(dropped)} sentence(s) dropped for failing the "
+                                f"checks: {', '.join(dropped)}"}
+    doc = good
     install(review, doc)
     price = f"${cost:.4f}" if isinstance(cost, (int, float)) else "an unpriced run"
-    print(f"[model] {model} paired {len(doc['sentences'])} of {len(asked['sentences'])} open "
-          f"sentences for {price}; {WRITES[0]} written.")
+    verdicts = [v for e in doc["sentences"] for v in e.get("review") or []]
+    rejected = sum(1 for v in verdicts if v["verdict"] == "reject")
+    print(f"[model] {model} answered {len(doc['sentences'])} of {len(asked['sentences'])} "
+          f"sentences, confirmed {len(verdicts) - rejected} and rejected {rejected} scripted "
+          f"links, for {price}; {WRITES[0]} written.")
     return 0
 
 

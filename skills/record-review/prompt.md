@@ -29,12 +29,14 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
    item, no preamble, no summary:
 
        ### <what it is, 15 words at most>
-       - file: path:line
+       - file: path:line                   (Fixed: one per place the fix changed, tests too)
        - source: <which reviewer, or pre-push hook>
-       - severity: high|medium|low         (Fixed and Ignored; never on an assumption)
+       - severity: high|medium|low|info    (Fixed and Ignored; never on an assumption)
        - observation: <what the reviewer found wrong, 1-3 sentences>   (Fixed and Ignored)
        - fix: <how you repaired it, one sentence>        (Fixed only, optional)
-       - why: <15 words at most>           (Ignored: why declined. Assumptions: why this reading)
+       - why: <Ignored: why declined, 15 words at most.
+               Assumptions: 1-2 sentences — why this reading, and what holds the
+               confidence where it is (what pushes it up, what pulls it down)>
        - alternative: <the reading not taken, 15 words at most>    (Assumptions only)
        - confidence: 0.xx                                         (Assumptions only)
 
@@ -44,12 +46,17 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
                    nobody awaits; a failed navigation is swallowed silently."
      Ignored     — what you read and declined. An empty Ignored section after a
                    multi-agent review is not credible; if you accepted everything, say so
-                   in one line.
+                   in one line. A finding you **refute** — the reviewer was simply wrong —
+                   goes here too, never under Fixed and never dropped: `severity: info`,
+                   and `why:` names the evidence that disproves it (the line, the test).
+                   Left at medium it is counted on the page as "worth a look".
      Assumptions — what YOU decided that neither the ticket nor the human did: the only
                    section nobody else can write. A choice the human made in this
                    conversation is not your assumption — give it `source: human` and
                    confidence 1.0, or leave it out.
-   Every entry names a file:line. An unanchored entry is dropped by the build.
+   Every entry names a file:line. An unanchored entry is dropped by the build. On a Fixed
+   entry the lines are what the page uses to show each card its own hunks of the fix
+   commit: a hunk no Fixed entry's lines reach is listed apart, as another change.
    On an assumption, `source:` is only `human` (the human chose it here) or left out;
    the page labels every one `assumption`, so do not invent a label of your own.
 

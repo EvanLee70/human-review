@@ -45,8 +45,60 @@ def page_title(spec: dict) -> str:
             num = (f'<a class="prref" href="{html.escape(pr["url"])}" '
                    'data-tip="Open on GitHub">'
                    f'{num}</a>')
-        return f'{num} {html.escape(pr["title"])}'
-    return html.escape(spec.get("title", "Review guide"))
+        return f'{num} {html.escape(pr["title"])}' + title_ticket_ref(pr, pr["title"])
+    title = spec.get("title", "Review guide")
+    return html.escape(title) + title_ticket_ref(pr, title)
+
+
+def title_ticket_ref(pr: dict, title: str) -> str:
+    """` (#25)` — the ticket the change answers, after the title, linked to it.
+
+    The reference page reads `PR#49 Link Visit with Vet (#37)`; a branch with no pull
+    request yet lost the ticket along with the PR number, and the title then named the
+    change without saying which request it answers. Nothing when the content file names
+    no ticket, or when the title already carries its number."""
+    t = (pr or {}).get("ticket") or {}
+    num = t.get("number")
+    if not num or f"#{num}" in (title or ""):
+        return ""
+    ref = f"#{html.escape(str(num))}"
+    if t.get("url"):
+        tip = f"Open the ticket on GitHub: {t['title']}" if t.get("title") else "Open the ticket on GitHub"
+        ref = (f'<a class="prref ticketref" href="{html.escape(t["url"])}" '
+               f'data-tip="{html.escape(tip)}">{ref}</a>')
+    return f" ({ref})"
+
+
+def outside_note(state: dict | None, repo: str = "") -> str:
+    """One muted line under the chips: the branch's commits the page does not count.
+
+    `page_base` measures from the base the review audited, which on a branch that carried
+    commits before the review — a plan, an AGENTS.md, a skill — is past the fork point.
+    The numbers above are then honest about the review and silent about those commits,
+    and a reader comparing them with GitHub's `main...branch` would find a gap with no
+    explanation. Named here, oldest last as `git log` lists them, so the gap is visible.
+    Empty when the page measures from the fork point."""
+    outside = (state or {}).get("outside") or []
+    if not outside:
+        return ""
+    n = len(outside)
+    where = ("outside the review" if state.get("diffBaseSource") == "audited"
+             else f"before {state['diffBase'][:8]}, which this page measures from")
+
+    def one(c: dict) -> str:
+        # The sha is the face and the subject its hover: the note is one line under a row
+        # of chips that never scrolls away, and three subjects wrapped it onto a second.
+        sha = html.escape(c["sha"][:8])
+        tip = f' data-tip="{html.escape(c.get("subject") or "")}"' if c.get("subject") else ""
+        if repo:
+            return (f'<a href="{html.escape(repo.rstrip("/"))}/commit/{html.escape(c["sha"])}"'
+                    f' target="_blank" rel="noopener"{tip}><code>{sha}</code></a>')
+        return f'<code{tip}>{sha}</code>'
+
+    shown = ", ".join(one(c) for c in outside[:6])
+    more = f" and {n - 6} more" if n > 6 else ""
+    return (f'<p class="scopenote">{n} earlier commit{"" if n == 1 else "s"} on this branch '
+            f'{"is" if n == 1 else "are"} {where}: {shown}{more}</p>')
 
 
 def ref_badges(spec: dict, state: dict | None = None) -> str:
@@ -135,6 +187,9 @@ def masthead_html(spec: dict, title_score: str, chips: str, strip_html: str,
                 f'<span class="titleside">{title_score}</span></div>',
                 f'<p class="sub">{spec.get("subtitle", "")}</p>']
     rows.append(f'<div class="scopebar">{chips}</div>')
+    note = outside_note(base_st, (spec.get("pr") or {}).get("repo") or "")
+    if note:
+        rows.append(note)
     if not strip_html:
         return "\n".join(rows)
     return '<header class="masthead">\n' + "\n".join(rows + [strip_html]) + "\n</header>"

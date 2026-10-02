@@ -102,3 +102,9 @@ a.titlescore:hover { filter:brightness(1.06); box-shadow:0 0 0 1px currentColor 
    the edge that used to be the masthead's: a shadow under the border, only while it is
    actually pinned, so content passing beneath it reads as passing *under* something. */
 .tabstrip.pinned, .masthead.pinned { box-shadow:0 2px 6px rgba(0,0,0,.13); }
+/* The branch's commits the scope bar does not count (`outside_note`): one muted line under
+   the chips, as quiet as a caption — it explains the numbers above it, it is not one. */
+.scopenote { margin:.05rem 0 .3rem; font-size:.78rem; color:var(--muted); line-height:1.35;
+              white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.scopenote code { font-size:.95em; }
+.scopenote a { color:inherit; }

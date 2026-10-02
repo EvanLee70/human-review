@@ -1627,3 +1627,17 @@ def test_a_shell_only_session_the_branch_names_is_still_taken(monkeypatch, tmp_p
                                            "transcript": str(t)}]})
     out = rc.authoring_cost("main", tmp_path)
     assert [s["session"] for s in out["sessions"]] == ["named"] and out["weak"]
+
+
+def test_a_model_label_keeps_the_whole_version():
+    """`claude-opus-5-5` was labelled `Opus 5` — a prefix table matched `claude-opus-5` and
+    stopped there, so every cost row and the review chip dropped the version a reader
+    compares runs by. The label is read off the id now; a date stamp is not a version."""
+    assert rc.label("claude-opus-5-5") == "Opus 5.5"
+    assert rc.label("claude-sonnet-5-5[1m]") == "Sonnet 5.5"
+    assert rc.label("claude-opus-5-20260101") == "Opus 5", "eight digits are a date"
+    assert rc.label("claude-haiku-4-5-20251001") == "Haiku 4.5"
+    assert rc.label("claude-opus-4-8") == "Opus 4.8"
+    assert rc.label("gpt-5.6-luna") == "gpt-5.6-luna"
+    assert rc.label(None) == "synthetic"
+    assert rc.legacy_label("claude-opus-5-5") == "Opus 5", "what an old record says"

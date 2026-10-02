@@ -23,8 +23,9 @@ position to fix it, rather than silently rendering as an empty pile.
 
 **Terse by design.** The reader skims this file and jumps into the code, so an item is a
 title of at most 15 words plus its fields, and nothing else: no preamble, no summary, no
-prose under an item unless the human asks for more. `why:` and `alternative:` are 15
-words at most too; `observation:` — what the reviewer found wrong — is one to three
+prose under an item unless the human asks for more. `alternative:` and an Ignored
+item's `why:` are 15 words at most too; an assumption's `why:` is one or two sentences —
+why this reading, and what holds its confidence where it is; `observation:` — what the reviewer found wrong — is one to three
 sentences, and it is the one field a Fixed or Ignored card cannot do without. The body described under *Items* below exists for the rare item that
 cannot be understood from its anchor; it is not the default.
 
@@ -133,11 +134,11 @@ fields.
 | `source:` | no | `source` — the pass that raised it, verbatim. `/code-review` and `/simplify` render as links to their own docs. **On an assumption** it says only who decided it: `human` becomes `decidedBy: "human"`, anything else `decidedBy: "agent"` (an unknown value with a warning). The card's badge is always `assumption` |
 | `severity:` | no | `severity` — `high\|medium\|low\|info`. Defaults to `info` in `Ignored`; **rejected outright on an assumption**, which is not a defect and must not be ranked as one |
 | `alternative:` | no | `alternative` — the reading that was *not* taken. What makes an assumption checkable at a glance |
-| `why:` | no | `why` — the reason to decline, or the reason the reading was chosen |
+| `why:` | no | `why` — the reason to decline, or, on an assumption, why the reading was chosen and why the confidence is what it is (rendered as *Why 55%:*; missing is a warning). A finding the agent **refutes** is filed under Ignored at `severity: info` with the evidence here; one that says the reviewer was wrong at a higher severity, or under Fixed, is a warning |
 | `observation:` | no | `observation` — what the reviewer found wrong, 1–3 sentences, shown as *Reviewer:* on the card. **Fixed and Ignored**; missing or longer than three sentences is a warning. Without it a Fixed card is a title and a diff, and the reader cannot tell what was wrong |
 | `fix:` | no | `fix` — one sentence on the repair, shown under the diff. **Fixed only**, optional; elsewhere ignored with a warning |
 | `confidence:` | no | `confidence` — how sure the agent is the reading it chose is the right one, a number in `[0, 1]`. **Assumptions only**; on `Fixed` or `Ignored` it is ignored with a warning |
-| `fixed-in:` | no | `diffs[]`, one per `file:`, based at the frontmatter's `implementation`. `fixed-in: HEAD` leaves the head side as the working tree, which keeps the editor link; any other value pins both sides |
+| `fixed-in:` | no | `diffs[]`, one per `file:`, based at the frontmatter's `implementation`. `fixed-in: HEAD` leaves the head side as the working tree, which keeps the editor link; any other value pins both sides. The page then shows each Fixed card only the hunks of the fix commit its `file:` lines reach (within 10 lines), and lists the hunks no card reaches after the pile — so name every place a fix changed |
 
 An unknown field key is an error too. `- fille:` typed once would otherwise drop a ref, and
 a dropped ref is what gets the whole item deleted by the rule below.

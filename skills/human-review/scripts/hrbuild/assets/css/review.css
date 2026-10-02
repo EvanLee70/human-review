@@ -121,6 +121,7 @@ a.f-src:hover, a.f-src:focus-visible { color:var(--link); border-color:var(--lin
 .f-src-detail { font-size:.85rem; color:var(--muted); margin-left:.3rem; }
 .f-title { font-weight:650; }
 .f-why { color:var(--muted); font-size:.9rem; margin:.35rem 0 0; }
+.f-why b { color:var(--fg); font-weight:650; }
 /* Which chapter the reader is standing in, on the row that never scrolls away — the
    alternative to freezing the `h2` itself, which the row already points at from a
    distance. Set by a script beside the row (`PILELEDE_SPY_JS`), never by CSS alone, so
@@ -161,6 +162,14 @@ a.f-src:hover, a.f-src:focus-visible { color:var(--link); border-color:var(--lin
               font-weight:650; opacity:.8; margin-bottom:.3rem; }
 .gradewhy-n { font-size:1.35rem; font-weight:600; opacity:.85; white-space:nowrap; }
 .gradewhy-n b { font-size:3.2rem; font-weight:750; letter-spacing:-.02em; opacity:1; }
+/* The model's own number, struck, under the grade a signal capped it to. */
+.gradewhy-was { font-size:.78rem; margin-top:.3rem; opacity:.75; text-decoration:line-through; }
+/* What the fix commit changed that no Fixed card's file:line reaches — after the pile,
+   in the pile's own grey, so the commit still adds up. */
+.fixother { margin:1.2rem 0 0; padding:.6rem .8rem; border:1px dashed var(--line);
+            border-radius:8px; }
+.fixother-h { margin:0 0 .2rem; color:var(--muted); font-size:.88rem; }
+.fixother-h b { color:var(--fg); }
 @media (max-width:560px) {
   .gradewhy { grid-template-columns:1fr; }
   .gradewhy-score { border-left:0; border-top:1px solid var(--line); margin-top:.45rem;
