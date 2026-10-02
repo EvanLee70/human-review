@@ -324,9 +324,11 @@ const get = async (url) => {
 };
 
 (async () => {
-  const owners = await (await fetch(apiUrl + "/api/owners")).json();
-  const owner = owners.find(o => (o.pets || []).length > 0);
-  if (!owner) throw new Error("no owner with a pet in the database");
+  // No probe of the project's own API here. One used to read `/api/owners` as an array
+  // and pick an owner nobody used afterwards — petclinic's data model inside a generic
+  // harness — and on a branch that paginates that endpoint it died on `owners.find is
+  // not a function` before the feature script ran (hr-try-4, exit 1 in 1.7 s). What the
+  // film needs from the data is the feature script's business, through `get`/`apiUrl`.
 
   // The dev server answers on every path, but the Angular router only matches routes under
   // the <base href> the served index.html carries. Hardcoding "/" films an empty shell.

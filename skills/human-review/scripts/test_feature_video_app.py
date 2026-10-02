@@ -547,3 +547,13 @@ def test_a_red_suite_keeps_the_diagrams_it_drew_and_puts_the_others_back(
     # and the page is told, so the guide cannot present a red run as a clean one
     assert any("RED" in n for n in ctx.notes)
     assert any("restored 1 diagram file" in n for n in ctx.notes)
+
+
+def test_the_harness_never_calls_the_projects_own_api():
+    """A probe of petclinic's `/api/owners` inside the generic harness died on a branch
+    that paginated it (hr-try-4), before the feature script ran. The project's data is
+    the feature script's business."""
+    import re
+    src = (Path(__file__).resolve().parent / "record-feature-video.sh").read_text()
+    code = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("//"))
+    assert not re.search(r"apiUrl\s*\+\s*[\"'`]/api/", code)
