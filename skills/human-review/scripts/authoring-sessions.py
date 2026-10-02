@@ -29,6 +29,14 @@ Authorship is read from tool calls, not from prose:
 Reads are deliberately not evidence. Half the sessions on this machine have read these
 files; one wrote them.
 
+Neither is an edit older than the branch. A file this change touches has usually been
+written by a dozen earlier conversations, on main or on branches long merged, and whatever
+they wrote is already in the base the diff is taken against. Only writes from the fork on
+count — the earlier of the merge-base's commit time and the oldest author date on the
+branch, so a rebase (which moves the merge-base forward but keeps author dates) does not
+cut off the conversation that wrote the first commit. Without this bound a Copilot-written
+branch forked on 1 Oct was billed $1,047 for 35 Claude conversations from July to September.
+
 Exit codes:  0 mode A · 4 mode B · 5 mode C · 2 nothing to attribute (no change set).
 
 Usage:
@@ -44,6 +52,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECTS = Path(os.path.expanduser("~/.claude/projects"))
@@ -108,6 +117,23 @@ def changed_files(base: str) -> list[str]:
     return sorted(n for n in names if n.strip())
 
 
+def fork_time(base: str) -> datetime | None:
+    """When this branch's own work can have started, in UTC — `None` when git cannot say."""
+    fork = git("merge-base", base, "HEAD").strip()
+    if not fork:
+        return None
+    stamps = git("log", "-1", "--format=%ct", fork).split()
+    stamps += git("log", "--format=%at", f"{fork}..HEAD").split()
+    return datetime.fromtimestamp(min(int(t) for t in stamps), timezone.utc) if stamps else None
+
+
+def _when(ts: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def project_dirs(repo: Path) -> list[Path]:
     """The transcript folders that could hold a session which worked in this repo.
 
@@ -136,7 +162,8 @@ def transcripts(repo: Path) -> list[tuple[str, Path, list[Path]]]:
     return out
 
 
-def scan(path: Path, wanted: set[str], repo: Path) -> tuple[dict[str, int], list[str]]:
+def scan(path: Path, wanted: set[str], repo: Path,
+         since: datetime | None = None) -> tuple[dict[str, int], list[str]]:
     """How often this transcript wrote each wanted path, and when it was doing it.
 
     The raw line is substring-tested before it is parsed: a session transcript runs to
@@ -157,6 +184,9 @@ def scan(path: Path, wanted: set[str], repo: Path) -> tuple[dict[str, int], list
     files: set[str] = set()
 
     def note(kind: str, rel: str, ts: str) -> None:
+        when = _when(ts) if since and ts else None
+        if when and when < since:
+            return  # already in the base: written before this branch forked
         hits[kind] = hits.get(kind, 0) + 1
         files.add(rel)
         if ts:
@@ -209,13 +239,14 @@ def authors(base: str, repo: Path) -> tuple[list[dict], list[str]]:
     wanted = set(changed_files(base))
     if not wanted:
         return [], []
+    since = fork_time(base)
     rows = []
     for sid, jsonl, subs in transcripts(repo):
         edits = bash = 0
         files: set[str] = set()
         stamps: list[str] = []
         for source in [jsonl, *subs]:
-            hits, ts = scan(source, wanted, repo)
+            hits, ts = scan(source, wanted, repo, since)
             edits += hits.get("edits", 0)
             bash += hits.get("bash", 0)
             files.update(hits.get("files", []))

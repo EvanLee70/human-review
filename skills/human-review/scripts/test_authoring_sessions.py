@@ -22,7 +22,9 @@ HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / "authoring-sessions.py"
 
 
-def _repo(tmp_path: Path) -> Path:
+def _repo(tmp_path: Path, when: str = "2026-08-01T00:00:00Z") -> Path:
+    """A repo whose base commit is dated `when` — the fixtures' edits fall after it."""
+    os.environ["GIT_AUTHOR_DATE"] = os.environ["GIT_COMMITTER_DATE"] = when
     repo = (tmp_path / "repo").resolve()
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
@@ -73,6 +75,16 @@ def test_an_edit_tool_call_on_a_changed_file_names_the_author(tmp_path):
     assert out.returncode == 0
     assert doc["sessions"][0]["session"] == "aaa"
     assert doc["sessions"][0]["edits"] == 1
+
+
+def test_an_edit_older_than_the_branch_is_already_in_the_base(tmp_path):
+    """A changed file has been written by many earlier conversations; what they wrote is
+    in the base already. Charging them as authors billed a branch forked on 1 Oct for 35
+    conversations from July to September."""
+    repo = _repo(tmp_path, when="2026-10-01T00:00:00Z")
+    home = tmp_path / "home"
+    _session(home, repo, "july", ("Edit", {"file_path": str(repo / "src.py")}))
+    assert json.loads(_run(repo, home, "aaa", "--json").stdout)["mode"] == "C"
 
 
 def test_reading_a_file_is_not_writing_it(tmp_path):
