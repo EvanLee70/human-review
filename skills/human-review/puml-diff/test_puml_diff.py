@@ -81,7 +81,7 @@ def test_added_class_green_solid_header():
 
 
 def test_added_relationship_and_label_green():
-    assert f'Owner "1" -[{ADD}]- "0..*" Invoice : <color:{ADD}>invoices</color>' in _diff()
+    assert f'Owner "1" -[{ADD},thickness=3]- "0..*" Invoice : <color:{ADD}>invoices</color>' in _diff()
 
 
 # ── Removed → red + struck-through ───────────────────────────────────────────
@@ -97,7 +97,7 @@ def test_removed_class_title_struck():        # struck *and* red → doubly dist
 
 
 def test_removed_relationship_label_struck():
-    assert f'User "1" -[{DEL}]- "0..*" Role : <color:{DEL}><s>user</s></color>' in _diff()
+    assert f'User "1" -[{DEL},thickness=3]- "0..*" Role : <color:{DEL}><s>user</s></color>' in _diff()
 
 
 # ── The two hues are the page's own added/removed pair ───────────────────────
