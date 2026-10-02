@@ -310,6 +310,221 @@ def change_mark(cid: str) -> str:
     return "changed"
 
 
+# ── what is no longer there ─────────────────────────────────────────────────────
+# Swagger UI draws the NEW spec, so everything the branch took away is simply absent:
+# `GET /api/owners` used to answer `array<OwnerDto>` and the page showed only the
+# OwnerPageDto that replaced it, as if nothing had ever stood there. oasdiff does say so
+# in prose, but a removal you can only read about in a list above the tree is a removal
+# nobody sees where it happened.
+#
+# So the generator diffs the two (already inlined) specs structurally and hands the
+# page a list of "ghosts": each one is the old subtree plus the exact spot in the NEW
+# rendered tree it is to be drawn at -- the same `steps` vocabulary `resolve_steps`
+# emits, so the page finds the spot with the walker it already has. Kinds:
+#   prop      a property of an object that is gone (steps lead to that object)
+#   type      a node whose shape changed -- array<OwnerDto> -> object (steps lead to it)
+#   param     a removed parameter
+#   response  a removed response status
+#   media     a removed media type of a response or of the request body
+#   body      a request body that is gone altogether
+# Composed schemas (allOf/oneOf/anyOf) are not descended into: which branch a property
+# came from is not something the tree on screen can show, and a guess is worse than
+# the prose line oasdiff already wrote.
+GHOST_DEPTH = 6        # how deep the old shape is carried along to be expanded
+GHOST_MAX_PROPS = 60   # per node; a ghost is a reminder, not a second schema browser
+COMPOSED = ("allOf", "oneOf", "anyOf")
+
+
+def _types(s: dict) -> set:
+    t = s.get("type")
+    if isinstance(t, list):
+        return {x for x in t if isinstance(x, str) and x != "null"}
+    return {t} if isinstance(t, str) else set()
+
+
+def shape_kind(s) -> str | None:
+    """'array', 'object', a primitive type name, or None when we cannot say."""
+    if not isinstance(s, dict) or any(k in s for k in COMPOSED):
+        return None
+    t = _types(s)
+    if "array" in t or (not t and isinstance(s.get("items"), dict)):
+        return "array"
+    if "object" in t or (not t and isinstance(s.get("properties"), dict)):
+        return "object"
+    return "|".join(sorted(t)) or None
+
+
+def type_label(s, depth: int = 0) -> str:
+    """How a reader would name this shape: `array<OwnerDto>`, `OwnerDto`, `integer(int64)`."""
+    if not isinstance(s, dict):
+        return "any"
+    kind = shape_kind(s)
+    if kind == "array":
+        items = s.get("items")
+        return f"array<{type_label(items, depth + 1) if depth < 8 else '…'}>"
+    if kind == "object" or kind is None:
+        return str(s.get("title") or kind or "any")
+    fmt = s.get("format")
+    return f"{kind}({fmt})" if fmt else kind
+
+
+def ghost_shape(s, depth: int = 0) -> dict:
+    """The old subtree, reduced to what a ghost row shows: a label, the description, and
+    the properties it can be expanded into. An array expands straight into its items'
+    properties -- the label already says `array<OwnerDto>`, and a lone `items` row to
+    click through first is a click that tells the reader nothing."""
+    if not isinstance(s, dict):
+        return {"label": "any"}
+    out = {"label": type_label(s)}
+    if s.get("description"):
+        out["desc"] = str(s["description"])[:240]
+    if depth >= GHOST_DEPTH:
+        return out
+    node = s
+    while shape_kind(node) == "array" and isinstance(node.get("items"), dict):
+        node = node["items"]
+    props = node.get("properties") if shape_kind(node) == "object" else None
+    if isinstance(props, dict) and props:
+        req = set(node.get("required") or [])
+        out["props"] = [{"name": str(k), "required": k in req, **ghost_shape(v, depth + 1)}
+                        for k, v in list(props.items())[:GHOST_MAX_PROPS]]
+        if len(props) > GHOST_MAX_PROPS:
+            out["more"] = len(props) - GHOST_MAX_PROPS
+    return out
+
+
+def diff_schema(old, new, steps: list, where: dict, out: list) -> None:
+    """Every node of `old` that is not in `new`, located by the steps into `new`."""
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return
+    if len(steps) > MAX_REVEAL_DEPTH:
+        return
+    ko, kn = shape_kind(old), shape_kind(new)
+    if ko is None or kn is None:
+        return
+    if ko != kn:
+        # Nothing below a changed shape is compared: an array of owners and a page of
+        # owners have no field in common worth lining up. The old shape goes up whole.
+        out.append({**where, "kind": "type", "steps": steps, "old": ghost_shape(old)})
+        return
+    if ko == "array":
+        diff_schema(old.get("items"), new.get("items"), steps + [{"kind": "items"}],
+                    where, out)
+        return
+    if ko != "object":
+        return
+    old_props, new_props = old.get("properties"), new.get("properties")
+    if not isinstance(old_props, dict):
+        return
+    new_props = new_props if isinstance(new_props, dict) else {}
+    required = set(old.get("required") or [])
+    prev = None
+    for name, sub in old_props.items():
+        if name not in new_props:
+            out.append({**where, "kind": "prop", "steps": steps, "name": str(name),
+                        "after": prev, "required": name in required,
+                        "old": ghost_shape(sub)})
+        else:
+            diff_schema(sub, new_props[name], steps + [{"kind": "prop", "name": name}],
+                        where, out)
+        prev = str(name)
+
+
+def _responses(op: dict) -> dict:
+    r = op.get("responses")
+    # YAML reads a bare `200:` as an int; the page knows statuses as text.
+    return {str(k): v for k, v in r.items()} if isinstance(r, dict) else {}
+
+
+def _content(body) -> dict:
+    c = body.get("content") if isinstance(body, dict) else None
+    return c if isinstance(c, dict) else {}
+
+
+def _diff_content(old_c: dict, new_c: dict, where: dict, out: list) -> None:
+    """Removed media types, then the schema Swagger UI shows first against its old self."""
+    for media, mobj in old_c.items():
+        if media not in new_c:
+            schema = mobj.get("schema") if isinstance(mobj, dict) else None
+            out.append({**where, "kind": "media", "media": str(media),
+                        "old": ghost_shape(schema) if isinstance(schema, dict) else None})
+    if not new_c:
+        return
+    first = next(iter(new_c))
+    old_m = old_c.get(first) or next(iter(old_c.values()), None)
+    new_m = new_c[first]
+    if isinstance(old_m, dict) and isinstance(new_m, dict):
+        diff_schema(old_m.get("schema"), new_m.get("schema"), [], where, out)
+
+
+def op_ghosts(old_op: dict, new_op: dict) -> list:
+    """Everything `old_op` had that `new_op` lost, each tied to where it used to be."""
+    out = []
+
+    def pkey(p):
+        return [str(p.get("name")), str(p.get("in"))]
+
+    new_params = {tuple(pkey(p)) for p in new_op.get("parameters") or []
+                  if isinstance(p, dict)}
+    prev = None
+    for p in old_op.get("parameters") or []:
+        if not isinstance(p, dict):
+            continue
+        if tuple(pkey(p)) not in new_params:
+            g = {"kind": "param", "name": str(p.get("name")), "in": str(p.get("in")),
+                 "after": prev, "required": bool(p.get("required")),
+                 "label": type_label(p.get("schema") or {})}
+            if p.get("description"):
+                g["desc"] = str(p["description"])[:240]
+            out.append(g)
+        prev = pkey(p)
+
+    old_r, new_r = _responses(old_op), _responses(new_op)
+    prev = None
+    for status, body in old_r.items():
+        if status not in new_r:
+            first = next(iter(_content(body).values()), None)
+            schema = first.get("schema") if isinstance(first, dict) else None
+            out.append({"kind": "response", "status": status, "after": prev,
+                        "desc": str((body or {}).get("description") or "")[:240],
+                        "old": ghost_shape(schema) if isinstance(schema, dict) else None})
+        else:
+            _diff_content(_content(body), _content(new_r[status]),
+                          {"in": "response", "status": status}, out)
+        prev = status
+
+    old_b, new_b = old_op.get("requestBody"), new_op.get("requestBody")
+    if isinstance(old_b, dict):
+        if not isinstance(new_b, dict):
+            first = next(iter(_content(old_b).values()), None)
+            schema = first.get("schema") if isinstance(first, dict) else None
+            out.append({"kind": "body",
+                        "old": ghost_shape(schema) if isinstance(schema, dict) else None})
+        else:
+            _diff_content(_content(old_b), _content(new_b), {"in": "request"}, out)
+    return out
+
+
+def ghost_path(g: dict) -> str | None:
+    """A prop ghost as oasdiff would spell it: `items/pets/items/gone`."""
+    if g.get("kind") != "prop":
+        return None
+    tokens = ["items" if s["kind"] == "items" else s["name"] for s in g["steps"]]
+    return "/".join(tokens + [g["name"]])
+
+
+def change_ghost(change: dict, ghosts: list) -> int | None:
+    """The ghost a removal line is about, so it is not reported as unreachable."""
+    if change_mark(change.get("id") or "") != "removed":
+        return None
+    side = "request" if "request" in (change.get("id") or "") else "response"
+    names = set(BACKTICKED.findall(change.get("text") or ""))
+    for i, g in enumerate(ghosts):
+        if g.get("in") == side and ghost_path(g) in names:
+            return i
+    return None
+
+
 def build_model(old_spec: dict, new_spec: dict, changes: list):
     """Merge the two specs into one renderable spec + a per-operation diff map."""
     old_ops = {(m, p): op for m, p, op in operations(old_spec)}
@@ -336,6 +551,9 @@ def build_model(old_spec: dict, new_spec: dict, changes: list):
 
     # Resolved against the *rendered* spec, which is `merged` — the one Swagger UI draws.
     merged_ops = {(m, p): op for m, p, op in operations(merged)}
+    # The old side, inlined the same way, so a removed subtree carries its real fields
+    # rather than a `$ref` the page could not follow.
+    old_inlined = {(m, p): op for m, p, op in operations(inline_refs(old_spec))}
 
     entries = {}
     for (m, p) in sorted(set(new_ops) | removed):
@@ -351,12 +569,17 @@ def build_model(old_spec: dict, new_spec: dict, changes: list):
         else:
             state = "untouched"
         op_obj = merged_ops.get((m, p)) or {}
+        # A removed operation is drawn whole, from the old spec, struck through; there is
+        # nothing inside it to ghost.
+        ghosts = (op_ghosts(old_inlined[(m, p)], op_obj)
+                  if (m, p) in old_inlined and (m, p) not in removed else [])
         listed = [
             # `rephrase` only here, at the point the line is written out: change_target()
             # below still reads oasdiff's own wording to work out which backticked token
             # is the schema path.
             {"text": rephrase(c["text"]), "level": c["level"], "id": c["id"],
-             "mark": change_mark(c["id"]), "target": change_target(op_obj, c)}
+             "mark": change_mark(c["id"]), "target": change_target(op_obj, c),
+             "ghost": change_ghost(c, ghosts)}
             for c in sorted(ch, key=lambda c: -c["level"])
             # an added endpoint's only "change" is that it exists — no need to say it
             if not (state == "added" and c["id"] == "endpoint-added")
@@ -368,6 +591,8 @@ def build_model(old_spec: dict, new_spec: dict, changes: list):
             names_a_field = "propert" in c["id"]   # a change about a field, not a verb
             if c["target"] and budget:
                 budget -= 1
+            elif c["ghost"] is not None:
+                c["target"] = None     # drawn as a ghost row where it used to be
             elif names_a_field:
                 c["target"] = None
                 skipped += 1
@@ -377,6 +602,7 @@ def build_model(old_spec: dict, new_spec: dict, changes: list):
             # Said out loud on the page. A tree that quietly opens 12 of 30 fields is the
             # same lie as one that opens none, only harder to notice.
             "deepSkipped": skipped,
+            "ghosts": ghosts,
         }
     # Swagger UI groups operations by tag; a tag is "quiet" when the diff left
     # every one of its operations alone. Derived here rather than read back from
@@ -663,6 +889,72 @@ TEMPLATE = r"""<!doctype html>
     padding: 2px 14px 6px 12px; font-size: 12px; font-style: italic;
     color: var(--dv-muted);
   }
+
+  /* ---------- ghosts: what the new spec no longer has ----------
+     Drawn where the removed thing used to stand, in the breaking red, struck through,
+     with a solid DELETED chip in the same shape as the ADDED/CHANGED chip on a live
+     field -- so "deleted" reads as one more value of the same marker, not as a second
+     vocabulary. Every colour is a theme var; the chip's text is the page background, which
+     is what keeps it legible on the pale dark-mode red as well as the deep light-mode one.
+     A ghost's children are the old shape it can be opened into: struck through too, but
+     in the quieter --dv-removed grey, so one deleted object does not paint a red wall. */
+  .dv-ghost {
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--dv-fg);
+  }
+  .dv-ghost.dv-ghost-top {
+    margin: 3px 0; padding: 2px 8px 2px 6px; border-radius: 5px;
+    border-left: 3px dashed var(--dv-breaking);
+    background: color-mix(in srgb, var(--dv-breaking) 9%, transparent);
+  }
+  /* `.swagger-ui summary { display: list-item }` would win over a bare class and glue
+     every chip of a head together ("petsarray<PetDto>"), hence the scope. */
+  .dv-ghost-head, .swagger-ui .dv-ghost-head {
+    display: flex; align-items: center; gap: 8px; min-height: 22px;
+    list-style: none;
+  }
+  .dv-ghost-head::-webkit-details-marker { display: none; }
+  /* The caret that says "this opens", drawn in the same spot for leaves (blank) so the
+     names line up down the column. */
+  .dv-ghost-head::before {
+    content: ""; flex: none; width: 12px; text-align: center;
+    font-size: 13px; line-height: 1; color: var(--dv-fg);
+  }
+  summary.dv-ghost-head { cursor: pointer; }
+  summary.dv-ghost-head::before { content: "\25B8"; transition: transform .12s ease; }
+  details.dv-ghost[open] > summary.dv-ghost-head::before { transform: rotate(90deg); }
+  .dv-ghost-name {
+    font-weight: 700; color: var(--dv-breaking);
+    text-decoration: line-through; text-decoration-thickness: 1.5px;
+  }
+  .dv-ghost-req { color: var(--dv-breaking); margin-left: -6px; }
+  .dv-ghost-type {
+    font-weight: 600; color: var(--dv-removed); text-decoration: line-through;
+  }
+  .dv-ghost-mark {
+    font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 4px; flex: none;
+    background: var(--dv-breaking); color: var(--dv-bg);
+  }
+  .dv-ghost-note { font-size: 12px; font-style: italic; color: var(--dv-muted); }
+  .dv-ghost-desc {
+    margin-left: auto; padding-left: 16px; min-width: 0;
+    font-size: 12px; color: var(--dv-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dv-ghost-body {
+    margin: 1px 0 3px 4px; padding-left: 12px;
+    border-left: 1px dashed color-mix(in srgb, var(--dv-removed) 70%, transparent);
+  }
+  .dv-ghost-body .dv-ghost-name { color: var(--dv-removed); font-weight: 600; }
+  .dv-ghost-body .dv-ghost-req { color: var(--dv-removed); }
+  .dv-ghost-more { font-size: 12px; font-style: italic; color: var(--dv-muted);
+                   padding-left: 18px; }
+  .swagger-ui li.dv-ghost-li, .swagger-ui ul.dv-ghost-list { list-style: none; }
+  .swagger-ui ul.dv-ghost-list { padding: 0; margin: 0; }
+  .swagger-ui tr.dv-ghost-row > td { vertical-align: top; padding-top: 6px; }
+  .swagger-ui tr.dv-ghost-row .dv-ghost-desc { margin-left: 0; padding-left: 0;
+                                               white-space: normal; }
 
   /* ---------- the whole point: fade what nobody touched ---------- */
   .swagger-ui .opblock { transition: opacity .18s ease, filter .18s ease; }
@@ -988,8 +1280,11 @@ function decorate() {
       const b = document.createElement('span');
       b.className = 'dv-badge ' + info.state;
       const n = info.changes.length;
+      // A removed operation says DELETED, the word every ghost row inside the other
+      // operations uses for the same fact.
       b.textContent = info.state === 'modified' && n
-        ? `${n} change${n > 1 ? 's' : ''}` : info.state;
+        ? `${n} change${n > 1 ? 's' : ''}`
+        : info.state === 'removed' ? 'deleted' : info.state;
       summary.appendChild(b);
     }
     if (summary && info.changes.length && !op.querySelector('.dv-note')) {
@@ -1004,6 +1299,7 @@ function decorate() {
   });
   apply();
   autoCollapse();
+  markVisible();
   layoutDescriptions();
 }
 
@@ -1184,29 +1480,253 @@ function markLeaf(kit, node, c) {
 // counts the falses and puts the number on the page: a walk that quietly gives up is
 // indistinguishable from a field that was never there.
 async function revealTarget(op, c, run) {
+  const got = await openTo(op, c.target, c.target.steps, run, false);
+  if (!got) return false;
+  got.chain.forEach(el => markPath(el, c.level));
+  markLeaf(got.kit, got.node, c);
+  addRoad(got.chain, got.kit.mark(got.node), c.level);
+  return true;
+}
+
+// Open the tree down to the node `steps` names -- and that node too when `openLast`, which
+// is what a removed property needs: its ghost row lives inside its parent's body.
+async function openTo(op, where, steps, run, openLast) {
   // An opblock gets its <div class="opblock-body"> before it has a responses table, so
   // asking for the response row the instant the operation opens finds nothing. Wait for
   // the row itself, not for the box it will eventually appear in.
-  const host = await waitFor(() => schemaHost(op, c.target), STEP_WAIT);
-  if (!host) return false;
+  const host = await waitFor(() => schemaHost(op, where), STEP_WAIT);
+  if (!host) return null;
   const found = await openSchemaTree(host);
-  if (!found) return false;
+  if (!found) return null;
   const { kit } = found;
   let cur = found.root;
   const chain = [];
-  for (const step of c.target.steps) {
-    if (run !== revealRun) return false;        // the reader changed their mind
-    if (!await openNode(kit, cur)) return false;
+  for (const step of steps) {
+    if (run !== revealRun) return null;         // the reader changed their mind
+    if (!await openNode(kit, cur)) return null;
     const next = await waitFor(() => kit.child(cur, step), STEP_WAIT);
-    if (!next) return false;
-    markPath(kit.mark(cur), c.level);
+    if (!next) return null;
     chain.push(kit.mark(cur));
     cur = next;
   }
-  markLeaf(kit, cur, c);
-  ROADS.push({ chain, leaf: kit.mark(cur), level: c.level });
-  drawRoads();
-  return true;
+  if (openLast && !await openNode(kit, cur)) return null;
+  return { kit, node: cur, chain };
+}
+
+// ---- markers are the tree's business, not the checkbox's ----
+// The checkbox decides only what gets opened FOR the reader. Whatever is open -- by the
+// checkbox or by hand -- shows its markers: a field the reader expanded themselves and
+// found unmarked would read as "this one did not change", which is a lie. So after every
+// Swagger UI render the tree is walked as it stands, opening nothing, and every changed
+// node that is on screen is lit up (markLeaf/markPath are idempotent), and every ghost
+// whose place is on screen is drawn there.
+function walkVisible(op, where, steps) {
+  const host = schemaHost(op, where);
+  if (!host) return null;
+  for (const kit of [SCHEMA_2020, SCHEMA_LEGACY]) {
+    const root = kit.root(host);
+    if (!root) continue;
+    let cur = root;
+    const chain = [];
+    for (const step of steps) {
+      if (kit.collapsed(cur)) return null;
+      const next = kit.child(cur, step);
+      if (!next) return null;
+      chain.push(kit.mark(cur));
+      cur = next;
+    }
+    return { kit, node: cur, chain };
+  }
+  return null;
+}
+
+function markVisible() {
+  pruneRoads();
+  document.querySelectorAll('.swagger-ui .opblock.is-open').forEach(op => {
+    const info = DATA.ops[keyOf(op)];
+    if (!info) return;
+    for (const c of info.changes) {
+      if (!c.target) continue;
+      const got = walkVisible(op, c.target, c.target.steps);
+      if (!got) continue;
+      got.chain.forEach(el => markPath(el, c.level));
+      markLeaf(got.kit, got.node, c);
+      addRoad(got.chain, got.kit.mark(got.node), c.level);
+    }
+    (info.ghosts || []).forEach((g, i) => placeGhost(op, g, i));
+  });
+}
+
+// ---- ghosts: what the new spec no longer has, drawn where it used to be ----
+// Swagger UI renders the new spec only, so a removed field is not grey or struck out --
+// it is simply not there, and nothing on the tree says anything ever was. The generator
+// diffed the two specs and sent each removed subtree with the steps to its old place;
+// here it becomes a struck-through, DELETED row at that place. Our own markup, never
+// Swagger UI's classes, so neither walker can mistake a ghost for a live node.
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c =>
+    ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+}
+
+function ghostTree(name, shape, opts = {}) {
+  const kids = shape && shape.props && shape.props.length;
+  const el = document.createElement(kids ? 'details' : 'div');
+  el.className = 'dv-ghost' + (opts.top ? ' dv-ghost-top' : '');
+  const head = document.createElement(kids ? 'summary' : 'div');
+  head.className = 'dv-ghost-head';
+  head.innerHTML =
+    (name != null ? `<span class="dv-ghost-name">${esc(name)}</span>` : '')
+    + (opts.required ? '<span class="dv-ghost-req">*</span>' : '')
+    + (shape ? `<span class="dv-ghost-type">${esc(shape.label)}</span>` : '')
+    + (opts.top ? '<span class="dv-ghost-mark">deleted</span>' : '')
+    + (opts.note ? `<span class="dv-ghost-note">${esc(opts.note)}</span>` : '')
+    + (shape && shape.desc ? `<span class="dv-ghost-desc">${esc(shape.desc)}</span>` : '');
+  el.appendChild(head);
+  if (kids) {
+    const body = document.createElement('div');
+    body.className = 'dv-ghost-body';
+    shape.props.forEach(p =>
+      body.appendChild(ghostTree(p.name, p, { required: p.required })));
+    if (shape.more) {
+      body.insertAdjacentHTML('beforeend',
+        `<div class="dv-ghost-more">…and ${shape.more} more</div>`);
+    }
+    el.appendChild(body);
+  }
+  return el;
+}
+
+// Insert `el` right after the sibling that preceded it in the old spec -- a live node or
+// an earlier ghost -- or first when it led the list.
+function placeAfter(parent, el, anchor) {
+  if (anchor) anchor.insertAdjacentElement('afterend', el);
+  else parent.insertBefore(el, parent.firstChild);
+}
+
+function ghostRow(cells) {
+  const tr = document.createElement('tr');
+  tr.className = 'dv-ghost-row';
+  cells.forEach(([cls, node]) => {
+    const td = document.createElement('td');
+    if (cls) td.className = cls;
+    if (node) td.appendChild(node);
+    tr.appendChild(td);
+  });
+  return tr;
+}
+
+function placeGhost(op, g, i) {
+  if (op.querySelector(`[data-dv-ghost="${i}"]`)) return;
+  const tag = el => { el.dataset.dvGhost = i; return el; };
+  if (g.kind === 'prop') {
+    const got = walkVisible(op, g, g.steps);
+    if (!got || got.kit.collapsed(got.node)) return;
+    if (got.kit === SCHEMA_2020) {
+      const ghost = ghostTree(g.name, g.old, { top: true, required: g.required });
+      const body = got.node.querySelector(':scope > .json-schema-2020-12-body');
+      if (!body) return;
+      let ul = [...body.querySelectorAll('.json-schema-2020-12-keyword--properties > ul')]
+        .find(u => u.closest('.json-schema-2020-12-body') === body);
+      if (!ul) {                                  // every property went: start a list
+        ul = body.querySelector(':scope > ul.dv-ghost-list');
+        if (!ul) {
+          ul = document.createElement('ul');
+          ul.className = 'dv-ghost-list';
+          body.appendChild(ul);
+        }
+      }
+      const li = tag(document.createElement('li'));
+      li.className = 'dv-ghost-li';
+      li.dataset.dvGhostName = g.name;
+      li.appendChild(ghost);
+      const prev = g.after && ([...ul.children].find(x => x.dataset.dvGhostName === g.after)
+        || SCHEMA_2020.child(got.node, { kind: 'prop', name: g.after })
+             ?.closest('li.json-schema-2020-12-property'));
+      placeAfter(ul, li, prev && prev.parentElement === ul ? prev : null);
+    } else {
+      const rows = [...got.node.querySelectorAll('tr.property-row')]
+        .filter(tr => tr.closest('span.model') === got.node);
+      const tbody = rows[0]?.parentElement
+        || got.node.querySelector('table.model > tbody');
+      if (!tbody) return;
+      // The legacy table names a field in its first cell; the ghost keeps the rest.
+      const rest = ghostTree(null, g.old, { top: true });
+      const tr = tag(ghostRow([[null, null], [null, rest]]));
+      tr.dataset.dvGhostName = g.name;
+      tr.firstChild.innerHTML = `<span class="dv-ghost-name">${esc(g.name)}</span>`;
+      const prev = g.after && ([...tbody.children].find(x => x.dataset.dvGhostName === g.after)
+        || rows.find(r => r.children[0]?.textContent.trim() === g.after));
+      placeAfter(tbody, tr, prev || null);
+    }
+    return;
+  }
+  if (g.kind === 'type') {
+    const got = walkVisible(op, g, g.steps);
+    if (!got) return;
+    const name = g.steps.length ? g.steps[g.steps.length - 1].name : null;
+    const ghost = ghostTree(name || null, g.old,
+                            { top: true, note: 'the shape it had before' });
+    const at = got.kit.mark(got.node);
+    if (at.matches('tr')) {
+      at.insertAdjacentElement('afterend', tag(ghostRow([[null, null], [null, ghost]])));
+    } else {
+      at.insertAdjacentElement('afterend', tag(ghost));
+    }
+    return;
+  }
+  if (g.kind === 'param') {
+    let tbody = op.querySelector('table.parameters > tbody');
+    if (!tbody) {                                 // no parameters left at all
+      const box = op.querySelector('.parameters-container');
+      if (!box) return;
+      tbody = box.querySelector('table.dv-ghost-table > tbody');
+      if (!tbody) {
+        box.insertAdjacentHTML('beforeend',
+          '<table class="parameters dv-ghost-table"><tbody></tbody></table>');
+        tbody = box.querySelector('table.dv-ghost-table > tbody');
+      }
+    }
+    const name = ghostTree(g.name, { label: g.label }, { top: true, required: g.required,
+                                                       note: '(' + g.in + ')' });
+    const desc = document.createElement('div');
+    desc.className = 'dv-ghost-desc';
+    desc.textContent = g.desc || '';
+    const tr = tag(ghostRow([['parameters-col_name', name],
+                             ['parameters-col_description', desc]]));
+    tr.dataset.dvGhostName = g.name + '|' + g.in;
+    const prev = g.after && [...tbody.children].find(r =>
+      r.dataset.dvGhostName === g.after.join('|')
+      || (r.dataset.paramName === g.after[0] && r.dataset.paramIn === g.after[1]));
+    placeAfter(tbody, tr, prev || null);
+    return;
+  }
+  if (g.kind === 'response') {
+    const tbody = op.querySelector('.responses-table > tbody');
+    if (!tbody) return;
+    const status = ghostTree(g.status, null, { top: true });
+    const what = ghostTree(g.desc || '', g.old, {});
+    const tr = tag(ghostRow([['response-col_status', status],
+                             ['response-col_description', what], [null, null]]));
+    tr.dataset.dvGhostName = g.status;
+    const prev = g.after && [...tbody.children].find(r =>
+      r.dataset.dvGhostName === g.after || r.dataset.code === g.after);
+    placeAfter(tbody, tr, prev || null);
+    return;
+  }
+  if (g.kind === 'media') {
+    const host = schemaHost(op, g);
+    const cell = g.in === 'request' ? host
+      : host?.querySelector(':scope > .response-col_description');
+    if (!cell) return;
+    cell.appendChild(tag(ghostTree(g.media, g.old, { top: true, note: 'media type' })));
+    return;
+  }
+  if (g.kind === 'body') {
+    const section = op.querySelector('.opblock-body .opblock-section');
+    if (!section) return;
+    section.insertAdjacentElement('afterend',
+      tag(ghostTree('Request body', g.old, { top: true })));
+  }
 }
 
 // An ancestor shared by several changed fields wears the colour of the worst of them.
@@ -1306,6 +1826,24 @@ function clearRoads() {
   ROADS.length = 0;
 }
 
+// One road per leaf element, whoever found it first -- the reveal walk or the pass over
+// what is already open -- and none for a leaf Swagger UI has since thrown away.
+function addRoad(chain, leaf, level) {
+  if (ROADS.some(r => r.leaf === leaf)) return;
+  ROADS.push({ chain, leaf, level });
+  drawRoads();
+}
+
+function pruneRoads() {
+  for (let i = ROADS.length - 1; i >= 0; i--) {
+    const road = ROADS[i];
+    if (road.leaf.isConnected) continue;
+    road.spark?.cancel();
+    road.g?.remove();
+    ROADS.splice(i, 1);
+  }
+}
+
 new ResizeObserver(drawRoads).observe(document.body);
 new MutationObserver(() => { if (ROADS.length) drawRoads(); })
   .observe(document.getElementById('swagger-ui'), { childList: true, subtree: true });
@@ -1332,7 +1870,14 @@ async function revealImpacted() {
       if (run !== revealRun) return;
       if (c.target && !await revealTarget(op, c, run)) missed++;
     }
+    // Open the way to every ghost inside a schema too: a removed field is a change like
+    // any other, and its row lives in its old parent's body.
+    for (const g of info.ghosts || []) {
+      if (run !== revealRun) return;
+      if (g.steps) await openTo(op, g, g.steps, run, g.kind === 'prop');
+    }
     reportMissed(op, missed);
+    markVisible();
   }
 }
 

@@ -330,6 +330,127 @@ def test_the_leaf_mark_reuses_the_differs_own_severity_scale():
     assert "tr.property-row.dv-hit > td:first-child" in tpl
 
 
+# ── markers belong to the tree, not to the checkbox ──────────────────────────────
+def test_markers_are_drawn_on_whatever_is_open_not_only_by_the_checkbox():
+    """With "expand impacted" unticked, an operation opened by hand showed OwnerPageDto's
+    new fields with no ADDED chip at all -- read as "nothing changed here". The checkbox
+    may only decide what is opened FOR the reader; every render of the tree must mark
+    whatever happens to be on screen, opening nothing."""
+    tpl = ovd.TEMPLATE
+    decorate = tpl[tpl.index("function decorate()"):tpl.index("let collapsedOnce")]
+    assert "markVisible();" in decorate, "the render hook no longer marks what is open"
+    mark = tpl[tpl.index("function markVisible()"):tpl.index("// ---- ghosts:")]
+    # Every open operation, regardless of the checkbox...
+    assert ".opblock.is-open" in mark and "dv-expand" not in mark
+    # ...through the walker that never clicks anything.
+    assert "walkVisible(op, c.target, c.target.steps)" in mark
+    assert "markLeaf(" in mark and "markPath(" in mark
+    walk = tpl[tpl.index("function walkVisible("):tpl.index("function markVisible()")]
+    assert ".click()" not in walk and "openNode" not in walk, "a passive walk opened a node"
+    assert "kit.collapsed(cur)" in walk, "a closed node must end the walk, not be opened"
+
+
+# ── what is no longer there ──────────────────────────────────────────────────────
+def test_a_removed_property_comes_back_as_a_ghost_where_it_used_to_be():
+    """`gone` was VisitDto's second field; the page draws only the new spec, so without a
+    ghost the reader sees VisitDto with nothing missing."""
+    old = spec(True)
+    old["components"]["schemas"]["VisitDto"]["properties"] = {
+        "id": {"type": "integer"},
+        "gone": {"type": "string", "description": "bye"},
+        "description": {"type": "string"},
+    }
+    removal = [{
+        "id": "response-property-removed",
+        "text": "removed the optional property `items/pets/items/visits/items/gone` from "
+                "the response with the `200` status",
+        "level": 3, "operation": "GET", "path": "/api/owners", "section": "paths",
+    }]
+    _, entries, _, _ = ovd.build_model(old, spec(True), removal)
+    owners = entries["GET /api/owners"]
+    props = [g for g in owners["ghosts"] if g["kind"] == "prop"]
+    assert len(props) == 1, owners["ghosts"]
+    g = props[0]
+    assert g["name"] == "gone" and g["after"] == "id"      # back between id and description
+    assert g["in"] == "response" and g["status"] == "200"
+    # Steps lead to the PARENT in the new tree -- the walker's own vocabulary.
+    assert g["steps"] == [{"kind": "items"}, {"kind": "prop", "name": "pets"},
+                          {"kind": "items"}, {"kind": "prop", "name": "visits"},
+                          {"kind": "items"}]
+    assert g["old"]["label"] == "string" and g["old"]["desc"] == "bye"
+    # The oasdiff line is tied to its ghost, so it is not also reported as unreachable.
+    assert owners["changes"][0]["ghost"] == owners["ghosts"].index(g)
+    assert owners["deepSkipped"] == 0
+
+
+def test_a_changed_type_keeps_its_old_shape_as_a_collapsed_ghost():
+    """petclinic's GET /api/owners: `array<OwnerDto>` became `OwnerPageDto`. The new
+    object is drawn by Swagger UI; the old array has to come back next to it, openable
+    into its old fields -- and nothing below is diffed against the unrelated new shape."""
+    new = spec(True)
+    new["components"]["schemas"]["OwnerPageDto"] = {"type": "object", "properties": {
+        "content": {"type": "array", "items": {"$ref": "#/components/schemas/OwnerDto"}},
+        "totalPages": {"type": "integer"}}}
+    new["paths"]["/api/owners"]["get"]["responses"]["200"]["content"][
+        "application/json"]["schema"] = {"$ref": "#/components/schemas/OwnerPageDto"}
+    _, entries, _, _ = ovd.build_model(spec(True), new, [])
+    ghosts = entries["GET /api/owners"]["ghosts"]
+    assert [g["kind"] for g in ghosts] == ["type"], ghosts
+    g = ghosts[0]
+    assert g["steps"] == [] and g["status"] == "200"        # right beside the root
+    assert g["old"]["label"] == "array<OwnerDto>"
+    # Expandable straight into OwnerDto's fields, and on down into the pets.
+    names = [p["name"] for p in g["old"]["props"]]
+    assert names == ["id", "pets"]
+    assert g["old"]["props"][1]["label"] == "array<PetDto>"
+    assert {p["name"] for p in g["old"]["props"][1]["props"]} == {"name", "visits"}
+
+
+def test_removed_parameters_and_responses_are_ghosted_in_order():
+    old = spec(True)
+    get = old["paths"]["/api/owners"]["get"]
+    get["parameters"] = [{"in": "query", "name": "lastName", "schema": {"type": "string"}},
+                         {"in": "query", "name": "legacy", "schema": {"type": "integer"}}]
+    get["responses"][404] = {"description": "Not Found"}     # YAML-style int key
+    new = spec(True)
+    new["paths"]["/api/owners"]["get"]["parameters"] = [
+        {"in": "query", "name": "lastName", "schema": {"type": "string"}}]
+    _, entries, _, _ = ovd.build_model(old, new, [])
+    ghosts = {g["kind"]: g for g in entries["GET /api/owners"]["ghosts"]}
+    assert ghosts["param"]["name"] == "legacy"
+    assert ghosts["param"]["after"] == ["lastName", "query"]
+    assert ghosts["param"]["label"] == "integer"
+    assert ghosts["response"]["status"] == "404" and ghosts["response"]["after"] == "200"
+
+
+def test_an_unchanged_spec_has_no_ghosts_and_a_removed_operation_none_inside():
+    _, entries, _, _ = ovd.build_model(spec(True), spec(True), [])
+    assert all(not e["ghosts"] for e in entries.values())
+    gone = spec(True)
+    del gone["paths"]["/api/visits"]
+    _, entries, _, _ = ovd.build_model(spec(True), gone, [])
+    assert entries["POST /api/visits"]["state"] == "removed"
+    assert entries["POST /api/visits"]["ghosts"] == []
+
+
+def test_the_page_draws_ghosts_as_deleted_in_the_theme_red():
+    tpl = ovd.TEMPLATE
+    assert "placeGhost(op, g, i)" in tpl
+    for kind in ("prop", "type", "param", "response", "media", "body"):
+        assert f"g.kind === '{kind}'" in tpl, f"ghost kind {kind} is never drawn"
+    assert "'<span class=\"dv-ghost-mark\">deleted</span>'" in tpl
+    assert ("background: var(--dv-breaking); color: var(--dv-bg);" in
+            tpl[tpl.index(".dv-ghost-mark {"):])
+    assert "text-decoration: line-through" in tpl[tpl.index(".dv-ghost-name {"):]
+    # Swagger UI's `summary { display: list-item }` must not beat the head's flex row.
+    assert ".swagger-ui .dv-ghost-head {" in tpl or ".swagger-ui .dv-ghost-head," in tpl
+    # Ghosts are never mistaken for live nodes by either walker.
+    assert "json-schema-2020-12-property" not in tpl[tpl.index("function ghostTree("):
+                                                   tpl.index("function placeAfter(")]
+    # The reveal opens the way to them as well.
+    assert "openTo(op, g, g.steps, run, g.kind === 'prop')" in tpl
+
+
 # ── the copy in the public repo is the same file ─────────────────────────────────
 def test_the_skill_copy_and_the_public_repo_copy_have_not_drifted():
     """`openapi-visual-diff.py` lives twice: here, and as its own public repo. A fix in
