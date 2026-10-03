@@ -349,7 +349,10 @@ installed; in the default browser otherwise. Later rebuilds open nothing: the ta
 open reloads itself. Do not open it again by hand, and never `open review.html`.
 
 **Print `$URL` as the last line of the run.** Then make sure the app runs from *this*
-checkout, open the screen the change affects, and start `/relay` so they can dictate tweaks.
+checkout, open the screen the change affects, and start `/relay` so they can dictate tweaks
+— **only when a human is there**: never in a headless run (`claude -p`, `copilot -p`,
+`$CLAUDE_CODE_ENTRYPOINT` = `sdk-cli`, CI). Headless, stop at the URL. An eval run that
+started the relay sat 20 of its 40 minutes waiting for dictation nobody was going to give.
 
 ## Iterating on a review that already exists
 
