@@ -501,14 +501,14 @@ if [ "$RC" != 0 ] && [ "$RC" != 3 ]; then exit "$RC"; fi
 cp "$CUES" "$VOICEDIR/cues.raw.json"
 cp "$TMP/idle.json" "$VOICEDIR/idle.json" 2>/dev/null || echo "[]" > "$VOICEDIR/idle.json"
 python3 "$SCRIPT_DIR/cut-idle.py" "$RAW" "$VOICEDIR/cues.raw.json" "$VOICEDIR/idle.json" \
-    "$TMP/raw.std.webm" "$CUES"
+    "$TMP/raw.std.mkv" "$CUES"
 
 # How long the card holds, straight from the run that filmed it. It lives beside the .wavs
 # because it is part of the same answer: everything needed to re-cut this footage without
 # re-filming it. A missing or unreadable file means "no card", which is what a pre-title
 # recording is — so old footage re-annotates exactly as it always did.
 LEAD="$(cat "$LEADFILE" 2>/dev/null || echo 0)"
-python3 "$SCRIPT_DIR/annotate-feature-video.py" "$TMP/raw.std.webm" "$CUES" "$OUT" --lead "${LEAD:-0}"
+python3 "$SCRIPT_DIR/annotate-feature-video.py" "$TMP/raw.std.mkv" "$CUES" "$OUT" --lead "${LEAD:-0}"
 
 # One more film per cloned voice: same footage, same cue clock, that voice and its own word
 # times. Only when EVERY spoken cue has it — a radio button in the Demo tab promises the whole
@@ -531,8 +531,8 @@ PY
   then
     # The annotator resolves each .wav against the folder of its OUTPUT, which is this one.
     python3 "$SCRIPT_DIR/cut-idle.py" "$RAW" "$TMP/$KEY.cues.json" "$VOICEDIR/idle.json" \
-        "$TMP/raw.$KEY.webm" "$TMP/$KEY.cut.json"
-    python3 "$SCRIPT_DIR/annotate-feature-video.py" "$TMP/raw.$KEY.webm" "$TMP/$KEY.cut.json" \
+        "$TMP/raw.$KEY.mkv" "$TMP/$KEY.cut.json"
+    python3 "$SCRIPT_DIR/annotate-feature-video.py" "$TMP/raw.$KEY.mkv" "$TMP/$KEY.cut.json" \
         "$FILM" --lead "${LEAD:-0}"
     python3 - "$VOICES_META" "$KEY" "$LABEL" "$(basename "$FILM")" "$TMP/$KEY.cut.json" <<'PY'
 import json, sys

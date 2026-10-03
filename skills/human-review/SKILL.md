@@ -121,6 +121,13 @@ session the same step is a program, `scripts/rerun-film.py` (`claude -p --model 
 ${SKILL}/scripts/run-steps.py --base "$BASE"
 ```
 
+**Never end your turn while it runs.** It takes 5–15 minutes. Background it if you like
+and write `content.json` meanwhile, but then wait for it in the same turn — again and
+again if a wait times out — until it exits, then build. Under `claude -p` / `copilot -p`
+the session ends with your turn and takes every background child with it: eval run 16
+ended on "you'll get the page once that step finishes", and the film died half-rendered.
+Never start it a second time while one is running.
+
 One command runs every deterministic producer — the branch's own review record, what
 landed after it, diagram deltas, sequence diagrams, the container view projected from
 them, Code City, the feature film, complexity, the REST contract and its two second

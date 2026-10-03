@@ -29,6 +29,20 @@ def test_a_moment_inside_a_cut_lands_on_its_splice():
   assert cut.remap(6.5, [(5.0, 8.0)]) == 5.0
 
 
+def test_the_cut_drops_exactly_the_stretches_and_cues_follow(tmp_path):
+  import subprocess
+  raw = tmp_path / "raw.webm"
+  subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=25",
+                  "-t", "10", "-c:v", "libvpx", str(raw)], check=True)
+  (tmp_path / "cues.json").write_text(json.dumps([{"t": 1.0, "text": "a"}, {"t": 7.0, "text": "b"}]))
+  (tmp_path / "idle.json").write_text(json.dumps([[2.0, 4.0], [5.0, 6.0]]))
+  out, cues = tmp_path / "cut.mkv", tmp_path / "cut.json"
+  subprocess.run(["python3", str(HERE / "cut-idle.py"), str(raw), str(tmp_path / "cues.json"),
+                  str(tmp_path / "idle.json"), str(out), str(cues)], check=True)
+  assert abs(cut.probe(out) - 7.0) < 0.1
+  assert [c["t"] for c in json.loads(cues.read_text())] == [1.0, 4.0]
+
+
 def test_overlapping_stretches_join_and_slivers_are_dropped():
   assert cut.merged([[3, 4], [1, 2], [1.5, 2.5], [6, 6.05], [9, 30]], 10.0) == \
       [(1, 2.5), (3, 4), (9, 10.0)]
@@ -39,10 +53,6 @@ def test_a_fast_voice_loses_the_wait_for_the_slow_one_never_its_own_line():
   spans = cut.voice_spans([{"t": 10.0, "speech": 4.0, "hold": 7.0},
                            {"t": 20.0, "text": "silent cue"}])
   assert spans == [(10.0 + 4.0 + cut.BEAT, 17.0)]
-
-
-def test_kept_parts_are_the_complement_of_the_cuts():
-  assert cut.kept([(2, 3), (5, 6)], 8.0) == [(0.0, 2), (3, 5), (6, 8.0)]
 
 
 def test_the_recorder_keeps_the_harness_free_of_apostrophes_and_cuts_every_voice():

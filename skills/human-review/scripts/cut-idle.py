@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cut one voice's film out of the raw feature take: the still stretches go, cues shift.
 
-    cut-idle.py <raw.webm> <cues.json> <idle.json> <out.webm> <out-cues.json>
+    cut-idle.py <raw.webm> <cues.json> <idle.json> <out.mkv> <out-cues.json>
 
 The recorder films while it synthesizes each line in every voice and while a script pauses,
 and it holds every shot until the SLOWEST voice has said its line — so the raw take is a
@@ -54,17 +54,6 @@ def remap(t: float, cuts: list[tuple[float, float]]) -> float:
   return t - gone
 
 
-def kept(cuts: list[tuple[float, float]], duration: float) -> list[tuple[float, float]]:
-  out, at = [], 0.0
-  for a, b in cuts:
-    if a > at:
-      out.append((at, a))
-    at = b
-  if duration > at:
-    out.append((at, duration))
-  return out
-
-
 def probe(video: Path) -> float:
   return float(subprocess.run(
       ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
@@ -84,13 +73,16 @@ def main() -> int:
     shutil.copyfile(raw, out_raw)
     out_cues.write_text(json.dumps(cues, indent=1), encoding="utf-8")
     return 0
-  parts = kept(cuts, duration)
-  graph = "".join(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}];"
-                  for i, (a, b) in enumerate(parts))
-  graph += "".join(f"[v{i}]" for i in range(len(parts))) + f"concat=n={len(parts)}:v=1:a=0[out]"
-  subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(raw), "-filter_complex", graph,
-                  "-map", "[out]", "-c:v", "libvpx", "-b:v", "6M", "-crf", "4",
-                  "-deadline", "realtime", "-cpu-used", "8", str(out_raw)], check=True)
+  # One pass: `select` drops the frames inside any cut and `setpts` closes the gaps (the
+  # take is constant-rate). A trim+concat graph did the same with one branch per kept part,
+  # each decoding the whole take: 106 s of a 214 s take with 62 cuts, against 2 s for this.
+  # The output is an intermediate the annotator re-encodes, so it is written fast and
+  # near-lossless (H.264 in .mkv), never as the delivered film.
+  keep = "not(" + "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in cuts) + ")"
+  subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(raw),
+                  "-vf", f"select='{keep}',setpts=N/FRAME_RATE/TB",
+                  "-c:v", "libx264", "-preset", "ultrafast", "-crf", "12", str(out_raw)],
+                 check=True)
   for c in cues:
     c["t"] = round(remap(float(c["t"]), cuts), 3)
     c.pop("hold", None)

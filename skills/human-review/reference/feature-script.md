@@ -22,6 +22,13 @@ inside the harness: filming the next feature meant editing *another git reposito
 selectors were generic enough to keep resolving — so you got a polished, correctly captioned
 film of the **wrong feature**, under the one heading a reviewer trusts without reading.
 
+## Short: at most ten lines spoken, about a minute of film
+
+The reviewer is busy. One `say()` per behaviour the ticket names, the strongest example of
+each, never a second sentence about the same screen state: **ten `say()` calls at most**,
+short sentences. The reference film says 7 lines in 36 s; eval run 16 wrote 22 and filmed
+almost two minutes. Pauses are cut to half a second in the film anyway — do not pad.
+
 ## Which screens the film must visit — derive them, never write them down
 
 A rule about *your* script: the harness films whatever you drive it through and has no
