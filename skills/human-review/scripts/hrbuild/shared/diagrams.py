@@ -101,6 +101,10 @@ def _diagram_views(row, assets: Path, full_svg: Path, root: Path):
             panes.append((view, f'<div class="svgbox">{inline_svg(assets / name, root)}</div>'))
     if len(panes) == 1:
         return panes[0][1], False
+    # A diagram this branch added has nothing to compare with: Diff (all green) and a lone
+    # New are two buttons that change nothing (Victor, 4 Oct 2026). Its picture alone.
+    if row.get("status") == "added" and panes[1][0] == "new":
+        return panes[1][1], False
     return dgm_views_html(panes, initial="new" if row.get("kind") == "sequence" else "diff"), True
 
 
@@ -260,15 +264,28 @@ def shorten_dgm_src(markup: str) -> str:
     return DGM_SRC_ANCHOR.sub(one, markup)
 
 
-def _source_link(rel: str, root: Path) -> str:
+def _source_link(rel: str, root: Path, out_dir: Path | None = None,
+                 face: str | None = None) -> str:
     """The path already shown on the right of the header, made the link to the file.
 
     It used to be plain text with a second `<a>name.puml</a>` under the title — two
-    controls for one destination, and the shorter of the two said less."""
-    if (root / rel).is_file():
-        return shorten_dgm_src(
-            f'<a class="dgm-src" href="vscode://file/{(root / rel).resolve()}:1:1">'
-            f'{html.escape(rel)}</a>')
+    controls for one destination, and the shorter of the two said less.
+
+    `face` replaces the name on the card: a sequence diagram's generated file name is the
+    test's name again plus `.genseq.puml`, so its card says `.puml` and keeps the path on
+    the hover (Victor, 4 Oct 2026). A traced diagram that is not committed lives in the
+    review's own copy (`assets/genseq/`), and links there."""
+    target = root / rel
+    if not target.is_file() and out_dir is not None:
+        target = Path(out_dir) / "assets" / "genseq" / rel
+    if target.is_file():
+        href = f"vscode://file/{target.resolve()}:1:1"
+        if face:
+            tip = html.escape(f"Open in VS Code: {rel}", quote=True)
+            return f'<a class="dgm-src" href="{href}" data-tip="{tip}">{html.escape(face)}</a>'
+        return shorten_dgm_src(f'<a class="dgm-src" href="{href}">{html.escape(rel)}</a>')
+    if face:
+        return f'<span class="dgm-src" data-tip="{html.escape(rel, quote=True)}">{html.escape(face)}</span>'
     return f'<span>{html.escape(rel)}</span>'
 
 
@@ -568,9 +585,14 @@ def render_diagrams(spec, root: Path, out_dir: Path, rows=None, bare: str = "") 
             # picture — so only the states that carry information get one.
             + (SCHEMA_ONLY_BADGE if r["status"] == UNCHANGED and r.get("_unseen") else
                UNCHANGED_BADGE if r["status"] == UNCHANGED else
-               f'<span class="badge {"sev-high" if r["status"] == "added" else "sev-low"}">'
-               f'{html.escape(r["status"])}</span>' if r["status"] != "modified" else "")
-            + _source_link(r["source"], root) + '</div>'
+               # A new diagram says "new", once: inside a test pair the card's own
+               # `new test` chip already says it, so nothing here (Victor, 4 Oct 2026).
+               "" if r["status"] == "added" and bare else
+               '<span class="badge sev-high">new</span>' if r["status"] == "added" else
+               f'<span class="badge sev-low">{html.escape(r["status"])}</span>'
+               if r["status"] != "modified" else "")
+            + _source_link(r["source"], root, out_dir,
+                           ".puml" if r.get("kind") == "sequence" else None) + '</div>'
             + (f"<p>{note}</p>" if note else "")
             + ("" if bare else _provenance(r["source"], root))
             + genseq_details_at_render(r, manifest.parent, root)

@@ -1613,3 +1613,11 @@ def test_the_sequence_tab_quotes_what_the_tags_and_the_pictures_say(tmp_path, mo
     tail = out[out.index("Tagged for tracing, and no diagram came back"):]
     assert "AddVisitApiTest.java" in tail
     assert weight == 3
+
+
+def test_a_diagram_this_branch_added_is_its_picture_with_no_control(tmp_path):
+    """Victor, 4 Oct 2026: on a new diagram, Diff (all green) and a lone New change nothing."""
+    row = {"name": "new.genseq", "kind": "sequence", "status": "added", "focus": "",
+           "svg": _svg(tmp_path / "d.svg", "delta"), "new_svg": _svg(tmp_path / "n.svg", "now")}
+    out, toggles = build._diagram_views(row, tmp_path, tmp_path / "d.svg", tmp_path)
+    assert not toggles and "dgmviews" not in out and "now" in out
