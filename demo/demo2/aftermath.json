@@ -1,0 +1,49 @@
+{
+ "review": "e7b807e83fd3973993c980e3d5b88c62f947e8db",
+ "review_short": "e7b807e8",
+ "head": "e7b807e83fd3973993c980e3d5b88c62f947e8db",
+ "takeover": null,
+ "generated_globs": [
+  "**/generated/**",
+  "docs/generated/**",
+  "openapi.yaml",
+  "**/*.genseq.*",
+  "**/api-types.ts",
+  "**/*.drawio*",
+  "**/*.min.js",
+  "**/*.min.css",
+  "**/*.snap",
+  "**/*.png",
+  "**/*.jpg",
+  "**/*.jpeg",
+  "**/*.gif",
+  "**/*.webp",
+  "**/*.ico",
+  "**/*.pdf",
+  "**/package-lock.json",
+  "**/yarn.lock",
+  "**/pnpm-lock.yaml",
+  "**/go.sum",
+  "**/Cargo.lock",
+  "**/poetry.lock",
+  ".human-review/**"
+ ],
+ "commits": [],
+ "totals": {
+  "commits": 0,
+  "files": 0,
+  "added": 0,
+  "deleted": 0,
+  "code": {
+   "files": 0,
+   "added": 0,
+   "deleted": 0
+  },
+  "generated": {
+   "files": 0,
+   "added": 0,
+   "deleted": 0
+  }
+ },
+ "clean": true
+}

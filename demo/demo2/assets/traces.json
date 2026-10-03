@@ -1,0 +1,162 @@
+{
+  "report": "petclinic-test/test-results/playwright-report",
+  "viewer": "assets/traceviewer/index.html",
+  "recorded": 9,
+  "omitted": 0,
+  "untraced": 1,
+  "tests": [
+    {
+      "title": "Filter owners by a case-sensitive prefix of the last name",
+      "path": [
+        "Search owners by last name"
+      ],
+      "file": "petclinic-test/src/owner-search.feature",
+      "line": 11,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 504,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/001-search-owners-by-last-name-filter-owners-by-a-case-sensitive.zip",
+      "bytes": 407881
+    },
+    {
+      "title": "Opening the owners page shows the first page by name, and how many there are",
+      "path": [
+        "Search owners by last name"
+      ],
+      "file": "petclinic-test/src/owner-search.feature",
+      "line": 26,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 470,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/002-search-owners-by-last-name-opening-the-owners-page-shows-the.zip",
+      "bytes": 189345
+    },
+    {
+      "title": "Paging forward reaches every owner exactly once",
+      "path": [
+        "Search owners by last name"
+      ],
+      "file": "petclinic-test/src/owner-search.feature",
+      "line": 30,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 899,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/003-search-owners-by-last-name-paging-forward-reaches-every-owne.zip",
+      "bytes": 1057134
+    },
+    {
+      "title": "Sorting by city, then reversing it, starts again from the first page",
+      "path": [
+        "Search owners by last name"
+      ],
+      "file": "petclinic-test/src/owner-search.feature",
+      "line": 36,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 672,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/004-search-owners-by-last-name-sorting-by-city-then-reversing-it.zip",
+      "bytes": 879077
+    },
+    {
+      "title": "A new page size starts again from the first page",
+      "path": [
+        "Search owners by last name"
+      ],
+      "file": "petclinic-test/src/owner-search.feature",
+      "line": 44,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 876,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/005-search-owners-by-last-name-a-new-page-size-starts-again-from.zip",
+      "bytes": 1206272
+    },
+    {
+      "title": "A new search starts again from the first page, keeping the sort",
+      "path": [
+        "Search owners by last name"
+      ],
+      "file": "petclinic-test/src/owner-search.feature",
+      "line": 50,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 612,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/006-search-owners-by-last-name-a-new-search-starts-again-from-th.zip",
+      "bytes": 625095
+    },
+    {
+      "title": "A visit cannot predate the pet",
+      "path": [
+        "A visit is dated between the pet's birth and one year from today."
+      ],
+      "file": "petclinic-test/src/visit-date-range.feature",
+      "line": 7,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 501,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/007-a-visit-is-dated-between-the-pet-s-birth-and-one-year-from-t.zip",
+      "bytes": 322786
+    },
+    {
+      "title": "The reported year 0009 date is refused",
+      "path": [
+        "A visit is dated between the pet's birth and one year from today."
+      ],
+      "file": "petclinic-test/src/visit-date-range.feature",
+      "line": 11,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 412,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/008-a-visit-is-dated-between-the-pet-s-birth-and-one-year-from-t.zip",
+      "bytes": 261708
+    },
+    {
+      "title": "A visit cannot be booked more than a year ahead",
+      "path": [
+        "A visit is dated between the pet's birth and one year from today."
+      ],
+      "file": "petclinic-test/src/visit-date-range.feature",
+      "line": 15,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 439,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/009-a-visit-is-dated-between-the-pet-s-birth-and-one-year-from-t.zip",
+      "bytes": 320528
+    }
+  ]
+}

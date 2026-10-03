@@ -1,0 +1,36 @@
+  * reviewpoints -> review
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/bf039454f092/skills/human-review/scripts/review-points.py --root . --out .human-review/review-points.json
+review-points.md: 25 item(s) in 6 fixed, 13 ignored, 6 assumptions
+  Fixed        (Fixed)
+      · A failed page hid the paginator, so only a new search could retry   [3 ref, 3 snippet, low, from correctness, tests and ticket-fit reviewers]
+      · Paging step waited for rows to change, which a page may not do   [2 ref, 2 snippet, low, from correctness and ticket-fit reviewers]
+      · Rejected request values echoed into the log and the 400 body   [4 ref, 4 snippet, low, from security reviewer]
+      · Validation literals duplicated four times in the advice   [1 ref, 1 snippet, info, from CI (SonarCloud java:S1192)]
+      · Size assertions on .length instead of toHaveSize   [2 ref, 2 snippet, info, from CI (SonarCloud typescript:S5906)]
+      · Injected services not readonly   [1 ref, 1 snippet, info, from CI (SonarCloud typescript:S2933)]
+  Ignored      (Ignored)
+      · Owner deleted between page query and graph fetch answers 500   [1 ref, 1 snippet, medium, from correctness reviewer]
+      · Page, count and graph fetch share no snapshot   [1 ref, 1 snippet, low, from correctness reviewer]
+      · Empty table chrome shows before the first page arrives   [1 ref, 1 snippet, low, from correctness reviewer]
+      · HttpParams sends &quot;+&quot; raw, read as a space   [1 ref, 1 snippet, info, from correctness reviewer]
+      · lastName has no length cap   [1 ref, 1 snippet, low, from security reviewer]
+      · Name column shows &quot;First Last&quot; but sorts by last name   [1 ref, 1 snippet, low, from tests reviewer]
+      · Index test never checks the planner uses the indexes   [1 ref, 1 snippet, medium, from tests reviewer]
+      · Query-budget test is @Transactional, may mask lazy loads   [1 ref, 1 snippet, info, from tests reviewer]
+      · OwnerTest.getAll narrowed to lastName=Franklin   [1 ref, 1 snippet, info, from tests reviewer]
+      · No recovery when the current page falls past the last   [1 ref, 1 snippet, info, from tests reviewer]
+      · sort.direction || &#x27;asc&#x27; hides a cleared sort   [1 ref, 1 snippet, info, from ticket-fit reviewer]
+      · V4 indexes nobody asked for   [1 ref, 1 snippet, info, from ticket-fit reviewer]
+      · Add Owner shown during load and after errors   [1 ref, 1 snippet, info, from ticket-fit reviewer]
+  Assumptions  (Assumptions)
+      · An empty ?size=, ?page= or ?sort= means omitted, not malformed   [1 ref, 1 snippet, confidence 0.6]
+      · A type mismatch is a 400 on every endpoint, not only the list   [1 ref, 1 snippet, confidence 0.7]
+      · A page whose offset overflows an int is a 400   [1 ref, 1 snippet, confidence 0.8]
+      · Sort keys and directions are case-sensitive   [1 ref, 1 snippet, confidence 0.75]
+      · The error view shows the server&#x27;s message verbatim   [1 ref, 1 snippet, confidence 0.55]
+      · No-match message keeps the old &quot;LastName&quot; wording   [1 ref, 1 snippet, confidence 0.85]
+  fixed in     HEAD
+  base: 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec · implementation: 91905dff4690930507b443b5655573f6802ef608 · reviewers: 4 read-only reviewer subagents (correctness, security, tests, ticket-fit) on Sonnet + SonarCloud via CI · session: 3c9a707b-94ad-4b3f-8775-28518fc03842
+  wrote  .human-review/review-points.json
+    $ git merge-base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec HEAD
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/bf039454f092/skills/human-review/scripts/review-commits.py --base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --json

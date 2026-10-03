@@ -1,0 +1,260 @@
+
+/* Green = complexity this branch ADDED, red = complexity it REMOVED: the colour names the
+    author of the change, it is not a verdict on whether growing is bad. */
+.cx-title { margin:0 0 .15rem; font-size:1.15rem; font-weight:600; }
+.cx-title a { color:var(--link); }
+.cx-lede { color:var(--muted); font-size:.92rem; --cx-added:#2e9e5b; --cx-removed:#c62828; }
+.cx-group { --cx-added:#2e9e5b; --cx-removed:#c62828; }
+.cx-group + .cx-group { margin-top:1.1rem; }
+.cx-kind { font:600 11px/1 system-ui,sans-serif; text-transform:uppercase; letter-spacing:.07em;
+            color:var(--muted); margin:0 0 .35rem .15rem; }
+.cx-count { opacity:.65; font-weight:400; }
+.cx-key { font-weight:700; }
+.cx-list { border:1px solid var(--line); border-radius:8px; overflow:hidden; background:var(--card); }
+/* The grid moved off the row and onto `.cx-head`, because the row now has a second thing
+    in it: the fold, which must run the full width under the columns rather than sit in
+    one of them. A `<details>` cannot be a grid whose first track holds the summary and
+    whose second holds the panel, so the row stays a plain block and the columns live one
+    level in. `list-style:none` + the WebKit marker rule take away the disclosure triangle
+    — the bar is the affordance, and a triangle in the first column would be a second one
+    pointing at nothing. */
+.cx-row { border-bottom:1px solid var(--line); }
+.cx-row:last-child { border-bottom:0; }
+/* The verb column is as wide as DELETE and no wider, and the gap after it is the smaller
+    one: at 3.6rem + .55rem a `GET` sat 46px from its own path and read as two columns of
+    unrelated things. The caret column in front is the fold's second handle, next to the
+    word a reader looks at first. */
+.cx-head { display:grid; grid-template-columns:1.1rem 2.45rem minmax(9rem,17rem) 1fr 2.6rem 2.2rem;
+          align-items:center; gap:.4rem; padding:.3rem .8rem .3rem .5rem; font-size:.84rem;
+          cursor:default; list-style:none; }
+/* The full-size triangles (U+25B6/U+25BC, forced to text with U+FE0E so macOS does not
+    swap in the emoji), not the small ▸/▾: those stay a speck at any font size — at 10px
+    beside a 13px verb the caret read as punctuation, not as the handle that opens the
+    call graph. */
+.cx-caret { font-size:13px; line-height:1; color:var(--muted); text-align:center; }
+details.cx-row > summary .cx-caret { cursor:pointer; }
+details.cx-row > summary .cx-caret::before { content:"\25B6\FE0E"; }
+details.cx-row[open] > summary .cx-caret::before { content:"\25BC\FE0E"; }
+.cx-head::-webkit-details-marker { display:none; }
+summary.cx-head:focus-visible { outline:2px solid var(--link); outline-offset:-2px; }
+.cx-same { opacity:.5; }
+/* An untouched row is dimmed because the branch has nothing to say about it — but the
+    moment a reader opens one they are reading it on purpose, and code at half opacity is
+    code nobody reads. Opening restores it, and tints the head so the row and its fold
+    read as one block. */
+.cx-row[open] { opacity:1; }
+.cx-row[open] > .cx-head { background:var(--code-bg); }
+/* A row you can open has to look like one before you try: under the pointer its head
+    lights up, a bar in the link colour marks its left edge, the caret takes the same
+    colour, and a dimmed row comes back to full strength — together they say "click me",
+    where a faint tint alone read as nothing at all. The caret does not move: nudged 2px
+    right on hover, a column of them jittered as the pointer ran down the list. */
+details.cx-row > summary.cx-head { cursor:pointer; transition:background .12s, box-shadow .12s; }
+details.cx-row > summary.cx-head:hover { background:var(--code-bg);
+    box-shadow:inset 3px 0 0 var(--link); }
+details.cx-row > summary.cx-head:hover .cx-caret { color:var(--link); }
+details.cx-row.cx-same:hover { opacity:.9; }
+.cx-verb { font:700 10.5px/1 ui-monospace,Menlo,monospace; letter-spacing:.03em; }
+/* Amber is the one hue that never read on white either: #e08a00 is 2.7:1 there, well
+    under the 4.5:1 a 10.5px bold monospace word needs. Darkened until it clears it,
+    and still amber — it is what tells PUT from DELETE at a glance down the column. */
+.cx-get{color:#2e7d32}.cx-post{color:#1565c0}.cx-put{color:#a35f00}.cx-delete{color:#c62828}.cx-any{color:var(--muted)}
+.cx-patch{color:#8e44ad}.cx-mcp{color:#7c4dff}.cx-job{color:#a35f00}
+.cx-kafka,.cx-rabbit,.cx-jms{color:#00838f}
+/* The path, then its ↗ right after it — not at the column's far edge, where it would
+    belong to the bar as much as to the path. The path gives way first: it shrinks to its
+    ellipsis and the ↗ stays whole. */
+.cx-cell { display:flex; align-items:center; gap:3px; min-width:0; overflow:hidden; }
+.cx-cell .cx-path { flex:0 1 auto; min-width:0; }
+.cx-cell a.cg-go { flex:none; }
+/* `display:block` is what makes the ellipsis appear. `text-overflow` only applies to a
+    block container, and <code> is inline — so the rule was there, doing nothing, while the
+    link's own `overflow:hidden` chopped the path mid-token. `POST /api/owners/{ownerId}
+    /pets/{petId}/vis` is a different endpoint from the one the row is about, and nothing
+    on screen said it had been cut. Blockified, the code element takes the grid column's
+    width and can end in a `…`; the full path is on the row's hover either way. */
+.cx-path { display:block; font:12px/1.4 ui-monospace,Menlo,monospace; overflow:hidden;
+           text-overflow:ellipsis; white-space:nowrap; }
+.cx-bar { display:flex; height:9px; border-radius:5px; overflow:hidden; background:transparent; }
+/* The bar opens the breakdown, so it wears a hand. It has to out-specify `tip.js`, which
+    paints every `[data-tip]` outside a link or a summary with `cursor:help` — right for a
+    mark that only explains itself, wrong for one you can click. Two classes beat its
+    `[data-tip]:not(…):not(…)` chain. The grey `?` stays on the rows that open onto
+    nothing: a deleted endpoint's bar really is only a tooltip. */
+details.cx-row .cx-bar, details.cx-row .cx-bar i, details.cx-row .cx-bar u { cursor:pointer; }
+/* A hit target 9px tall is a hit target people miss. The padding is invisible and the
+    bar keeps its height; only the clickable box grows. */
+details.cx-row .cx-bar { padding:7px 0; margin:-7px 0; box-sizing:content-box; }
+.cx-bar i { background:#c9c9d4; border-radius:5px 0 0 5px; }
+.cx-bar u { border-radius:0 5px 5px 0; }
+.cx-up .cx-bar u { background:var(--cx-added); }
+.cx-down .cx-bar u { background:var(--cx-removed); }
+.cx-same .cx-bar i { border-radius:5px; }
+.cx-badge { font:700 11px/1 ui-monospace,Menlo,monospace; text-align:right; color:var(--muted); }
+.cx-up .cx-badge, .cx-up.cx-key { color:var(--cx-added); }
+.cx-down .cx-badge, .cx-down.cx-key { color:var(--cx-removed); }
+.cx-n { font:600 12px/1 ui-monospace,Menlo,monospace; text-align:right; }
+/* ── the breakdown ──────────────────────────────────────────────────────────────────
+    What the bar is made of, one counted construct per line: the source line it was read
+    off, and what it cost, hard right. The number on a row is an assertion about somebody
+    else's code; this is the working, and every line of it opens the file at that line.
+    Indented past the verb column so the fold reads as belonging to the row above it. */
+.cx-why { padding:.35rem .8rem .55rem 4.15rem; background:var(--code-bg);
+          border-top:1px dashed var(--line); }
+.cx-why-m { display:flex; align-items:baseline; gap:.4rem; margin:.35rem 0 .15rem;
+            font:600 10.5px/1.6 ui-monospace,Menlo,monospace; letter-spacing:.02em;
+            color:var(--muted); }
+.cx-why-m:first-child { margin-top:0; }
+.cx-why-mn { font-weight:700; opacity:.8; }
+.cx-why-none { margin:0; font-size:.8rem; color:var(--muted); }
+a.cx-why-line { display:flex; align-items:baseline; gap:.75rem; text-decoration:none;
+                color:inherit; padding:1px 0; }
+a.cx-why-line code { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;
+                     white-space:nowrap; font:12px/1.55 ui-monospace,Menlo,monospace; }
+a.cx-why-line:hover code { text-decoration:underline; }
+/* `+1` is a column, not a suffix: same width on every line, so the eye can add them up
+    without reading them — no brackets since 2026-09-25 (Victor: *"[+1] => +1"*), the
+    `+N` badges on the graph never had them. `tabular-nums` keeps `+10` from widening the column by a hair. */
+.cx-why-inc { flex:0 0 2.9rem; text-align:right; font-variant-numeric:tabular-nums;
+              font:700 10.5px/1.55 ui-monospace,Menlo,monospace; color:var(--muted); }
+/* ── the call graph ─────────────────────────────────────────────────────────────────
+    The flow drawn left to right: a node per method, its callees in a column to its right,
+    joined by elbow lines drawn from borders alone (no SVG, no layout engine), each ending
+    in an arrowhead on the callee. A node is two badges — the class, and `method()` under
+    it — with its cognitive score beside them. The graph scrolls sideways inside its own
+    box rather than squeeze a deep chain or push the page wider than the window. The top
+    padding leaves room for the `+N` badge that rides above a node's corner. */
+.cg { overflow-x:auto; padding:.55rem 0 .45rem; margin:0 0 .35rem -3.3rem; }
+/* Top-aligned, not centred: a centred parent floats to the middle of however tall its
+    subtree is, and one wide branch then opens a screen of empty space above and below
+    every sibling. Aligned to the top, a node sits level with its first callee and the
+    elbows are drawn at a fixed height — half a node — from the top of each row. */
+.cg-t { display:flex; flex-direction:column; align-items:flex-start;
+        position:relative; }
+/* A node and the callees in other classes, to its right. The stem is the node's column,
+    stretched to the row's height so the rail down to its same-class callees can start
+    under the node however tall the branch beside it grows. */
+.cg-row { display:flex; align-items:flex-start; }
+.cg-stem { align-self:stretch; position:relative; display:flex; align-items:flex-start; }
+.cg-kids { display:flex; flex-direction:column; gap:3px; margin-left:12px; position:relative; }
+.cg-kids::before { content:""; position:absolute; left:-12px; top:var(--cg-mid); width:12px;
+                   border-top:1px solid var(--cg-line); }
+.cg-kids > .cg-t { padding-left:13px; }
+.cg-kids > .cg-t::before { content:""; position:absolute; left:0; top:-3px; bottom:0;
+                           border-left:1px solid var(--cg-line); }
+.cg-kids > .cg-t:first-child::before { top:var(--cg-mid); }
+.cg-kids > .cg-t:last-child::before { bottom:auto; height:calc(var(--cg-mid) + 3px); }
+.cg-kids > .cg-t:only-child::before { display:none; }
+.cg-kids > .cg-t::after { content:""; position:absolute; left:0; top:var(--cg-mid); width:8px;
+                          border-top:1px solid var(--cg-line); }
+/* The arrowhead: a border triangle hung off the callee's left edge, tip on its frame, so
+    every edge reads caller → callee without an SVG. */
+.cg-kids > .cg-t > .cg-row > .cg-stem > .cg-n::before, .cg-kids > .cg-t > .cg-more::before {
+    content:""; position:absolute; left:-7px; top:calc(var(--cg-mid) - 4.5px);
+    border:4px solid transparent; border-left:6px solid var(--cg-arrow); border-right:0; }
+.cg-kids > .cg-t > .cg-more::before { top:calc(50% - 4px); }
+.cg-more { position:relative; }
+/* Calls that stay in the class hang below the caller, flush with its left edge: the rail
+    down from under the caller runs straight into an arrowhead on the callee's top — down
+    means "same file", right means "another class". A second callee cannot take that line,
+    it would run through the first and read as a chain, so under a fork the rail also
+    turns left, runs down outside the boxes and comes back in with a ┐ over each later
+    callee. */
+.cg-down { display:flex; flex-direction:column; align-items:flex-start; gap:10px;
+           padding-top:10px; position:relative; }
+/* The rail starts at the caller's bottom edge, not its middle: a dimmed caller is
+    translucent, and a line from its middle showed through it. */
+.cg-v > .cg-row > .cg-stem::after { content:""; position:absolute; left:8px; top:var(--cg-h);
+                                    bottom:0; border-left:1px solid var(--cg-line); }
+.cg-down::after { content:""; position:absolute; left:8px; top:0; height:3px;
+                  border-left:1px solid var(--cg-line); }
+.cg-fork::before { content:""; position:absolute; left:-6px; top:0; width:14px;
+                   border-top:1px solid var(--cg-line); }
+.cg-fork > .cg-t::before { content:""; position:absolute; left:-6px; top:-10px; bottom:0;
+                           border-left:1px solid var(--cg-line); }
+.cg-fork > .cg-t:last-child::before { bottom:auto; height:3px; }
+.cg-fork > .cg-t + .cg-t::after { content:""; position:absolute; left:-6px; top:-8px; width:14px;
+                                  height:2px; border:solid var(--cg-line); border-width:1px 1px 0 0; }
+.cg-down > .cg-t > .cg-row > .cg-stem > .cg-n::before {
+    content:""; position:absolute; left:3px; top:-7px;
+    border:4px solid transparent; border-top:6px solid var(--cg-arrow); border-bottom:0; }
+/* The edges are drawn to measurements, not to the boxes, so the box's rows have fixed
+    heights: a 1px frame, an 18px class row whose last pixel is the divider, a 20px method row. Every
+    arrow from the left lands on the divider (--cg-mid, its top pixel), and a rail down
+    starts at the bottom edge (--cg-h). */
+.cg { --cg-line:color-mix(in srgb, var(--muted) 55%, transparent); --cg-arrow:var(--muted);
+      --cg-mid:18px; --cg-h:40px; }
+/* A node is one frame cut in two by a rule across its whole width: the class on top,
+    its ↗ right after the name, and the method below with its score hard right — the
+    score is the method's, so it sits on its row. No badge inside the badge: the class
+    used to be a pill of its own and the method a black lozenge, three frames per box.
+    The names are set in the UI face, not monospace: the graph is as wide as its deepest
+    chain times its widest names, and a proportional face buys back a fifth of that. */
+.cg-n { display:inline-grid; grid-template-columns:auto auto; column-gap:6px;
+        align-items:center; padding:0; border:1px solid var(--line); border-radius:6px;
+        background:var(--card); color:inherit; white-space:nowrap; cursor:pointer;
+        position:relative; z-index:1; transition:border-color .12s, background .12s; }
+.cg-n:hover { border-color:var(--link); }
+.cg-n:focus-visible { outline:2px solid var(--link); outline-offset:1px; }
+/* Clicked: the box takes the link blue — frame, ring and a tint — so the one being read
+    stands out of the graph around it. */
+.cg-n.cg-open { border-color:var(--link); box-shadow:0 0 0 1px var(--link) inset;
+                background:color-mix(in srgb, var(--link) 12%, var(--card)); opacity:1; }
+.cg-c { grid-column:1 / 3; display:flex; align-items:center; gap:3px; height:18px;
+        box-sizing:border-box; padding:0 6px; border-bottom:1px solid var(--line);
+        font:500 10.5px/14px system-ui,sans-serif; color:var(--muted); }
+.cg-m { grid-column:1; display:flex; align-items:center; height:20px; padding-left:6px;
+        font:600 10.5px/14px system-ui,sans-serif; }
+.cg-cog { grid-column:2; grid-row:2; padding-right:6px; font:700 9.5px/1.3 ui-monospace,Menlo,monospace;
+          text-align:right; font-variant-numeric:tabular-nums; }
+/* ↗ is the only way into the editor from the graph, so it is a real target, not a glyph:
+    a small square that fills blue under the pointer. */
+a.cg-go { display:inline-block; min-width:14px; text-align:center; border-radius:3px;
+          font:700 11px/14px system-ui,sans-serif; color:var(--link); text-decoration:none; }
+a.cg-go:hover { background:var(--link); color:var(--card); }
+.cg-c a.cg-go { min-width:12px; font-size:10.5px; line-height:1; }
+/* The fold's caret sits in front of the method name, the word a reader clicks on — the
+    full-size ▶, not ▸: at the name's own size ▸ was a speck, and a speck does not say
+    "this opens". */
+.cg-tog { display:inline-flex; margin-right:5px; }
+.cg-tog::before { content:"\25B6\FE0E"; font-size:9px; line-height:1; color:var(--muted);
+                  transition:transform .12s; }
+.cg-n:hover .cg-tog::before { color:var(--link); }
+.cg-open .cg-tog::before { transform:rotate(90deg); color:var(--link); }
+.cg-lines { display:none; grid-column:1 / 3; margin:0 0 1px; padding:3px 6px 0;
+            border-top:1px dashed var(--line); cursor:auto; }
+.cg-open > .cg-lines { display:block; }
+.cg-lines a.cx-why-line code { font-size:11px; }
+.cg-d { font:700 9.5px/1 ui-monospace,Menlo,monospace; position:absolute; top:-6px; right:-6px;
+        padding:1px 3px; border-radius:6px; background:var(--card); }
+.cg-zero { opacity:.55; }
+.cg-more { font:700 10px/18px ui-monospace,Menlo,monospace; color:var(--muted); padding:0 6px;
+           margin-top:calc(var(--cg-mid) - 9.5px); border:1px dashed var(--line);
+           border-radius:6px; cursor:help; }
+/* A method whose score this branch raised wears the added colour on its frame and its
+    number; one it lowered, the removed colour. */
+.cg-add { border-color:var(--cx-added); box-shadow:0 0 0 1px var(--cx-added) inset; }
+.cg-add .cg-d, .cg-add .cg-cog { color:var(--cx-added); }
+.cg-cut { border-color:var(--cx-removed); }
+.cg-cut .cg-d { color:var(--cx-removed); }
+/* Lines of methods folded into `+N`: one closed fold under the graph, never lost. */
+.cx-why-rest > summary { cursor:pointer; font-size:.78rem; color:var(--muted); margin:.1rem 0 .3rem; }
+/* Green is authorship everywhere else on this tab, and it means the same here: this line
+    was not behind this entry point at the merge-base. */
+a.cx-why-new code { color:var(--cx-added); }
+a.cx-why-new .cx-why-inc { color:var(--cx-added); }
+@media (prefers-color-scheme: dark) {
+  .cx-lede, .cx-group { --cx-added:#4ec27f; --cx-removed:#ef6a6a; }
+  .cx-bar i { background:#3d3d4a; }
+  /* The verb is the only coloured *text* on the row, and the light palette was never
+     re-themed for dark: #2e7d32 on --card is 3.3:1 and #1565c0 is 2.9:1, so forty-three
+     chips on this tab read as grey smudges. Same hues, lifted until each clears the 4.5:1
+     text minimum — and lifted onto the tokens the rest of the page already uses in dark
+     (--link's blue, --accent's red, --drift's amber), so the row's verbs belong to the
+     same palette as everything around them instead of being a second green and a second
+     red invented here. */
+  .cx-get{color:#8fd39c}.cx-post{color:#8ab4f8}.cx-put{color:#e0a33c}.cx-delete{color:#f08a8a}
+  .cx-patch{color:#c9a0ff}.cx-mcp{color:#b39dff}.cx-job{color:#e0a33c}
+  .cx-kafka,.cx-rabbit,.cx-jms{color:#4dd0e1}
+}
+

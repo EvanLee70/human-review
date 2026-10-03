@@ -1,0 +1,69 @@
+[run-steps] base 98cb82a7249f: the base the review audited (review-points.md), inside origin/main
+    $ git merge-base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec HEAD
+  > city: started at +0 s (log: .human-review/logs/city.log)
+  > sequence: started at +0 s (log: .human-review/logs/sequence.log)
+  > basestack: started at +0 s (log: .human-review/logs/basestack.log)
+  > tests: started at +0 s (log: .human-review/logs/tests.log)
+  > diagrams: started at +0 s (log: .human-review/logs/diagrams.log)
+  > api: started at +0 s (log: .human-review/logs/api.log)
+  < tests: ran in 1.0 s, at +1 s
+  > complexity: started at +1 s (log: .human-review/logs/complexity.log)
+  < api: ran in 3.3 s, at +3 s
+  > reviewpoints: started at +3 s (log: .human-review/logs/reviewpoints.log)
+  < complexity: ran in 2.4 s, at +3 s
+  > logging: started at +3 s (log: .human-review/logs/logging.log)
+/Users/victorrentea/.claude/plugins/cache/human-review/human-review/bf039454f092/skills/human-review/scripts/review-commits.py:2: SyntaxWarning: invalid escape sequence '\['
+  """Which commit is the implementation, which one is the review, and what came after.
+[review-commits] WARNING: 3 commits carry a Review-Points trailer (6b14c32b, 1338ed9e, e7b807e8); taking the last one. Two rounds of review on one branch is legitimate, but the page reports one.
+  < reviewpoints: ran in 0.8 s, at +4 s
+  > owners: started at +4 s (log: .human-review/logs/owners.log)
+  < logging: ran in 0.8 s, at +4 s
+  > specchanges: started at +4 s (log: .human-review/logs/specchanges.log)
+  < owners: ran in 0.4 s, at +5 s
+  > aftermath: started at +5 s (log: .human-review/logs/aftermath.log)
+  < specchanges: ran in 0.4 s, at +5 s
+  < aftermath: ran in 0.1 s, at +5 s
+  < diagrams: ran in 17.3 s, at +17 s
+  < basestack: ran in 36.1 s, at +36 s
+  < city: ran in 90.4 s, at +90 s
+  > traces: started at +90 s (log: .human-review/logs/traces.log)
+  < traces: ran in 21.6 s, at +112 s
+  > video: started at +112 s (log: .human-review/logs/video.log)
+    FAILED: record-feature-video.sh exit 1
+  < video: failed in 37.7 s, at +150 s — record-feature-video.sh exit 1
+  > dsaudit: started at +150 s (log: .human-review/logs/dsaudit.log)
+  < dsaudit: ran in 40.1 s, at +190 s
+  < sequence: ran in 196.6 s, at +197 s
+  > c2: started at +197 s (log: .human-review/logs/c2.log)
+  > testcov: started at +197 s (log: .human-review/logs/testcov.log)
+  < c2: ran in 4.8 s, at +201 s
+  < testcov: ran in 47.9 s, at +245 s
+
+[run-steps] 17 step(s) in 245 s wall clock, 6 at a time; each step's output is in .human-review/logs/
+
+  step         status   why / what to say
+  basestack    ran      
+               note     started the merge-base stack (98cb82a7) early, for the design-system audit
+  reviewpoints ran      
+  aftermath    ran      
+  diagrams     ran      
+  sequence     ran      
+               note     also traced 6 test(s) this branch wrote or edited, untagged: owner-search.feature: Paging forward reaches every owner exactly once; OwnerListTest.java: defaultRequest_returnsFirstTenByNameAscending_andTheTotal; owner-search.feature: Sorting by city, then reversing it, starts again from the first page; OwnerListTest.java: envelopeHasExactlyContentAndTotalElements; owner-search.feature: A new page size starts again from the first page; owner-search.feature: A new search starts again from the first page, keeping the sort — 26 more over the cap of 6
+               note     the traced suites ran against http://localhost:58986, started by this run from the commit under review — not whatever was already listening
+  c2           ran      
+  city         ran      
+               note     codecity lit: 7 changed (put this measured number under the image; never type one)
+  video        failed   record-feature-video.sh exit 1
+               note     filmed against http://localhost:58890, started by this run from the commit under review — not whatever was already listening on :4200
+  complexity   ran      
+  api          ran      
+  specchanges  ran      
+  logging      ran      
+  dsaudit      ran      
+  owners       ran      
+  tests        ran      
+  traces       ran      
+  testcov      ran      
+
+  tabs with no content, to be named under the strip: behaviour
+exit=1

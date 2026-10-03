@@ -1,0 +1,34 @@
+{
+ "base": "98cb82a7249fe9341595b3a5beb4b7a71a7f22ec",
+ "head": "HEAD",
+ "points_file": "review-points.md",
+ "commits": 4,
+ "implementation": "91905dff4690930507b443b5655573f6802ef608",
+ "review": "e7b807e83fd3973993c980e3d5b88c62f947e8db",
+ "session": "3c9a707b-94ad-4b3f-8775-28518fc03842",
+ "fallback": false,
+ "after": [],
+ "after_detail": [],
+ "review_when": "2026-10-03T08:43:09+03:00",
+ "takeover": null,
+ "auto_fixes": [
+  {
+   "sha": "6b14c32b00e923ad6aadd1aed872f787104420bf",
+   "when": "2026-10-03T08:42:10+03:00",
+   "subject": "[auto-fix] Retry a failed owners page, stop echoing rejected input, sturdier paging glue"
+  },
+  {
+   "sha": "1338ed9e7f3dc95c2b51f25898d8c36ff64f4ede",
+   "when": "2026-10-03T08:42:46+03:00",
+   "subject": "[auto-fix] Anchor the type-mismatch assumption at the implementation's line"
+  },
+  {
+   "sha": "e7b807e83fd3973993c980e3d5b88c62f947e8db",
+   "when": "2026-10-03T08:43:09+03:00",
+   "subject": "[auto-fix] Re-anchor the type-mismatch assumption on its handler"
+  }
+ ],
+ "warnings": [
+  "3 commits carry a Review-Points trailer (6b14c32b, 1338ed9e, e7b807e8); taking the last one. Two rounds of review on one branch is legitimate, but the page reports one."
+ ]
+}

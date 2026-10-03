@@ -1,0 +1,10 @@
+  * diagrams -> data,packages
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/bf039454f092/skills/human-review/scripts/puml-diff.sh 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec .human-review/assets/diagrams
+[puml-diff] petclinic-test/generated/AddVisitApiTest.java.adds-a-visit-to-an-existing-pet.genseq.puml (sequence, modified) -> .human-review/assets/diagrams/petclinic-test_generated_AddVisitApiTest.java.adds-a-visit-to-an-existing-pet.genseq.diff.puml
+[puml-diff] petclinic-test/generated/add-visit.spec.ts.add-a-visit-to-an-existing-pet-from-the-owner-detail-page.genseq.puml (sequence, modified) -> .human-review/assets/diagrams/petclinic-test_generated_add-visit.spec.ts.add-a-visit-to-an-existing-pet-from-the-owner-detail-page.genseq.diff.puml
+[puml-diff] petclinic-test/generated/owner-search.feature.opening-the-owners-page-shows-the-first-page-by-name-and-how-many-there-are.genseq.puml (sequence, added) -> .human-review/assets/diagrams/petclinic-test_generated_owner-search.feature.opening-the-owners-page-shows-the-first-page-by-name-and-how-many-there-are.genseq.diff.puml
+[puml-diff] petclinic-test/generated/owner-search.feature.searching-with-an-empty-last-name-lists-every-owner.genseq.puml (sequence, deleted) -> .human-review/assets/diagrams/petclinic-test_generated_owner-search.feature.searching-with-an-empty-last-name-lists-every-owner.genseq.diff.puml
+[puml-diff] 4 diagram(s) -> .human-review/assets/diagrams (see MANIFEST.tsv)
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/bf039454f092/skills/human-review/scripts/drawio-diff.py --base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --diagram petclinic-backend/docs/ConceptualModel.drawio.png --concepts petclinic-backend/docs/generated/DomainModel.puml --out-dir .human-review/assets --name conceptual --redraw 'python3 petclinic-backend/docs/scripts/conceptual-model-patch.py' --tested-against 'Java Domain Model'
+.human-review/assets/conceptual-{original,new,diff}.svg  (added 0 boxes, 0 lines · removed 0 boxes, 0 lines · 0 changed · 0 moved, rendered by drawio)
+  8 concept(s) linked to their class

@@ -1,0 +1,1448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenAPI visual diff</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui.min.css">
+<style>
+  :root {
+    --dv-breaking: #d7263d;
+    --dv-modified: #d98218;
+    --dv-added:    #2e9e5b;
+    --dv-removed:  #8a8f98;
+    /* palette shared with the Human Review report, so an embedded frame doesn't
+       announce itself as a foreign document */
+    --dv-bg:    #fbfbfd;
+    --dv-fg:    #1c1c22;
+    --dv-muted: #6b6b78;
+    --dv-line:  #e2e2ea;
+    --dv-card:  #ffffff;
+    --dv-code:  rgba(0,0,0,.06);
+    /* Two more, used by the JSON-Schema block far below: `dim` is what that renderer
+       paints an `x-` extension in, `attr` the blue it paints a type attribute in. */
+    --dv-dim:   #8a8a95;
+    --dv-attr:  #5555aa;
+  }
+  /* System theme by default; ?theme=dark|light pins it, which is what the
+     embedding page uses when it wants the frame to match rather than guess. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --dv-breaking: #f0757f; --dv-modified: #e0a44a; --dv-added: #6fce93;
+      --dv-removed: #9aa0aa;
+      --dv-bg: #15151a; --dv-fg: #e8e8ef; --dv-muted: #9a9aa8;
+      --dv-line: #2c2c36; --dv-card: #1d1d24; --dv-code: rgba(255,255,255,.10);
+      --dv-dim: #82828e; --dv-attr: #97a9ee;
+    }
+  }
+  :root[data-theme="dark"] {
+    --dv-breaking: #f0757f; --dv-modified: #e0a44a; --dv-added: #6fce93;
+    --dv-removed: #9aa0aa;
+    --dv-bg: #15151a; --dv-fg: #e8e8ef; --dv-muted: #9a9aa8;
+    --dv-line: #2c2c36; --dv-card: #1d1d24; --dv-code: rgba(255,255,255,.10);
+    --dv-dim: #82828e; --dv-attr: #97a9ee;
+  }
+  body { margin: 0; background: var(--dv-bg); color: var(--dv-fg);
+         color-scheme: light dark; }
+
+  /* ---------- toolbar ---------- */
+  .dv-bar {
+    /* `sticky` is for this page opened on its own. Framed -- which is how it is nearly
+       always read -- the host grows the frame to our full height so that the outer page
+       keeps the only scrollbar, and a frame with no scrollport of its own has nothing
+       for `sticky` to stick to (nor for `fixed`, which pins to the same full-height
+       box). So the host, which is the thing that actually scrolls, tells us how far its
+       masthead has run past our top and we ride the bar down by exactly that much. The
+       filters and the counts are wanted at the fortieth endpoint, not just the first. */
+    position: sticky; top: 0; z-index: 50;
+    transform: translateY(var(--dv-stick, 0px));
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 10px 20px;
+    background: #1b1b1f; color: #eaeaea;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    box-shadow: 0 2px 10px rgba(0,0,0,.25);
+  }
+  .dv-bar h1 { font-size: 14px; margin: 0 8px 0 0; font-weight: 600; letter-spacing: .01em; }
+  .dv-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px;
+    background: rgba(255,255,255,.08); cursor: pointer; user-select: none;
+    border: 1px solid transparent;
+  }
+  .dv-chip:hover { background: rgba(255,255,255,.16); }
+  .dv-chip.off { opacity: .38; }
+  .dv-chip .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .dv-chip b { font-variant-numeric: tabular-nums; }
+  .dv-unit { opacity: .6; margin-right: 2px; }
+  .dot.breaking { background: var(--dv-breaking); }
+  .dot.modified { background: var(--dv-modified); }
+  .dot.added    { background: var(--dv-added); }
+  .dot.removed  { background: var(--dv-removed); }
+  .dot.untouched{ background: #4a4a52; }
+  .dv-spacer { flex: 1; }
+  .dv-toggle {
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    padding: 3px 10px; border-radius: 6px; background: rgba(255,255,255,.08);
+  }
+  .dv-toggle input { accent-color: #7aa2f7; margin: 0; }
+
+  /* ---------- global (non-path) changes ---------- */
+  .dv-global {
+    margin: 16px 20px 0; padding: 12px 16px; border-radius: 8px;
+    background: var(--dv-card); border: 1px solid var(--dv-line);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .dv-global h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+                  color: var(--dv-muted); margin: 0 0 8px; }
+
+  /* ---------- per-operation annotations ---------- */
+  .dv-note { padding: 2px 0 10px; }
+  .dv-change {
+    display: flex; gap: 8px; align-items: baseline;
+    padding: 4px 14px 4px 12px; font-size: 13px; line-height: 1.45; color: var(--dv-fg);
+  }
+  .dv-change code {
+    background: var(--dv-code); padding: 1px 5px; border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  }
+  .dv-change .lvl {
+    flex: none; font-size: 10px; font-weight: 700; letter-spacing: .05em;
+    text-transform: uppercase; padding: 1px 6px; border-radius: 4px; margin-top: 1px;
+  }
+  .dv-change.l3 .lvl { background: rgba(215,38,61,.12); color: var(--dv-breaking); }
+  .dv-change.l2 .lvl { background: rgba(217,130,24,.14); color: #9a5b06; }
+  .dv-change.l1 .lvl { background: rgba(46,158,91,.12); color: #1f7a45; }
+
+  .dv-badge {
+    font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 4px; margin-left: 8px; color: #fff; flex: none;
+  }
+  .dv-badge.breaking { background: var(--dv-breaking); }
+  .dv-badge.modified { background: var(--dv-modified); }
+  .dv-badge.added    { background: var(--dv-added); }
+  .dv-badge.removed  { background: var(--dv-removed); }
+
+  /* ---------- the trail down to a changed field ----------
+     Opening the tree is only half of it: once six levels are showing, the reader still
+     has to find which of the fields on screen is the new one — and a grey hairline on
+     every ancestor turned out to be as quiet as Swagger UI's own indent guides, so the
+     way down was there and nobody saw it. The road is now drawn for real: one glowing
+     line per changed field (`.dv-roads`, an SVG laid over the page by the script), from
+     the schema root down and in, step by step, to the field itself, with a spark running
+     along it so the eye is pulled down to the end. The leaf breathes and its chip
+     blinks. Levels reuse the note list's l1/l2/l3 vocabulary rather than inventing a
+     third scale, and every colour comes from the theme vars so dark mode needs no second
+     set of rules. */
+  .l1 { --dv-lvl: var(--dv-added); }
+  .l2 { --dv-lvl: var(--dv-modified); }
+  .l3 { --dv-lvl: var(--dv-breaking); }
+  /* An ancestor on the road says so by its name, in the colour of the worst change it
+     leads to — the line alone would leave the reader matching x-positions to names. */
+  .swagger-ui .dv-hit-path.l1, .swagger-ui .dv-hit-path.l2, .swagger-ui .dv-hit-path.l3 {
+    --dv-road-name: var(--dv-lvl);
+  }
+  .swagger-ui .dv-hit-path > .json-schema-2020-12-head .json-schema-2020-12__title,
+  .swagger-ui tr.property-row.dv-hit-path > td:first-child {
+    color: var(--dv-road-name, var(--dv-fg)); font-weight: 700;
+  }
+  /* Under the sticky toolbar (z-index 50), over the schema boxes, and never in the way
+     of a click: it is paint, not a control. */
+  svg.dv-roads {
+    position: absolute; left: 0; top: 0; pointer-events: none; z-index: 40;
+    overflow: visible;
+  }
+  .dv-roads path { fill: none; stroke: var(--dv-lvl); stroke-linecap: round;
+                   stroke-linejoin: round; }
+  .dv-roads .dv-road-bed {
+    stroke-width: 3; opacity: .75;
+    filter: drop-shadow(0 0 3px var(--dv-lvl)) drop-shadow(0 0 7px var(--dv-lvl));
+  }
+  .dv-roads .dv-road-spark {
+    stroke-width: 5; stroke: #fff;
+    filter: drop-shadow(0 0 3px var(--dv-lvl)) drop-shadow(0 0 8px var(--dv-lvl))
+            drop-shadow(0 0 14px var(--dv-lvl));
+  }
+  @keyframes dv-breathe {
+    from { box-shadow: 0 0 0 1px color-mix(in srgb, var(--dv-lvl) 35%, transparent),
+                       0 0 6px color-mix(in srgb, var(--dv-lvl) 20%, transparent);
+           background-color: color-mix(in srgb, var(--dv-lvl) 10%, transparent); }
+    to   { box-shadow: 0 0 0 1px color-mix(in srgb, var(--dv-lvl) 80%, transparent),
+                       0 0 22px color-mix(in srgb, var(--dv-lvl) 55%, transparent);
+           background-color: color-mix(in srgb, var(--dv-lvl) 24%, transparent); }
+  }
+  @keyframes dv-blink {
+    0%, 55% { opacity: 1; box-shadow: 0 0 10px var(--dv-lvl); }
+    75%     { opacity: .2; box-shadow: none; }
+    100%    { opacity: 1; box-shadow: 0 0 10px var(--dv-lvl); }
+  }
+  /* The spine is drawn OUTSIDE the box, by a pseudo-element, rather than as an inset
+     shadow: the leaf article starts exactly at its property name, so an inset spine lands
+     on the first letter — "vetId" reads as "etId" with a green bar over the v. Nudging
+     the box left instead only fights Swagger UI's own padding rules. */
+  .swagger-ui article.dv-hit { position: relative; border-radius: 5px; }
+  .swagger-ui article.dv-hit::before {
+    content: ""; position: absolute; left: -7px; top: 1px; bottom: 1px; width: 3px;
+    border-radius: 2px; background: currentColor;
+  }
+  /* Swagger UI paints optional property names in a muted grey that its own light theme
+     was tuned for. On the one row we are sending the reader to, that is not good enough
+     in either theme — least of all sitting on a tinted background. */
+  .swagger-ui .dv-hit > .json-schema-2020-12-head .json-schema-2020-12__title,
+  .swagger-ui .dv-hit > .json-schema-2020-12-head .json-schema-2020-12-keyword__name {
+    color: var(--dv-fg); font-weight: 700;
+  }
+  /* The 3.0 renderer's leaf is a table row: no box to round off, and the field name is
+     in the first cell rather than inside the schema box. */
+  .swagger-ui tr.property-row.dv-hit > td:first-child {
+    box-shadow: inset 3px 0 0 currentColor; padding-left: 9px;
+    color: var(--dv-fg); font-weight: 700;
+  }
+  /* The leaf breathes — a halo that swells and settles in the level's colour — so it
+     is found from anywhere on the screen, not only by someone already reading that row. */
+  .swagger-ui .dv-hit.l1, .swagger-ui .dv-hit.l2, .swagger-ui .dv-hit.l3 {
+    color: var(--dv-lvl);
+    background-color: color-mix(in srgb, var(--dv-lvl) 14%, transparent);
+    animation: dv-breathe 1.3s ease-in-out infinite alternate;
+  }
+  .swagger-ui article.dv-hit::before {
+    width: 4px; box-shadow: 0 0 6px currentColor, 0 0 12px currentColor;
+  }
+  .swagger-ui .dv-hit > .json-schema-2020-12-head .json-schema-2020-12__title {
+    text-shadow: 0 0 10px color-mix(in srgb, var(--dv-lvl) 70%, transparent);
+  }
+  .swagger-ui tr.dv-hit > td {
+    background: color-mix(in srgb, var(--dv-lvl) 16%, transparent);
+  }
+  /* A solid chip that blinks: the one word on the page that must not be read past. */
+  .dv-fieldmark {
+    font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 4px; margin-left: 8px; align-self: center;
+    background: var(--dv-lvl); color: var(--dv-bg);
+    animation: dv-blink 1.1s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .swagger-ui .dv-hit.l1, .swagger-ui .dv-hit.l2, .swagger-ui .dv-hit.l3,
+    .dv-fieldmark { animation: none; }
+    .dv-roads .dv-road-spark { display: none; }
+  }
+  /* Fields the auto-expand deliberately did not open. Saying nothing here would teach
+     the reader that what is open is everything — the exact failure this feature fixes. */
+  .dv-deepmore {
+    padding: 2px 14px 6px 12px; font-size: 12px; font-style: italic;
+    color: var(--dv-muted);
+  }
+
+  /* ---------- ghosts: what the new spec no longer has ----------
+     Drawn where the removed thing used to stand, in the breaking red, struck through,
+     with a solid DELETED chip in the same shape as the ADDED/CHANGED chip on a live
+     field -- so "deleted" reads as one more value of the same marker, not as a second
+     vocabulary. Every colour is a theme var; the chip's text is the page background, which
+     is what keeps it legible on the pale dark-mode red as well as the deep light-mode one.
+     A ghost's children are the old shape it can be opened into: struck through too, but
+     in the quieter --dv-removed grey, so one deleted object does not paint a red wall. */
+  .dv-ghost {
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--dv-fg);
+  }
+  .dv-ghost.dv-ghost-top {
+    margin: 3px 0; padding: 2px 8px 2px 6px; border-radius: 5px;
+    border-left: 3px dashed var(--dv-breaking);
+    background: color-mix(in srgb, var(--dv-breaking) 9%, transparent);
+  }
+  /* `.swagger-ui summary { display: list-item }` would win over a bare class and glue
+     every chip of a head together ("petsarray<PetDto>"), hence the scope. */
+  .dv-ghost-head, .swagger-ui .dv-ghost-head {
+    display: flex; align-items: center; gap: 8px; min-height: 22px;
+    list-style: none;
+  }
+  .dv-ghost-head::-webkit-details-marker { display: none; }
+  /* The caret that says "this opens", drawn in the same spot for leaves (blank) so the
+     names line up down the column. */
+  .dv-ghost-head::before {
+    content: ""; flex: none; width: 12px; text-align: center;
+    font-size: 13px; line-height: 1; color: var(--dv-fg);
+  }
+  summary.dv-ghost-head { cursor: pointer; }
+  summary.dv-ghost-head::before { content: "\25B8"; transition: transform .12s ease; }
+  details.dv-ghost[open] > summary.dv-ghost-head::before { transform: rotate(90deg); }
+  .dv-ghost-name {
+    font-weight: 700; color: var(--dv-breaking);
+    text-decoration: line-through; text-decoration-thickness: 1.5px;
+  }
+  .dv-ghost-req { color: var(--dv-breaking); margin-left: -6px; }
+  .dv-ghost-type {
+    font-weight: 600; color: var(--dv-removed); text-decoration: line-through;
+  }
+  .dv-ghost-mark {
+    font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 4px; flex: none;
+    background: var(--dv-breaking); color: var(--dv-bg);
+  }
+  .dv-ghost-note { font-size: 12px; font-style: italic; color: var(--dv-muted); }
+  .dv-ghost-desc {
+    margin-left: auto; padding-left: 16px; min-width: 0;
+    font-size: 12px; color: var(--dv-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dv-ghost-body {
+    margin: 1px 0 3px 4px; padding-left: 12px;
+    border-left: 1px dashed color-mix(in srgb, var(--dv-removed) 70%, transparent);
+  }
+  .dv-ghost-body .dv-ghost-name { color: var(--dv-removed); font-weight: 600; }
+  .dv-ghost-body .dv-ghost-req { color: var(--dv-removed); }
+  .dv-ghost-more { font-size: 12px; font-style: italic; color: var(--dv-muted);
+                   padding-left: 18px; }
+  .swagger-ui li.dv-ghost-li, .swagger-ui ul.dv-ghost-list { list-style: none; }
+  .swagger-ui ul.dv-ghost-list { padding: 0; margin: 0; }
+  .swagger-ui tr.dv-ghost-row > td { vertical-align: top; padding-top: 6px; }
+  .swagger-ui tr.dv-ghost-row .dv-ghost-desc { margin-left: 0; padding-left: 0;
+                                               white-space: normal; }
+
+  /* ---------- the whole point: fade what nobody touched ---------- */
+  .swagger-ui .opblock { transition: opacity .18s ease, filter .18s ease; }
+  .swagger-ui .opblock.dv-untouched {
+    opacity: .32; filter: saturate(.15);
+  }
+  .swagger-ui .opblock.dv-untouched:hover { opacity: .85; filter: saturate(.6); }
+  body.dv-hide-untouched .opblock.dv-untouched,
+  body.dv-hide-untouched .opblock-tag-section.dv-empty { display: none; }
+  .swagger-ui .opblock-tag-section.dv-quiet > h3 { opacity: .4; }
+
+  /* operations read as children of their controller, not as siblings of it */
+  .swagger-ui .opblock-tag-section > div {
+    margin-left: 6px;
+    padding-left: 20px;
+    border-left: 2px solid var(--dv-line);
+  }
+
+  /* impacted operations get a coloured spine */
+  .swagger-ui .opblock.dv-breaking { border-color: var(--dv-breaking);
+      box-shadow: inset 4px 0 0 var(--dv-breaking), 0 0 0 1px rgba(215,38,61,.25); }
+  .swagger-ui .opblock.dv-modified { box-shadow: inset 4px 0 0 var(--dv-modified); }
+  .swagger-ui .opblock.dv-added    { box-shadow: inset 4px 0 0 var(--dv-added); }
+  .swagger-ui .opblock.dv-removed  { box-shadow: inset 4px 0 0 var(--dv-removed);
+      background: var(--dv-card); }
+  .swagger-ui .opblock.dv-removed .opblock-summary-path,
+  .swagger-ui .opblock.dv-removed .opblock-summary-path__deprecated { text-decoration: line-through; }
+  .swagger-ui .opblock.dv-removed .opblock-summary-method { background: var(--dv-removed); }
+
+  /* Swagger UI's own copy-to-clipboard button. This page is a diff, not a console:
+     there is nothing here anyone wants on their clipboard, and the icon sits exactly
+     where the eye goes for the change badge. */
+  .swagger-ui .copy-to-clipboard, .swagger-ui button.copy-to-clipboard { display: none; }
+  .swagger-ui .info { margin: 20px 0 12px; }
+  /* Swagger UI's terms-of-service link: a contract detail for a consumer browsing the
+     live docs, noise in a diff of two revisions. */
+  .swagger-ui .info__tos { display: none; }
+  .swagger-ui .scheme-container, .swagger-ui .topbar { display: none; }
+
+  /* ---------- Swagger UI ships light-only; repaint its surfaces ----------
+     Only colour is touched — every dimension, weight and radius is left to
+     Swagger UI, so the page still reads as the screen everyone knows. */
+  .swagger-ui, .swagger-ui .info .title, .swagger-ui .info li,
+  .swagger-ui .info p, .swagger-ui .info table, .swagger-ui .opblock-tag,
+  .swagger-ui .opblock .opblock-summary-path,
+  .swagger-ui .opblock .opblock-summary-path__deprecated,
+  .swagger-ui .opblock .opblock-summary-operation-id,
+  .swagger-ui .opblock-description-wrapper p, .swagger-ui .opblock-title_normal p,
+  .swagger-ui table thead tr td, .swagger-ui table thead tr th,
+  .swagger-ui .parameter__name, .swagger-ui .parameter__type,
+  .swagger-ui .parameter__in, .swagger-ui .response-col_status,
+  .swagger-ui .response-col_description, .swagger-ui .responses-inner h4,
+  .swagger-ui .responses-inner h5, .swagger-ui .model-title, .swagger-ui .model,
+  .swagger-ui .tab li, .swagger-ui label, .swagger-ui .btn,
+  /* The section headings inside an operation -- `Parameters`, `Responses`, and the
+     `Try it out` label riding beside them. Swagger paints all three #3b4151, which on
+     the dark card we repaint the header to is very nearly the card itself: the two words
+     that say what you are looking at were the least readable thing on the tab. */
+  .swagger-ui .opblock .opblock-section-header h4,
+  .swagger-ui .opblock .opblock-section-header h4 span,
+  .swagger-ui .opblock .opblock-section-header > label {
+    color: var(--dv-fg);
+  }
+  .swagger-ui .opblock .opblock-summary-description,
+  .swagger-ui .parameter__extension, .swagger-ui .prop-format {
+    color: var(--dv-muted);
+  }
+  .swagger-ui .opblock { border-color: var(--dv-line); }
+  .swagger-ui .opblock .opblock-section-header {
+    background: var(--dv-card); border-color: var(--dv-line);
+  }
+  .swagger-ui .opblock-tag, .swagger-ui .opblock-tag:hover,
+  .swagger-ui section.models, .swagger-ui section.models .model-container {
+    border-color: var(--dv-line); background: transparent;
+  }
+  .swagger-ui .model-box, .swagger-ui .model-toggle:after { background: transparent; }
+  .swagger-ui .responses-table .response-col_description__inner div.renderedMarkdown p,
+  .swagger-ui .markdown p, .swagger-ui .markdown li { color: var(--dv-fg); }
+  /* the caret/expander glyphs are SVGs painted with a hard-coded dark fill */
+  .swagger-ui svg:not(:root) { fill: var(--dv-fg); }
+  .swagger-ui .opblock-body pre.microlight,
+  .swagger-ui .highlight-code > .microlight {
+    background: var(--dv-code); color: var(--dv-fg);
+  }
+  /* The constraint pills next to a type — `[1, 255] characters`, `≥ 0`,
+     `matches ^[0-9]+$`, `int32` — ship as saturated purple and amber chips, which
+     in both themes shout louder than the field names they qualify. They are
+     footnotes on a type, not findings, so paint them as footnotes. */
+  .swagger-ui .json-schema-2020-12__constraint,
+  .swagger-ui .json-schema-2020-12__constraint--string {
+    background: var(--dv-code); color: var(--dv-muted);
+  }
+  /* ---------- Swagger UI's JSON-Schema 2020-12 renderer ----------
+     The component that draws the response body -- the tree of `firstName`, `telephone`,
+     `pets` this page exists to point into -- is painted with literal light-theme hex
+     values throughout: #3b4151 for a property name, #6b6b6b for its type and
+     description, and a `rgba(0,0,0,.05)` tint behind the whole box. In dark mode the
+     tint darkens the card and the names go down with it, so the one column a reader
+     scans is the one they cannot read. Remap the palette to the page's own vars, which
+     leaves light mode where it was and gives dark mode the same contrast the rest of the
+     report has. Nothing but colour is touched. */
+  .swagger-ui .json-schema-2020-12 { background-color: var(--dv-code); }
+  .swagger-ui .json-schema-2020-12--embedded,
+  .swagger-ui .model-box .json-schema-2020-12 { background-color: transparent; }
+  .swagger-ui .json-schema-2020-12__title,
+  .swagger-ui .json-schema-2020-12-property .json-schema-2020-12__title,
+  .swagger-ui .json-schema-2020-12__attribute,
+  .swagger-ui .json-schema-2020-12-keyword__name--primary,
+  .swagger-ui .json-schema-2020-12-keyword__value--primary,
+  .swagger-ui .json-schema-2020-12-json-viewer__name--primary,
+  .swagger-ui .json-schema-2020-12-json-viewer__value--primary,
+  .swagger-ui .json-schema-2020-12-keyword--const .json-schema-2020-12-json-viewer__name,
+  .swagger-ui .json-schema-2020-12-keyword--const .json-schema-2020-12-json-viewer__value,
+  .swagger-ui .json-schema-2020-12-keyword--default .json-schema-2020-12-json-viewer__name,
+  .swagger-ui .json-schema-2020-12-keyword--default .json-schema-2020-12-json-viewer__value,
+  .swagger-ui .json-schema-2020-12-keyword--enum .json-schema-2020-12-json-viewer__name,
+  .swagger-ui .json-schema-2020-12-keyword--enum .json-schema-2020-12-json-viewer__value,
+  .swagger-ui .json-schema-2020-12-keyword--examples .json-schema-2020-12-json-viewer__name,
+  .swagger-ui .json-schema-2020-12-keyword--examples .json-schema-2020-12-json-viewer__value {
+    color: var(--dv-fg);
+  }
+  .swagger-ui .json-schema-2020-12-keyword--description,
+  .swagger-ui .json-schema-2020-12-keyword__name--secondary,
+  .swagger-ui .json-schema-2020-12-keyword__value,
+  .swagger-ui .json-schema-2020-12-keyword__value--secondary,
+  .swagger-ui .json-schema-2020-12-json-viewer__name--secondary,
+  .swagger-ui .json-schema-2020-12-json-viewer__value,
+  .swagger-ui .json-schema-2020-12-json-viewer__value--secondary,
+  .swagger-ui .json-schema-2020-12-expand-deep-button,
+  .swagger-ui .json-schema-2020-12__attribute--muted {
+    color: var(--dv-muted);
+  }
+  .swagger-ui .json-schema-2020-12-keyword__name--extension,
+  .swagger-ui .json-schema-2020-12-keyword__value--extension,
+  .swagger-ui .json-schema-2020-12-json-viewer__name--extension,
+  .swagger-ui .json-schema-2020-12-json-viewer__value--extension,
+  .swagger-ui .json-schema-2020-12-json-viewer-extension-keyword .json-schema-2020-12-json-viewer__name,
+  .swagger-ui .json-schema-2020-12-json-viewer-extension-keyword .json-schema-2020-12-json-viewer__value {
+    color: var(--dv-dim);
+  }
+  .swagger-ui .json-schema-2020-12__attribute--primary { color: var(--dv-attr); }
+  /* ---------- Swagger UI's form controls ----------
+     The parameter inputs and the enum <select>s are painted white / light grey with a
+     dark caret SVG, whatever the theme: on the dark card they were the only light boxes
+     on the page. Colour only, from the theme vars; the caret is redrawn in --dv-muted. */
+  .swagger-ui input[type=text], .swagger-ui input[type=password],
+  .swagger-ui input[type=search], .swagger-ui input[type=email],
+  .swagger-ui input[type=file], .swagger-ui textarea, .swagger-ui select {
+    background-color: var(--dv-card); color: var(--dv-fg);
+    border: 1px solid var(--dv-line); box-shadow: none;
+  }
+  .swagger-ui input::placeholder, .swagger-ui textarea::placeholder { color: var(--dv-dim); }
+  .swagger-ui input[disabled], .swagger-ui textarea[disabled], .swagger-ui select[disabled] {
+    background-color: var(--dv-code); color: var(--dv-muted); opacity: 1;
+  }
+  .swagger-ui select {
+    background-image: linear-gradient(45deg, transparent 50%, var(--dv-muted) 50%),
+                      linear-gradient(135deg, var(--dv-muted) 50%, transparent 50%);
+    background-position: calc(100% - 15px) 55%, calc(100% - 10px) 55%;
+    background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+  }
+  /* The required-field asterisk is literal `red`, which on the dark card reads as a
+     smudge rather than a mark. The page already owns a red that survives there. */
+  .swagger-ui .json-schema-2020-12-property--required
+      > .json-schema-2020-12:first-of-type
+      > .json-schema-2020-12-head .json-schema-2020-12__title:after {
+    color: var(--dv-breaking);
+  }
+  /* A field's description is Swagger UI's first row of its body, so every expanded node
+     grew an extra line of prose between its name and its children and the tree lost its
+     steady one-field-per-row pace. `layoutDescriptions()` lifts it onto the head row
+     instead, into the empty room right of the type chips: one line, cut with an ellipsis,
+     the whole text in a tooltip when it was cut. The script sets `left` (just past the
+     head's last chip) and the row height; a head too wide to leave room keeps the old row.
+     The schema box is an inline-block that shrink-wraps its widest row, which would cut
+     every description at the end of the longest type chip, so it takes the full column. */
+  .swagger-ui .model-box:has(> article.json-schema-2020-12) { display: block; }
+  .swagger-ui article.json-schema-2020-12 { position: relative; }
+  .swagger-ui .json-schema-2020-12-body > .json-schema-2020-12-keyword--description.dv-desc-inline {
+    position: absolute; top: 0; right: 8px; margin: 0; padding: 0;
+    left: var(--dv-desc-left); height: var(--dv-desc-h); line-height: var(--dv-desc-h);
+    text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .swagger-ui .dv-desc-inline * { display: inline; margin: 0; padding: 0; }
+  .swagger-ui .dv-desc-inline p + p::before { content: " "; }
+  .swagger-ui .opblock.opblock-deprecated { opacity: .7; }
+  .dv-count-hidden { font-size: 12px; opacity: .6; }
+</style>
+</head>
+<body>
+<div class="dv-bar">
+  <h1>OpenAPI visual diff</h1>
+  <!-- The pair of refs used to sit here, between the title and the chips. Framed in the
+       review -- which is how this page is read -- the masthead two inches above already
+       says which branch is against which base, on every tab, and saying it again here
+       only cost the chips their room. Standalone it is not lost: it is the tab title. -->
+  <span id="dv-chips"></span>
+  <span class="dv-spacer"></span>
+  <!-- No tooltip here on purpose: the checkbox demonstrates itself the moment it is
+       ticked. The count is the verdict line's count: that line
+       says "25 changes" right above this frame, and a toggle that opened 11 endpoints
+       with no number on it read as a second, contradicting tally. -->
+  <label class="dv-toggle"><input type="checkbox" id="dv-expand"> expand 6 impacted</label>
+</div>
+<div id="dv-global"></div>
+<div id="swagger-ui"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui-bundle.min.js"></script>
+<script>
+// The report's one tooltip component (hrbuild/assets/tip.js, driven by data-tip), inlined:
+// the host page's copy cannot reach into this frame, and a native title= is the thing the
+// house rule exists to keep out.
+// One tooltip for the whole page. The native `title` is unstyleable, unresizable and
+// waits ~500ms — long enough that a reviewer reads the icon, gives up, and moves on.
+// Listeners are delegated on `document` so markup written later by any of the other
+// scripts picks the behaviour up with no registration step.
+(function () {
+  var css = document.createElement('style');
+  css.textContent =
+    // 15px, the page's own body size, at normal weight. It was 1.05rem/600 -- a hint
+    // set LARGER and heavier than the sentence it explains, which reads as the page
+    // shouting an aside.
+    '.tip{position:fixed;z-index:9999;pointer-events:none;background:rgba(20,20,22,.96);' +
+    'color:#fff;font:400 15px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;' +
+    'padding:.6rem .9rem;border-radius:.6rem;max-width:22rem;box-shadow:0 10px 30px rgba(0,0,0,.35);' +
+    // A repo-relative path is one long token as far as line breaking is concerned: no
+    // spaces, and a slash is not a break opportunity. So the longest tip on the page --
+    // the one naming a Java file five packages deep -- overflowed the bubble and was
+    // clipped at its edge, which reads as the page running off the screen. `anywhere`
+    // gives the browser leave to break inside the token; the max-width then holds, and
+    // `place()` can keep a box it has correctly measured on screen.
+    'overflow-wrap:anywhere;' +
+    'opacity:0;transform:translateY(4px);transition:opacity 120ms ease,transform 120ms ease}' +
+    '.tip.visible{opacity:1;transform:translateY(0)}' +
+    // `.oneline` is the first thing tried for a plain-text tip: the whole label on one
+    // row, as wide as it needs to be, up to the viewport. The 22rem wrap above had been
+    // folding "Open in VS Code: petclinic-test/src/add-visit.spec.ts" in the middle of
+    // the file name -- and a path broken across rows is a path the reader cannot read
+    // at a glance, which is the one job that tip has. `show()` drops the class again
+    // when the row would not fit, so a paragraph-sized hint still wraps.
+    '.tip.oneline{white-space:nowrap;max-width:calc(100vw - 16px)}' +
+    // A tip that lists identifiers lists them: one per line, in code type, with a marker
+    // -- not welded into a comma-separated sentence the reader has to parse to find out
+    // whether their own library is in it. `.tipfoot` is for the sentence that genuinely
+    // is one, set apart and quieter so the list stays the thing being read.
+    '.tip ul.tiplist{margin:0;padding-left:1.1rem;list-style:disc;' +
+    'font:400 13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}' +
+    '.tip ul.tiplist li{margin:0}' +
+    '.tip p.tipfoot{margin:.5rem 0 0;font-size:13px;opacity:.72}' +
+    '.tip p.tipfoot:first-child{margin:0;opacity:1}' +
+    // One convention for the pointer: a mark that only explains itself gets the question
+    // mark, so hovering tells you there is something to read AND that clicking does
+    // nothing. Anything you can act on -- a link, a button, a row that opens -- keeps
+    // the hand it already had.
+    //
+    // The last clause is about marks that live *inside* something actionable, which the
+    // element-level list above cannot see. The tab strip's badges are the case that found
+    // it: `Tests 1` is a <span role=img> with its own tooltip sitting inside the tab
+    // <button>, so the cursor turned into a question mark over the badge and back into a
+    // hand a pixel to its left -- while a click anywhere in there, badge included, opens
+    // the tab. Excluding them is the whole fix: `cursor` inherits, so a badge that gets no
+    // rule of its own simply keeps the pointer its button already set.
+    '[data-tip]:not(a):not(button):not([role=button]):not(summary):not(label)' +
+    ':not(:is(a,button,[role=button],summary,label) *)' +
+    '{cursor:help}';
+  document.head.appendChild(css);
+
+  var bubble = document.createElement('div');
+  bubble.className = 'tip';
+  bubble.setAttribute('role', 'tooltip');
+  document.body.appendChild(bubble);
+  var timer = null, current = null;
+
+  function hide() {
+    clearTimeout(timer);
+    current = null;
+    bubble.classList.remove('visible');
+  }
+
+  function place(el) {
+    var r = el.getBoundingClientRect(), b = bubble.getBoundingClientRect(), left, top;
+    // `data-tip-side="right"` is for a tip tall enough to be a panel rather than a
+    // label: a stack of bullets floated above the phrase covers the sentence the reader
+    // is in the middle of, and pushes the page's own content out of view. Beside it, the
+    // sentence stays readable. Flips to the left margin when the right one is too narrow.
+    if (el.getAttribute('data-tip-side') === 'right') {
+      left = r.right + 12;
+      if (left + b.width > window.innerWidth - 8) left = r.left - b.width - 12;
+      top = r.top + r.height / 2 - b.height / 2;
+    } else {
+      left = r.left + r.width / 2 - b.width / 2;
+      // Above by default; below when the top of the viewport is in the way.
+      top = r.top - b.height - 10;
+      if (top < 8) top = r.bottom + 10;
+    }
+    left = Math.max(8, Math.min(left, window.innerWidth - b.width - 8));
+    top = Math.max(8, Math.min(top, window.innerHeight - b.height - 8));
+    bubble.style.left = left + 'px';
+    bubble.style.top = top + 'px';
+  }
+
+  function show(el) {
+    // `data-tip-html` is for a tip that has to SHOW a component rather than name it -- a
+    // coverage badge, say, where "UI x2" in prose makes the reader translate back to the
+    // badge they are looking at. The markup is the page's own; nothing user-supplied
+    // reaches here. Plain `data-tip` stays the default and stays escaped.
+    var html = el.getAttribute('data-tip-html'), text = el.getAttribute('data-tip');
+    if (!html && !text) return;              // data-tip="" shows nothing, by design
+    current = el;
+    if (html) bubble.innerHTML = html; else bubble.textContent = text;
+    bubble.classList.remove('visible');
+    // One row when the row fits the screen; otherwise back to the wrapping box. Measured,
+    // not guessed from the character count: a path and a sentence of the same length are
+    // very different widths. Markup tips (lists) always wrap.
+    bubble.classList.toggle('oneline', !html);
+    if (!html && bubble.scrollWidth > window.innerWidth - 16) bubble.classList.remove('oneline');
+    place(el);
+    timer = setTimeout(function () {
+      if (current !== el) return;
+      place(el);
+      bubble.classList.add('visible');
+    }, 150);
+  }
+
+  function trigger(ev) {
+    var el = ev.target.closest && ev.target.closest('[data-tip],[data-tip-html]');
+    if (!el || el === current) return;
+    hide();
+    show(el);
+  }
+
+  document.addEventListener('pointerover', trigger);
+  document.addEventListener('focusin', trigger);   // focus/blur do not bubble
+  document.addEventListener('pointerout', function (ev) {
+    if (current && !current.contains(ev.relatedTarget)) hide();
+  });
+  document.addEventListener('focusout', hide);
+  document.addEventListener('touchstart', hide, {passive: true});
+  window.addEventListener('scroll', hide, true);   // a fixed bubble would float away
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') hide(); });
+})();
+
+</script>
+<script>
+// ?theme=dark|light pins the theme; with no parameter the system decides.
+const THEME = new URLSearchParams(location.search).get('theme');
+if (THEME === 'dark' || THEME === 'light') {
+  document.documentElement.setAttribute('data-theme', THEME);
+}
+
+const DATA = {"spec": {"openapi": "3.1.0", "info": {"description": "This is the REST API documentation of the Spring Petclinic backend. If authentication is enabled, use admin/admin when calling the APIs", "termsOfService": "https://github.com/spring-petclinic/petclinic-rest/blob/master/terms.txt", "title": "REST Petclinic Backend API", "version": "1.0"}, "servers": [{"description": "Generated server url", "url": "http://localhost"}], "paths": {"/": {"delete": {"operationId": "redirectToSwagger_3", "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["root-rest-controller"]}, "get": {"operationId": "redirectToSwagger", "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["root-rest-controller"]}, "head": {"operationId": "redirectToSwagger_5", "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["root-rest-controller"]}, "options": {"operationId": "redirectToSwagger_6", "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["root-rest-controller"]}, "patch": {"operationId": "redirectToSwagger_4", "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["root-rest-controller"]}, "post": {"operationId": "redirectToSwagger_1", "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["root-rest-controller"]}, "put": {"operationId": "redirectToSwagger_2", "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["root-rest-controller"]}}, "/api/owners": {"get": {"description": "A page, size or sort outside the documented values is rejected with 400.", "operationId": "listOwners", "parameters": [{"description": "Case-sensitive prefix of the last name; empty matches every owner.", "in": "query", "name": "lastName", "required": false, "schema": {"type": "string", "default": ""}}, {"description": "Zero-based page index.", "in": "query", "name": "page", "required": false, "schema": {"type": "integer", "format": "int32", "default": 0, "minimum": 0}}, {"description": "Owners per page: 5, 10 or 20.", "in": "query", "name": "size", "required": false, "schema": {"type": "integer", "format": "int32", "default": 10}}, {"description": "name sorts by last name, first name, id; city by city, then the same.", "in": "query", "name": "sort", "required": false, "schema": {"type": "string", "default": "name,asc", "enum": ["name,asc", "name,desc", "city,asc", "city,desc"]}}], "responses": {"200": {"content": {"application/json": {"examples": {"sample": {"description": "sample", "value": {"content": [{"id": 2, "firstName": "Betty", "lastName": "Davis", "address": "638 Cardinal Ave.", "city": "Sun Prairie", "telephone": "6085551749", "pets": []}, {"id": 1, "firstName": "George", "lastName": "Franklin", "address": "110 W. Liberty St.", "city": "Madison", "telephone": "6085551023", "pets": [{"id": 1, "name": "Leo", "birthDate": "2010-09-07", "type": {"id": 1, "name": "cat"}, "ownerId": 1, "visits": []}]}], "totalElements": 2}}}, "schema": {"title": "OwnerPageDto", "type": "object", "description": "One page of owners, in the requested order.", "properties": {"content": {"type": "array", "description": "The owners on this page, each with their pets and visits.", "items": {"title": "OwnerDto", "type": "object", "properties": {"address": {"type": "string", "description": "The postal address of the pet owner.", "example": "110 W. Liberty St.", "maxLength": 255, "minLength": 1}, "city": {"type": "string", "description": "The city of the pet owner.", "example": "Madison", "maxLength": 80, "minLength": 1}, "firstName": {"type": "string", "description": "The first name of the pet owner.", "example": "George", "maxLength": 30, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet owner.", "example": 1, "minimum": 0, "readOnly": true}, "lastName": {"type": "string", "description": "The last name of the pet owner.", "example": "Franklin", "maxLength": 30, "minLength": 1}, "pets": {"type": "array", "description": "The pets owned by this individual including any booked vet visits.", "items": {"title": "PetDto", "type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "example": "2010-09-07"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "ownerId": {"type": "integer", "format": "int32", "description": "The ID of the pet's owner.", "example": 1, "minimum": 0, "readOnly": true}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "visits": {"type": "array", "description": "Vet visit bookings for this pet.", "items": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}, "readOnly": true}}, "required": ["birthDate", "id", "name", "type", "visits"]}, "readOnly": true}, "telephone": {"type": "string", "description": "The telephone number of the pet owner.", "example": "6085551023", "maxLength": 20, "minLength": 1, "pattern": "^[0-9]*$"}}, "required": ["address", "city", "firstName", "lastName", "pets", "telephone"]}}, "totalElements": {"type": "integer", "format": "int64", "description": "How many owners match the filter, across all pages.", "example": 26}}, "required": ["content", "totalElements"]}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "summary": "List one page of owners", "tags": ["owner-rest-controller"]}, "post": {"operationId": "addOwner", "requestBody": {"content": {"application/json": {"schema": {"title": "OwnerFieldsDto", "type": "object", "properties": {"address": {"type": "string", "description": "The postal address of the pet owner.", "example": "110 W. Liberty St.", "maxLength": 255, "minLength": 1}, "city": {"type": "string", "description": "The city of the pet owner.", "example": "Madison", "maxLength": 80, "minLength": 1}, "firstName": {"type": "string", "description": "The first name of the pet owner.", "example": "George", "maxLength": 30, "minLength": 1}, "lastName": {"type": "string", "description": "The last name of the pet owner.", "example": "Franklin", "maxLength": 30, "minLength": 1}, "telephone": {"type": "string", "description": "The telephone number of the pet owner.", "example": "6085551023", "maxLength": 20, "minLength": 1, "pattern": "^[0-9]*$"}}, "required": ["address", "city", "firstName", "lastName", "telephone"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "summary": "Create an owner", "tags": ["owner-rest-controller"]}}, "/api/owners/count": {"get": {"operationId": "countOwners", "responses": {"200": {"content": {"*/*": {"schema": {"type": "integer", "format": "int64"}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "summary": "Count owners", "tags": ["owner-rest-controller"]}}, "/api/owners/{ownerId}": {"delete": {"operationId": "deleteOwner", "parameters": [{"in": "path", "name": "ownerId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "summary": "Delete an owner by ID", "tags": ["owner-rest-controller"]}, "get": {"operationId": "getOwner", "parameters": [{"in": "path", "name": "ownerId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"content": {"*/*": {"schema": {"title": "OwnerDto", "type": "object", "properties": {"address": {"type": "string", "description": "The postal address of the pet owner.", "example": "110 W. Liberty St.", "maxLength": 255, "minLength": 1}, "city": {"type": "string", "description": "The city of the pet owner.", "example": "Madison", "maxLength": 80, "minLength": 1}, "firstName": {"type": "string", "description": "The first name of the pet owner.", "example": "George", "maxLength": 30, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet owner.", "example": 1, "minimum": 0, "readOnly": true}, "lastName": {"type": "string", "description": "The last name of the pet owner.", "example": "Franklin", "maxLength": 30, "minLength": 1}, "pets": {"type": "array", "description": "The pets owned by this individual including any booked vet visits.", "items": {"title": "PetDto", "type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "example": "2010-09-07"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "ownerId": {"type": "integer", "format": "int32", "description": "The ID of the pet's owner.", "example": 1, "minimum": 0, "readOnly": true}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "visits": {"type": "array", "description": "Vet visit bookings for this pet.", "items": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}, "readOnly": true}}, "required": ["birthDate", "id", "name", "type", "visits"]}, "readOnly": true}, "telephone": {"type": "string", "description": "The telephone number of the pet owner.", "example": "6085551023", "maxLength": 20, "minLength": 1, "pattern": "^[0-9]*$"}}, "required": ["address", "city", "firstName", "lastName", "pets", "telephone"]}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "summary": "Get an owner by ID", "tags": ["owner-rest-controller"]}, "put": {"operationId": "updateOwner", "parameters": [{"in": "path", "name": "ownerId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "requestBody": {"content": {"application/json": {"schema": {"title": "OwnerFieldsDto", "type": "object", "properties": {"address": {"type": "string", "description": "The postal address of the pet owner.", "example": "110 W. Liberty St.", "maxLength": 255, "minLength": 1}, "city": {"type": "string", "description": "The city of the pet owner.", "example": "Madison", "maxLength": 80, "minLength": 1}, "firstName": {"type": "string", "description": "The first name of the pet owner.", "example": "George", "maxLength": 30, "minLength": 1}, "lastName": {"type": "string", "description": "The last name of the pet owner.", "example": "Franklin", "maxLength": 30, "minLength": 1}, "telephone": {"type": "string", "description": "The telephone number of the pet owner.", "example": "6085551023", "maxLength": 20, "minLength": 1, "pattern": "^[0-9]*$"}}, "required": ["address", "city", "firstName", "lastName", "telephone"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "summary": "Update an owner", "tags": ["owner-rest-controller"]}}, "/api/owners/{ownerId}/pets": {"post": {"operationId": "addPetToOwner", "parameters": [{"in": "path", "name": "ownerId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "requestBody": {"content": {"application/json": {"schema": {"title": "PetFieldsDto", "type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "description": "The date of birth of the pet.", "example": "2010-09-07"}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}, "required": ["birthDate", "name", "type"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "summary": "Add a pet to an owner", "tags": ["owner-rest-controller"]}}, "/api/owners/{ownerId}/pets/{petId}": {"get": {"operationId": "getOwnersPet", "parameters": [{"in": "path", "name": "ownerId", "required": true, "schema": {"type": "integer", "format": "int32"}}, {"in": "path", "name": "petId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"content": {"*/*": {"schema": {"title": "PetDto", "type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "example": "2010-09-07"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "ownerId": {"type": "integer", "format": "int32", "description": "The ID of the pet's owner.", "example": 1, "minimum": 0, "readOnly": true}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "visits": {"type": "array", "description": "Vet visit bookings for this pet.", "items": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}, "readOnly": true}}, "required": ["birthDate", "id", "name", "type", "visits"]}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "summary": "Get a pet belonging to an owner", "tags": ["owner-rest-controller"]}, "put": {"operationId": "updateOwnersPet", "parameters": [{"in": "path", "name": "ownerId", "required": true, "schema": {"type": "integer", "format": "int32"}}, {"in": "path", "name": "petId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "requestBody": {"content": {"application/json": {"schema": {"title": "PetFieldsDto", "type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "description": "The date of birth of the pet.", "example": "2010-09-07"}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}, "required": ["birthDate", "name", "type"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "summary": "Update an owner's pet", "tags": ["owner-rest-controller"]}}, "/api/owners/{ownerId}/pets/{petId}/visits": {"post": {"operationId": "addVisitToOwner", "parameters": [{"in": "path", "name": "ownerId", "required": true, "schema": {"type": "integer", "format": "int32"}}, {"in": "path", "name": "petId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "requestBody": {"content": {"application/json": {"schema": {"title": "VisitFieldsDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}}, "required": ["description"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "summary": "Add a visit for an owner's pet", "tags": ["owner-rest-controller"]}}, "/api/pets": {"get": {"operationId": "listPets", "responses": {"200": {"content": {"application/json": {"examples": {"sample": {"description": "sample", "value": [{"id": 1, "name": "Leo", "birthDate": "2010-09-07", "type": {"id": 1, "name": "cat"}, "ownerId": 1, "visits": []}, {"id": 2, "name": "Basil", "birthDate": "2012-08-06", "type": {"id": 2, "name": "hamster"}, "ownerId": 2, "visits": [{"id": 1, "date": "2013-01-01", "description": "rabies shot", "petId": 2}]}]}}, "schema": {"type": "array", "items": {"title": "PetDto", "type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "example": "2010-09-07"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "ownerId": {"type": "integer", "format": "int32", "description": "The ID of the pet's owner.", "example": 1, "minimum": 0, "readOnly": true}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "visits": {"type": "array", "description": "Vet visit bookings for this pet.", "items": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}, "readOnly": true}}, "required": ["birthDate", "id", "name", "type", "visits"]}}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["pet-rest-controller"]}}, "/api/pets/{petId}": {"delete": {"operationId": "deletePet", "parameters": [{"in": "path", "name": "petId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["pet-rest-controller"]}, "get": {"operationId": "getPet", "parameters": [{"in": "path", "name": "petId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"content": {"*/*": {"schema": {"title": "PetDto", "type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "example": "2010-09-07"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "ownerId": {"type": "integer", "format": "int32", "description": "The ID of the pet's owner.", "example": 1, "minimum": 0, "readOnly": true}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "visits": {"type": "array", "description": "Vet visit bookings for this pet.", "items": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}, "readOnly": true}}, "required": ["birthDate", "id", "name", "type", "visits"]}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["pet-rest-controller"]}, "put": {"operationId": "updatePet", "parameters": [{"in": "path", "name": "petId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "requestBody": {"content": {"application/json": {"schema": {"title": "PetDto", "type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "example": "2010-09-07"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "ownerId": {"type": "integer", "format": "int32", "description": "The ID of the pet's owner.", "example": 1, "minimum": 0, "readOnly": true}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "visits": {"type": "array", "description": "Vet visit bookings for this pet.", "items": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}, "readOnly": true}}, "required": ["birthDate", "id", "name", "type", "visits"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["pet-rest-controller"]}}, "/api/pettypes": {"get": {"operationId": "listPetTypes", "responses": {"200": {"content": {"application/json": {"examples": {"sample": {"description": "sample", "value": [{"id": 1, "name": "cat"}, {"id": 2, "name": "dog"}, {"id": 3, "name": "hamster"}]}}, "schema": {"type": "array", "items": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["pet-type-rest-controller"]}, "post": {"operationId": "addPetType", "requestBody": {"content": {"application/json": {"schema": {"title": "PetTypeFieldsDto", "type": "object", "properties": {"name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["name"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["pet-type-rest-controller"]}}, "/api/pettypes/{petTypeId}": {"delete": {"operationId": "deletePetType", "parameters": [{"in": "path", "name": "petTypeId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["pet-type-rest-controller"]}, "get": {"operationId": "getPetType", "parameters": [{"in": "path", "name": "petTypeId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"content": {"*/*": {"schema": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["pet-type-rest-controller"]}, "put": {"operationId": "updatePetType", "parameters": [{"in": "path", "name": "petTypeId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "requestBody": {"content": {"application/json": {"schema": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["pet-type-rest-controller"]}}, "/api/specialties": {"get": {"operationId": "listSpecialties", "responses": {"200": {"content": {"application/json": {"examples": {"sample": {"description": "sample", "value": [{"id": 1, "name": "radiology", "description": "x-rays, broken bones, imaging"}, {"id": 2, "name": "surgery", "description": "operations, spaying, neutering"}, {"id": 3, "name": "dentistry", "description": "teeth cleaning, extractions"}]}}, "schema": {"type": "array", "items": {"title": "SpecialtyDto", "type": "object", "properties": {"description": {"type": "string", "description": "The section that identifies this specialty (symptoms); vectorized into the chatbot RAG.", "example": "limping, broken bone, swollen leg, can't bear weight", "maxLength": 4000, "minLength": 0}, "id": {"type": "integer", "format": "int32", "description": "The ID of the specialty.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the specialty.", "example": "radiology", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["specialty-rest-controller"]}, "post": {"operationId": "addSpecialty", "requestBody": {"content": {"application/json": {"schema": {"title": "SpecialtyDto", "type": "object", "properties": {"description": {"type": "string", "description": "The section that identifies this specialty (symptoms); vectorized into the chatbot RAG.", "example": "limping, broken bone, swollen leg, can't bear weight", "maxLength": 4000, "minLength": 0}, "id": {"type": "integer", "format": "int32", "description": "The ID of the specialty.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the specialty.", "example": "radiology", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["specialty-rest-controller"]}}, "/api/specialties/feed": {"get": {"operationId": "feed", "parameters": [{"in": "header", "name": "If-None-Match", "required": false, "schema": {"type": "string"}}], "responses": {"200": {"content": {"*/*": {"schema": {"type": "array", "items": {"title": "Item", "type": "object", "properties": {"description": {"type": "string"}, "id": {"type": "integer", "format": "int32"}, "name": {"type": "string"}}}}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["specialty-feed-controller"]}}, "/api/specialties/{specialtyId}": {"delete": {"operationId": "deleteSpecialty", "parameters": [{"in": "path", "name": "specialtyId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["specialty-rest-controller"]}, "get": {"operationId": "getSpecialty", "parameters": [{"in": "path", "name": "specialtyId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"content": {"*/*": {"schema": {"title": "SpecialtyDto", "type": "object", "properties": {"description": {"type": "string", "description": "The section that identifies this specialty (symptoms); vectorized into the chatbot RAG.", "example": "limping, broken bone, swollen leg, can't bear weight", "maxLength": 4000, "minLength": 0}, "id": {"type": "integer", "format": "int32", "description": "The ID of the specialty.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the specialty.", "example": "radiology", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["specialty-rest-controller"]}, "put": {"operationId": "updateSpecialty", "parameters": [{"in": "path", "name": "specialtyId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "requestBody": {"content": {"application/json": {"schema": {"title": "SpecialtyDto", "type": "object", "properties": {"description": {"type": "string", "description": "The section that identifies this specialty (symptoms); vectorized into the chatbot RAG.", "example": "limping, broken bone, swollen leg, can't bear weight", "maxLength": 4000, "minLength": 0}, "id": {"type": "integer", "format": "int32", "description": "The ID of the specialty.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the specialty.", "example": "radiology", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["specialty-rest-controller"]}}, "/api/users": {"post": {"operationId": "addUser", "requestBody": {"content": {"application/json": {"schema": {"title": "UserDto", "type": "object", "properties": {"enabled": {"type": "boolean", "description": "Indicates if the user is enabled", "example": true}, "password": {"type": "string", "description": "The password", "example": "1234abc", "maxLength": 80, "minLength": 1}, "roles": {"type": "array", "description": "The roles of an user", "items": {"title": "RoleDto", "type": "object", "properties": {"name": {"type": "string", "description": "The role's name", "example": "admin", "maxLength": 80, "minLength": 1}}, "required": ["name"]}}, "username": {"type": "string", "description": "The username", "example": "john.doe", "maxLength": 80, "minLength": 1}}, "required": ["username"]}}}, "required": true}, "responses": {"200": {"content": {"*/*": {"schema": {"title": "UserDto", "type": "object", "properties": {"enabled": {"type": "boolean", "description": "Indicates if the user is enabled", "example": true}, "password": {"type": "string", "description": "The password", "example": "1234abc", "maxLength": 80, "minLength": 1}, "roles": {"type": "array", "description": "The roles of an user", "items": {"title": "RoleDto", "type": "object", "properties": {"name": {"type": "string", "description": "The role's name", "example": "admin", "maxLength": 80, "minLength": 1}}, "required": ["name"]}}, "username": {"type": "string", "description": "The username", "example": "john.doe", "maxLength": 80, "minLength": 1}}, "required": ["username"]}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["user-rest-controller"]}}, "/api/vets": {"get": {"operationId": "listVets", "responses": {"200": {"content": {"application/json": {"examples": {"sample": {"description": "sample", "value": [{"id": 1, "firstName": "James", "lastName": "Carter", "specialties": []}, {"id": 2, "firstName": "Helen", "lastName": "Leary", "specialties": [{"id": 1, "name": "radiology", "description": "x-rays and imaging"}]}, {"id": 3, "firstName": "Linda", "lastName": "Douglas", "specialties": [{"id": 2, "name": "surgery", "description": "operations"}, {"id": 3, "name": "dentistry", "description": "teeth"}]}]}}, "schema": {"type": "array", "items": {"title": "VetDto", "type": "object", "properties": {"firstName": {"type": "string", "description": "The first name of the vet.", "example": "James", "maxLength": 30, "minLength": 1, "pattern": "\\w+"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the vet.", "example": 1, "minimum": 0, "readOnly": true}, "lastName": {"type": "string", "description": "The last name of the vet.", "example": "Carter", "maxLength": 30, "minLength": 1, "pattern": "\\w+"}, "specialties": {"type": "array", "description": "The specialties of the vet.", "items": {"title": "SpecialtyDto", "type": "object", "properties": {"description": {"type": "string", "description": "The section that identifies this specialty (symptoms); vectorized into the chatbot RAG.", "example": "limping, broken bone, swollen leg, can't bear weight", "maxLength": 4000, "minLength": 0}, "id": {"type": "integer", "format": "int32", "description": "The ID of the specialty.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the specialty.", "example": "radiology", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}, "required": ["firstName", "id", "lastName", "specialties"]}}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["vet-rest-controller"]}, "post": {"operationId": "addVet", "requestBody": {"content": {"application/json": {"schema": {"title": "VetDto", "type": "object", "properties": {"firstName": {"type": "string", "description": "The first name of the vet.", "example": "James", "maxLength": 30, "minLength": 1, "pattern": "\\w+"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the vet.", "example": 1, "minimum": 0, "readOnly": true}, "lastName": {"type": "string", "description": "The last name of the vet.", "example": "Carter", "maxLength": 30, "minLength": 1, "pattern": "\\w+"}, "specialties": {"type": "array", "description": "The specialties of the vet.", "items": {"title": "SpecialtyDto", "type": "object", "properties": {"description": {"type": "string", "description": "The section that identifies this specialty (symptoms); vectorized into the chatbot RAG.", "example": "limping, broken bone, swollen leg, can't bear weight", "maxLength": 4000, "minLength": 0}, "id": {"type": "integer", "format": "int32", "description": "The ID of the specialty.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the specialty.", "example": "radiology", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}, "required": ["firstName", "id", "lastName", "specialties"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["vet-rest-controller"]}}, "/api/vets/{vetId}": {"delete": {"operationId": "deleteVet", "parameters": [{"in": "path", "name": "vetId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["vet-rest-controller"]}, "get": {"operationId": "getVet", "parameters": [{"in": "path", "name": "vetId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"content": {"*/*": {"schema": {"title": "VetDto", "type": "object", "properties": {"firstName": {"type": "string", "description": "The first name of the vet.", "example": "James", "maxLength": 30, "minLength": 1, "pattern": "\\w+"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the vet.", "example": 1, "minimum": 0, "readOnly": true}, "lastName": {"type": "string", "description": "The last name of the vet.", "example": "Carter", "maxLength": 30, "minLength": 1, "pattern": "\\w+"}, "specialties": {"type": "array", "description": "The specialties of the vet.", "items": {"title": "SpecialtyDto", "type": "object", "properties": {"description": {"type": "string", "description": "The section that identifies this specialty (symptoms); vectorized into the chatbot RAG.", "example": "limping, broken bone, swollen leg, can't bear weight", "maxLength": 4000, "minLength": 0}, "id": {"type": "integer", "format": "int32", "description": "The ID of the specialty.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the specialty.", "example": "radiology", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}, "required": ["firstName", "id", "lastName", "specialties"]}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["vet-rest-controller"]}, "put": {"operationId": "updateVet", "parameters": [{"in": "path", "name": "vetId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "requestBody": {"content": {"application/json": {"schema": {"title": "VetDto", "type": "object", "properties": {"firstName": {"type": "string", "description": "The first name of the vet.", "example": "James", "maxLength": 30, "minLength": 1, "pattern": "\\w+"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the vet.", "example": 1, "minimum": 0, "readOnly": true}, "lastName": {"type": "string", "description": "The last name of the vet.", "example": "Carter", "maxLength": 30, "minLength": 1, "pattern": "\\w+"}, "specialties": {"type": "array", "description": "The specialties of the vet.", "items": {"title": "SpecialtyDto", "type": "object", "properties": {"description": {"type": "string", "description": "The section that identifies this specialty (symptoms); vectorized into the chatbot RAG.", "example": "limping, broken bone, swollen leg, can't bear weight", "maxLength": 4000, "minLength": 0}, "id": {"type": "integer", "format": "int32", "description": "The ID of the specialty.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the specialty.", "example": "radiology", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}, "required": ["firstName", "id", "lastName", "specialties"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["vet-rest-controller"]}}, "/api/visits": {"get": {"operationId": "listVisits", "responses": {"200": {"content": {"application/json": {"examples": {"sample": {"description": "sample", "value": [{"id": 1, "date": "2013-01-01", "description": "rabies shot", "petId": 7}, {"id": 2, "date": "2013-01-02", "description": "annual checkup", "petId": 8}]}}, "schema": {"type": "array", "items": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["visit-rest-controller"]}, "post": {"operationId": "addVisit", "requestBody": {"content": {"application/json": {"schema": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["visit-rest-controller"]}}, "/api/visits/{visitId}": {"delete": {"operationId": "deleteVisit", "parameters": [{"in": "path", "name": "visitId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["visit-rest-controller"]}, "get": {"operationId": "getVisit", "parameters": [{"in": "path", "name": "visitId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "responses": {"200": {"content": {"*/*": {"schema": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}}}, "description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["visit-rest-controller"]}, "put": {"operationId": "updateVisit", "parameters": [{"in": "path", "name": "visitId", "required": true, "schema": {"type": "integer", "format": "int32"}}], "requestBody": {"content": {"application/json": {"schema": {"title": "VisitFieldsDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}}, "required": ["description"]}}}, "required": true}, "responses": {"200": {"description": "OK"}, "400": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Bad Request"}, "404": {"content": {"*/*": {"schema": {"type": "string"}}}, "description": "Not Found"}, "500": {"content": {"*/*": {"schema": {"title": "ProblemDetail", "type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}}}, "description": "Internal Server Error"}}, "tags": ["visit-rest-controller"]}}}, "components": {"schemas": {"Item": {"type": "object", "properties": {"description": {"type": "string"}, "id": {"type": "integer", "format": "int32"}, "name": {"type": "string"}}}, "OwnerDto": {"type": "object", "properties": {"address": {"type": "string", "description": "The postal address of the pet owner.", "example": "110 W. Liberty St.", "maxLength": 255, "minLength": 1}, "city": {"type": "string", "description": "The city of the pet owner.", "example": "Madison", "maxLength": 80, "minLength": 1}, "firstName": {"type": "string", "description": "The first name of the pet owner.", "example": "George", "maxLength": 30, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet owner.", "example": 1, "minimum": 0, "readOnly": true}, "lastName": {"type": "string", "description": "The last name of the pet owner.", "example": "Franklin", "maxLength": 30, "minLength": 1}, "pets": {"type": "array", "description": "The pets owned by this individual including any booked vet visits.", "items": {"title": "PetDto", "type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "example": "2010-09-07"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "ownerId": {"type": "integer", "format": "int32", "description": "The ID of the pet's owner.", "example": 1, "minimum": 0, "readOnly": true}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "visits": {"type": "array", "description": "Vet visit bookings for this pet.", "items": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}, "readOnly": true}}, "required": ["birthDate", "id", "name", "type", "visits"]}, "readOnly": true}, "telephone": {"type": "string", "description": "The telephone number of the pet owner.", "example": "6085551023", "maxLength": 20, "minLength": 1, "pattern": "^[0-9]*$"}}, "required": ["address", "city", "firstName", "lastName", "pets", "telephone"]}, "OwnerFieldsDto": {"type": "object", "properties": {"address": {"type": "string", "description": "The postal address of the pet owner.", "example": "110 W. Liberty St.", "maxLength": 255, "minLength": 1}, "city": {"type": "string", "description": "The city of the pet owner.", "example": "Madison", "maxLength": 80, "minLength": 1}, "firstName": {"type": "string", "description": "The first name of the pet owner.", "example": "George", "maxLength": 30, "minLength": 1}, "lastName": {"type": "string", "description": "The last name of the pet owner.", "example": "Franklin", "maxLength": 30, "minLength": 1}, "telephone": {"type": "string", "description": "The telephone number of the pet owner.", "example": "6085551023", "maxLength": 20, "minLength": 1, "pattern": "^[0-9]*$"}}, "required": ["address", "city", "firstName", "lastName", "telephone"]}, "OwnerPageDto": {"type": "object", "description": "One page of owners, in the requested order.", "properties": {"content": {"type": "array", "description": "The owners on this page, each with their pets and visits.", "items": {"title": "OwnerDto", "type": "object", "properties": {"address": {"type": "string", "description": "The postal address of the pet owner.", "example": "110 W. Liberty St.", "maxLength": 255, "minLength": 1}, "city": {"type": "string", "description": "The city of the pet owner.", "example": "Madison", "maxLength": 80, "minLength": 1}, "firstName": {"type": "string", "description": "The first name of the pet owner.", "example": "George", "maxLength": 30, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet owner.", "example": 1, "minimum": 0, "readOnly": true}, "lastName": {"type": "string", "description": "The last name of the pet owner.", "example": "Franklin", "maxLength": 30, "minLength": 1}, "pets": {"type": "array", "description": "The pets owned by this individual including any booked vet visits.", "items": {"title": "PetDto", "type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "example": "2010-09-07"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "ownerId": {"type": "integer", "format": "int32", "description": "The ID of the pet's owner.", "example": 1, "minimum": 0, "readOnly": true}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "visits": {"type": "array", "description": "Vet visit bookings for this pet.", "items": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}, "readOnly": true}}, "required": ["birthDate", "id", "name", "type", "visits"]}, "readOnly": true}, "telephone": {"type": "string", "description": "The telephone number of the pet owner.", "example": "6085551023", "maxLength": 20, "minLength": 1, "pattern": "^[0-9]*$"}}, "required": ["address", "city", "firstName", "lastName", "pets", "telephone"]}}, "totalElements": {"type": "integer", "format": "int64", "description": "How many owners match the filter, across all pages.", "example": 26}}, "required": ["content", "totalElements"]}, "PetDto": {"type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "example": "2010-09-07"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "ownerId": {"type": "integer", "format": "int32", "description": "The ID of the pet's owner.", "example": 1, "minimum": 0, "readOnly": true}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "visits": {"type": "array", "description": "Vet visit bookings for this pet.", "items": {"title": "VisitDto", "type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}, "readOnly": true}}, "required": ["birthDate", "id", "name", "type", "visits"]}, "PetFieldsDto": {"type": "object", "properties": {"birthDate": {"type": "string", "format": "date", "description": "The date of birth of the pet.", "example": "2010-09-07"}, "name": {"type": "string", "description": "The name of the pet.", "example": "Leo", "maxLength": 30, "minLength": 0}, "type": {"title": "PetTypeDto", "type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}, "required": ["birthDate", "name", "type"]}, "PetTypeDto": {"type": "object", "properties": {"id": {"type": "integer", "format": "int32", "description": "The ID of the pet type.", "example": 1, "minimum": 0}, "name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "PetTypeFieldsDto": {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the pet type.", "example": "cat", "maxLength": 80, "minLength": 1}}, "required": ["name"]}, "ProblemDetail": {"type": "object", "properties": {"detail": {"type": "string"}, "instance": {"type": "string", "format": "uri"}, "properties": {"type": "object", "additionalProperties": {}}, "status": {"type": "integer", "format": "int32"}, "title": {"type": "string"}, "type": {"type": "string", "format": "uri"}}}, "RoleDto": {"type": "object", "properties": {"name": {"type": "string", "description": "The role's name", "example": "admin", "maxLength": 80, "minLength": 1}}, "required": ["name"]}, "SpecialtyDto": {"type": "object", "properties": {"description": {"type": "string", "description": "The section that identifies this specialty (symptoms); vectorized into the chatbot RAG.", "example": "limping, broken bone, swollen leg, can't bear weight", "maxLength": 4000, "minLength": 0}, "id": {"type": "integer", "format": "int32", "description": "The ID of the specialty.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the specialty.", "example": "radiology", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}, "UserDto": {"type": "object", "properties": {"enabled": {"type": "boolean", "description": "Indicates if the user is enabled", "example": true}, "password": {"type": "string", "description": "The password", "example": "1234abc", "maxLength": 80, "minLength": 1}, "roles": {"type": "array", "description": "The roles of an user", "items": {"title": "RoleDto", "type": "object", "properties": {"name": {"type": "string", "description": "The role's name", "example": "admin", "maxLength": 80, "minLength": 1}}, "required": ["name"]}}, "username": {"type": "string", "description": "The username", "example": "john.doe", "maxLength": 80, "minLength": 1}}, "required": ["username"]}, "VetDto": {"type": "object", "properties": {"firstName": {"type": "string", "description": "The first name of the vet.", "example": "James", "maxLength": 30, "minLength": 1, "pattern": "\\w+"}, "id": {"type": "integer", "format": "int32", "description": "The ID of the vet.", "example": 1, "minimum": 0, "readOnly": true}, "lastName": {"type": "string", "description": "The last name of the vet.", "example": "Carter", "maxLength": 30, "minLength": 1, "pattern": "\\w+"}, "specialties": {"type": "array", "description": "The specialties of the vet.", "items": {"title": "SpecialtyDto", "type": "object", "properties": {"description": {"type": "string", "description": "The section that identifies this specialty (symptoms); vectorized into the chatbot RAG.", "example": "limping, broken bone, swollen leg, can't bear weight", "maxLength": 4000, "minLength": 0}, "id": {"type": "integer", "format": "int32", "description": "The ID of the specialty.", "example": 1, "minimum": 0, "readOnly": true}, "name": {"type": "string", "description": "The name of the specialty.", "example": "radiology", "maxLength": 80, "minLength": 1}}, "required": ["id", "name"]}}}, "required": ["firstName", "id", "lastName", "specialties"]}, "VisitDto": {"type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}, "id": {"type": "integer", "format": "int32", "description": "The ID of the visit.", "example": 1, "minimum": 0, "readOnly": true}, "ownerFirstName": {"type": "string", "description": "First name of the owner (server-populated).", "readOnly": true}, "ownerId": {"type": "integer", "format": "int32", "description": "ID of the owner of the pet (server-populated).", "readOnly": true}, "ownerLastName": {"type": "string", "description": "Last name of the owner (server-populated).", "readOnly": true}, "petId": {"type": "integer", "format": "int32", "description": "The ID of the pet.", "example": 1, "minimum": 0}, "petName": {"type": "string", "description": "Name of the pet (server-populated).", "readOnly": true}}, "required": ["description", "id", "petId"]}, "VisitFieldsDto": {"type": "object", "properties": {"date": {"type": "string", "format": "date", "description": "The date of the visit.", "example": "2013-01-01"}, "description": {"type": "string", "description": "The description for the visit.", "example": "rabies shot", "maxLength": 255, "minLength": 1}}, "required": ["description"]}}}}, "ops": {"DELETE /": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "DELETE /api/owners/{ownerId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "DELETE /api/pets/{petId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "DELETE /api/pettypes/{petTypeId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "DELETE /api/specialties/{specialtyId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "DELETE /api/vets/{vetId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "DELETE /api/visits/{visitId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/owners": {"state": "breaking", "changes": [{"text": "the response's body `type` changed from `array<object>` to `object`", "level": 3, "id": "response-body-type-changed", "mark": "changed", "target": null, "ghost": null}, {"text": "added the new optional `query` request parameter `page`", "level": 1, "id": "new-optional-request-parameter", "mark": "added", "target": null, "ghost": null}, {"text": "added the new optional `query` request parameter `size`", "level": 1, "id": "new-optional-request-parameter", "mark": "added", "target": null, "ghost": null}, {"text": "added the new optional `query` request parameter `sort`", "level": 1, "id": "new-optional-request-parameter", "mark": "added", "target": null, "ghost": null}, {"text": "added the required response property `content`", "level": 1, "id": "response-required-property-added", "mark": "added", "target": {"in": "response", "status": "200", "steps": [{"kind": "prop", "name": "content"}], "field": "content"}, "ghost": null}, {"text": "added the required response property `totalElements`", "level": 1, "id": "response-required-property-added", "mark": "added", "target": {"in": "response", "status": "200", "steps": [{"kind": "prop", "name": "totalElements"}], "field": "totalElements"}, "ghost": null}], "deepSkipped": 0, "ghosts": [{"in": "response", "status": "200", "kind": "type", "steps": [], "old": {"label": "array<OwnerDto>", "props": [{"name": "address", "required": true, "label": "string", "desc": "The postal address of the pet owner."}, {"name": "city", "required": true, "label": "string", "desc": "The city of the pet owner."}, {"name": "firstName", "required": true, "label": "string", "desc": "The first name of the pet owner."}, {"name": "id", "required": false, "label": "integer(int32)", "desc": "The ID of the pet owner."}, {"name": "lastName", "required": true, "label": "string", "desc": "The last name of the pet owner."}, {"name": "pets", "required": true, "label": "array<PetDto>", "desc": "The pets owned by this individual including any booked vet visits.", "props": [{"name": "birthDate", "required": true, "label": "string(date)"}, {"name": "id", "required": true, "label": "integer(int32)", "desc": "The ID of the pet."}, {"name": "name", "required": true, "label": "string", "desc": "The name of the pet."}, {"name": "ownerId", "required": false, "label": "integer(int32)", "desc": "The ID of the pet's owner."}, {"name": "type", "required": true, "label": "PetTypeDto", "props": [{"name": "id", "required": true, "label": "integer(int32)", "desc": "The ID of the pet type."}, {"name": "name", "required": true, "label": "string", "desc": "The name of the pet type."}]}, {"name": "visits", "required": true, "label": "array<VisitDto>", "desc": "Vet visit bookings for this pet.", "props": [{"name": "date", "required": false, "label": "string(date)", "desc": "The date of the visit."}, {"name": "description", "required": true, "label": "string", "desc": "The description for the visit."}, {"name": "id", "required": true, "label": "integer(int32)", "desc": "The ID of the visit."}, {"name": "ownerFirstName", "required": false, "label": "string", "desc": "First name of the owner (server-populated)."}, {"name": "ownerId", "required": false, "label": "integer(int32)", "desc": "ID of the owner of the pet (server-populated)."}, {"name": "ownerLastName", "required": false, "label": "string", "desc": "Last name of the owner (server-populated)."}, {"name": "petId", "required": true, "label": "integer(int32)", "desc": "The ID of the pet."}, {"name": "petName", "required": false, "label": "string", "desc": "Name of the pet (server-populated)."}]}]}, {"name": "telephone", "required": true, "label": "string", "desc": "The telephone number of the pet owner."}]}}]}, "GET /api/owners/count": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/owners/{ownerId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/owners/{ownerId}/pets/{petId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/pets": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/pets/{petId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/pettypes": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/pettypes/{petTypeId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/specialties": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/specialties/feed": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/specialties/{specialtyId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/vets": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/vets/{vetId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/visits": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "GET /api/visits/{visitId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "HEAD /": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "OPTIONS /": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "PATCH /": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "POST /": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "POST /api/owners": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "POST /api/owners/{ownerId}/pets": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "POST /api/owners/{ownerId}/pets/{petId}/visits": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "POST /api/pettypes": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "POST /api/specialties": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "POST /api/users": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "POST /api/vets": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "POST /api/visits": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "PUT /": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "PUT /api/owners/{ownerId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "PUT /api/owners/{ownerId}/pets/{petId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "PUT /api/pets/{petId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "PUT /api/pettypes/{petTypeId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "PUT /api/specialties/{specialtyId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "PUT /api/vets/{vetId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}, "PUT /api/visits/{visitId}": {"state": "untouched", "changes": [], "deepSkipped": 0, "ghosts": []}}, "global": [], "tags": {"root-rest-controller": "quiet", "owner-rest-controller": "touched", "pet-rest-controller": "quiet", "pet-type-rest-controller": "quiet", "specialty-rest-controller": "quiet", "specialty-feed-controller": "quiet", "user-rest-controller": "quiet", "vet-rest-controller": "quiet", "visit-rest-controller": "quiet"}, "counts": {"untouched": 42, "breaking": 1}, "old": "98cb82a7", "new": "working tree"};
+const LABELS = { breaking: 'breaking', modified: 'modified', added: 'added',
+                 removed: 'removed', untouched: 'untouched' };
+const ORDER = ['breaking', 'modified', 'added', 'removed', 'untouched'];
+
+// The one place the two refs are still named: the browser tab, where it costs no room
+// and answers "which of these did I leave open?".
+document.title = DATA.new + ' vs ' + DATA.old + ' \u2014 OpenAPI visual diff';
+
+// backticked oasdiff prose -> <code>
+function md(s) {
+  const esc = s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  return esc.replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+// ---- toolbar chips double as filters ----
+const hidden = new Set();
+const chips = document.getElementById('dv-chips');
+// The chips count endpoints, one per operation; the verdict line under the tab counts
+// the individual changes inside them. Without the unit "4 breaking" up here and
+// "14 breaking" down there read as two answers to the same question.
+if (ORDER.some(state => DATA.counts[state])) {
+  chips.insertAdjacentHTML('beforeend', '<span class="dv-unit">endpoints:</span>');
+}
+ORDER.forEach(state => {
+  const n = DATA.counts[state] || 0;
+  if (!n) return;
+  const el = document.createElement('span');
+  el.className = 'dv-chip';
+  el.innerHTML = `<span class="dot ${state}"></span><b>${n}</b> ${LABELS[state]}`;
+  el.onclick = () => {
+    hidden.has(state) ? hidden.delete(state) : hidden.add(state);
+    el.classList.toggle('off', hidden.has(state));
+    if (state === 'untouched') {
+      document.body.classList.toggle('dv-hide-untouched', hidden.has(state));
+    }
+    apply();
+  };
+  chips.appendChild(el);
+});
+
+// ---- non-path changes (components, servers, security...) ----
+if (DATA.global.length) {
+  const box = document.getElementById('dv-global');
+  box.className = 'dv-global';
+  box.innerHTML = '<h2>Outside the endpoints</h2>' + DATA.global.map(c =>
+    `<div class="dv-change l${c.level}"><span class="lvl">${c.level === 3 ? 'breaking' : c.level === 2 ? 'warn' : 'info'}</span><span>${md(c.text)}</span></div>`
+  ).join('');
+}
+
+function keyOf(op) {
+  const m = op.querySelector('.opblock-summary-method');
+  const p = op.querySelector('.opblock-summary-path');
+  if (!m || !p) return null;
+  const path = p.getAttribute('data-path') || p.textContent.trim();
+  return m.textContent.trim().toUpperCase() + ' ' + path;
+}
+
+// Lift each field's description onto its head row, right of the type chips (see the CSS).
+// Measured, not guessed: the head's last chip ends wherever its name, flags and
+// constraints happen to end, and the field-change chip lands there too. Re-run with
+// decorate(), so a node opened by hand or by the walk is laid out once it renders.
+function layoutDescriptions() {
+  document.querySelectorAll(
+    '.swagger-ui .json-schema-2020-12-body > .json-schema-2020-12-keyword--description'
+  ).forEach(d => {
+    const art = d.parentElement.parentElement;
+    const head = art.querySelector(':scope > .json-schema-2020-12-head');
+    const last = head?.lastElementChild;
+    if (!last) return;
+    const a = art.getBoundingClientRect();
+    const left = Math.ceil(last.getBoundingClientRect().right - a.left + 24);
+    const fits = a.width - 8 - left >= 80;
+    d.classList.toggle('dv-desc-inline', fits);
+    if (!fits) { d.removeAttribute('data-tip'); return; }
+    const h = Math.round(head.getBoundingClientRect().height);
+    if (d.style.getPropertyValue('--dv-desc-left') !== left + 'px') {
+      d.style.setProperty('--dv-desc-left', left + 'px');
+    }
+    if (d.style.getPropertyValue('--dv-desc-h') !== h + 'px') {
+      d.style.setProperty('--dv-desc-h', h + 'px');
+    }
+    const cut = d.scrollWidth > d.clientWidth + 1;
+    const text = d.textContent.trim();
+    if (!cut) d.removeAttribute('data-tip');
+    else if (d.getAttribute('data-tip') !== text) d.setAttribute('data-tip', text);
+  });
+}
+window.addEventListener('resize', layoutDescriptions);
+
+// Swagger UI re-renders on expand/collapse, so decorating is idempotent and re-run.
+function decorate() {
+  document.querySelectorAll('.swagger-ui .opblock').forEach(op => {
+    const key = keyOf(op);
+    const info = key && DATA.ops[key];
+    if (!info) return;
+    op.dataset.dvState = info.state;
+    ORDER.forEach(s => op.classList.toggle('dv-' + s, s === info.state));
+
+    const summary = op.querySelector('.opblock-summary');
+    if (summary && info.state !== 'untouched' && !summary.querySelector('.dv-badge')) {
+      const b = document.createElement('span');
+      b.className = 'dv-badge ' + info.state;
+      const n = info.changes.length;
+      const many = `${n} change${n > 1 ? 's' : ''}`;
+      // A removed operation says DELETED, the word every ghost row inside the other
+      // operations uses for the same fact. A breaking one keeps the count beside the
+      // word: "BREAKING" alone dropped the "3 CHANGES" every modified operation shows.
+      const nb = info.changes.filter(c => c.level >= 3).length;
+      b.textContent = info.state === 'modified' && n ? many
+        : info.state === 'breaking' && n ? `${nb} breaking · ${many}`
+        : info.state === 'removed' ? 'deleted' : info.state;
+      summary.appendChild(b);
+    }
+    if (summary && info.changes.length && !op.querySelector('.dv-note')) {
+      const note = document.createElement('div');
+      note.className = 'dv-note';
+      const n = info.deepSkipped || 0;
+      note.innerHTML = info.changes.map(c =>
+        `<div class="dv-change l${c.level}"><span class="lvl">${c.level === 3 ? 'breaking' : c.level === 2 ? 'warn' : 'info'}</span><span>${md(c.text)}</span></div>`
+      ).join('') + (n ? `<div class="dv-deepmore">${n} more changed field${n > 1 ? 's are' : ' is'} not opened automatically — too deep, or gone from this revision. Use the schema's own “Expand all”.</div>` : '');
+      summary.insertAdjacentElement('afterend', note);
+    }
+  });
+  apply();
+  autoCollapse();
+  markVisible();
+  layoutDescriptions();
+}
+
+// A controller nobody touched is folded away on arrival — once, so that
+// re-expanding one by hand sticks.
+let collapsedOnce = false;
+function autoCollapse() {
+  if (collapsedOnce) return;
+  const sections = [...document.querySelectorAll('.opblock-tag-section')];
+  if (!sections.length || !sections.some(s => s.querySelector('.opblock'))) return;
+  collapsedOnce = true;
+  sections.forEach(sec => {
+    const h3 = sec.querySelector('.opblock-tag');
+    if (h3 && DATA.tags[h3.dataset.tag] === 'quiet' && h3.dataset.isOpen === 'true') {
+      h3.click();
+    }
+  });
+}
+
+function apply() {
+  document.querySelectorAll('.swagger-ui .opblock').forEach(op => {
+    const s = op.dataset.dvState;
+    op.style.display = s && hidden.has(s) ? 'none' : '';
+  });
+  // a tag section nobody touched fades as a whole; empty ones disappear
+  document.querySelectorAll('.opblock-tag-section').forEach(sec => {
+    const ops = [...sec.querySelectorAll('.opblock')];
+    const visible = ops.filter(o => o.style.display !== 'none');
+    const tag = sec.querySelector('.opblock-tag')?.dataset.tag;
+    const quiet = DATA.tags[tag] === 'quiet';
+    sec.classList.toggle('dv-quiet', quiet);
+    // A collapsed section holds no opblocks, so the "nothing visible left" rule below
+    // can never reach it — and the untouched sections are exactly the collapsed ones.
+    // Their verdict comes from the tag map instead.
+    if (quiet && hidden.has('untouched')) { sec.style.display = 'none'; return; }
+    // a tag whose every operation is filtered out has nothing left to say
+    sec.style.display = ops.length > 0 && visible.length === 0 ? 'none' : '';
+  });
+}
+
+// `#only-touched` opens on the filtered view — the same state the untouched chip
+// toggles, so there is one control for it rather than two that must agree.
+function setOnlyTouched(on) {
+  document.body.classList.toggle('dv-hide-untouched', on);
+  if (on) hidden.add('untouched'); else hidden.delete('untouched');
+  document.querySelectorAll('.dv-chip').forEach(c => {
+    if (c.textContent.includes('untouched')) c.classList.toggle('off', on);
+  });
+  apply();
+}
+if (location.hash.includes('only')) setOnlyTouched(true);
+
+// ---- walking down to the fields that changed ----
+// Swagger UI renders a collapsed subtree as an empty <div>: the children do not exist in
+// the DOM until their parent is open. So every step waits for the node it asked for
+// rather than assuming it is there, and ancestors are opened strictly in order.
+const STEP_WAIT = 1500;
+
+function waitFor(get, ms) {
+  return new Promise(done => {
+    const t0 = performance.now();
+    (function tick() {
+      const got = get();
+      if (got) return done(got);
+      if (performance.now() - t0 > ms) return done(null);
+      requestAnimationFrame(tick);
+    })();
+  });
+}
+
+// Swagger UI draws a schema with one of TWO renderers and the difference is invisible
+// from the outside: a 3.1 spec (or any `jsonSchemaDialect`) gets the JSON-Schema-2020-12
+// tree of <article>s, a 3.0 spec gets the older <span class="model"> boxes. Same page,
+// same version of Swagger UI, entirely different DOM. Walking only one of them would
+// leave every 3.0 spec silently un-expanded — the exact "nothing happened, so there must
+// be nothing there" this feature exists to kill. So each renderer gets a strategy, and
+// the root node decides which one is in play.
+const SCHEMA_2020 = {
+  root: host => host.querySelector('.model-container article.json-schema-2020-12'),
+  head: a => a.querySelector(':scope > .json-schema-2020-12-head'),
+  collapsed: a => !!a.querySelector(
+    ':scope > .json-schema-2020-12-head .json-schema-2020-12-accordion__icon--collapsed'),
+  toggle: a => a.querySelector(
+    ':scope > .json-schema-2020-12-head > .json-schema-2020-12-accordion'),
+  child(a, step) {
+    const body = a.querySelector(':scope > .json-schema-2020-12-body');
+    if (!body) return null;
+    // Told apart from grandchildren by which body they climb back to: the wrapper markup
+    // between a body and its articles is Swagger UI's business and has moved before.
+    const mine = sel => [...body.querySelectorAll(sel)]
+      .filter(el => el.parentElement.closest('.json-schema-2020-12-body') === body);
+    if (step.kind === 'items') {
+      return mine('.json-schema-2020-12-keyword--items > article')[0] || null;
+    }
+    return mine('.json-schema-2020-12-property > article').find(el =>
+      this.head(el)?.querySelector('.json-schema-2020-12__title')?.textContent.trim()
+        === step.name) || null;
+  },
+  // The 2020-12 leaf carries its own name, so the article is the thing to light up.
+  mark: a => a,
+};
+
+const SCHEMA_LEGACY = {
+  root: host => host.querySelector('.model-box > span.model'),
+  toggle: n => n.querySelector(':scope > span > button.model-box-control')
+            || n.querySelector(':scope > button.model-box-control'),
+  collapsed(n) {
+    const b = this.toggle(n);
+    return !!b && b.getAttribute('aria-expanded') !== 'true';
+  },
+  child(n, step) {
+    // Same "whose child am I" test, with span.model as the boundary. `table.model` is
+    // deliberately not a boundary — it is the property table, not a schema box.
+    const inside = (el, sel) => {
+      for (let e = el.parentElement; e && e !== n; e = e.parentElement) {
+        if (e.matches(sel)) return true;
+      }
+      return false;
+    };
+    const mine = sel => [...n.querySelectorAll(sel)]
+      .filter(el => el.parentElement.closest('span.model') === n);
+    if (step.kind === 'items') {
+      // An array renders as `[ <model> ]` with the item unnamed; the property table, if
+      // any, belongs to an object and is not it.
+      return mine('span.model').find(el => !inside(el, '.inner-object')) || null;
+    }
+    const row = mine('tr.property-row')
+      .find(tr => tr.children[0]?.textContent.trim() === step.name);
+    return row ? row.querySelector(':scope > td:nth-child(2) span.model') : null;
+  },
+  // A legacy property's NAME lives in the row's first cell, not in the model box, so
+  // lighting up the box alone would highlight the type and not the field.
+  mark: n => n.closest('tr.property-row') || n,
+};
+
+async function openNode(kit, n) {
+  if (!kit.collapsed(n)) return true;
+  kit.toggle(n)?.click();
+  return !!(await waitFor(() => !kit.collapsed(n), STEP_WAIT));
+}
+
+function schemaHost(op, t) {
+  if (t.in === 'request') return op.querySelector('.opblock-section-request-body');
+  return [...op.querySelectorAll('.responses-table .response')].find(r =>
+    r.querySelector('.response-col_status')?.textContent.trim() === t.status) || null;
+}
+
+// Swagger UI opens a response on "Example Value"; the tree lives behind "Schema". A spec
+// with no example has no tab strip at all and shows the model directly, so a missing
+// button is not a failure.
+async function openSchemaTree(host) {
+  const btn = [...host.querySelectorAll('.tab li button')]
+    .find(b => b.textContent.trim() === 'Schema');
+  if (btn && btn.getAttribute('aria-selected') !== 'true') btn.click();
+  return await waitFor(() => {
+    for (const kit of [SCHEMA_2020, SCHEMA_LEGACY]) {
+      const root = kit.root(host);
+      if (root) return { kit, root };
+    }
+    return null;
+  }, STEP_WAIT);
+}
+
+function markLeaf(kit, node, c) {
+  const target = kit.mark(node);
+  target.classList.add('dv-hit', 'l' + c.level);
+  const head = kit.head ? kit.head(node) : null;
+  const slot = head || target.querySelector(':scope > td:last-child') || target;
+  if (!slot.querySelector('.dv-fieldmark')) {
+    const chip = document.createElement('span');
+    chip.className = 'dv-fieldmark l' + c.level;
+    chip.textContent = c.mark;
+    slot.appendChild(chip);
+  }
+}
+
+// true when the reader can now see the field, false when we ran out of tree. The caller
+// counts the falses and puts the number on the page: a walk that quietly gives up is
+// indistinguishable from a field that was never there.
+async function revealTarget(op, c, run) {
+  const got = await openTo(op, c.target, c.target.steps, run, false);
+  if (!got) return false;
+  got.chain.forEach(el => markPath(el, c.level));
+  markLeaf(got.kit, got.node, c);
+  addRoad(got.chain, got.kit.mark(got.node), c.level);
+  return true;
+}
+
+// Open the tree down to the node `steps` names -- and that node too when `openLast`, which
+// is what a removed property needs: its ghost row lives inside its parent's body.
+async function openTo(op, where, steps, run, openLast) {
+  // An opblock gets its <div class="opblock-body"> before it has a responses table, so
+  // asking for the response row the instant the operation opens finds nothing. Wait for
+  // the row itself, not for the box it will eventually appear in.
+  const host = await waitFor(() => schemaHost(op, where), STEP_WAIT);
+  if (!host) return null;
+  const found = await openSchemaTree(host);
+  if (!found) return null;
+  const { kit } = found;
+  let cur = found.root;
+  const chain = [];
+  for (const step of steps) {
+    if (run !== revealRun) return null;         // the reader changed their mind
+    if (!await openNode(kit, cur)) return null;
+    const next = await waitFor(() => kit.child(cur, step), STEP_WAIT);
+    if (!next) return null;
+    chain.push(kit.mark(cur));
+    cur = next;
+  }
+  if (openLast && !await openNode(kit, cur)) return null;
+  return { kit, node: cur, chain };
+}
+
+// ---- markers are the tree's business, not the checkbox's ----
+// The checkbox decides only what gets opened FOR the reader. Whatever is open -- by the
+// checkbox or by hand -- shows its markers: a field the reader expanded themselves and
+// found unmarked would read as "this one did not change", which is a lie. So after every
+// Swagger UI render the tree is walked as it stands, opening nothing, and every changed
+// node that is on screen is lit up (markLeaf/markPath are idempotent), and every ghost
+// whose place is on screen is drawn there.
+function walkVisible(op, where, steps) {
+  const host = schemaHost(op, where);
+  if (!host) return null;
+  for (const kit of [SCHEMA_2020, SCHEMA_LEGACY]) {
+    const root = kit.root(host);
+    if (!root) continue;
+    let cur = root;
+    const chain = [];
+    for (const step of steps) {
+      if (kit.collapsed(cur)) return null;
+      const next = kit.child(cur, step);
+      if (!next) return null;
+      chain.push(kit.mark(cur));
+      cur = next;
+    }
+    return { kit, node: cur, chain };
+  }
+  return null;
+}
+
+function markVisible() {
+  pruneRoads();
+  document.querySelectorAll('.swagger-ui .opblock.is-open').forEach(op => {
+    const info = DATA.ops[keyOf(op)];
+    if (!info) return;
+    for (const c of info.changes) {
+      if (!c.target) continue;
+      const got = walkVisible(op, c.target, c.target.steps);
+      if (!got) continue;
+      got.chain.forEach(el => markPath(el, c.level));
+      markLeaf(got.kit, got.node, c);
+      addRoad(got.chain, got.kit.mark(got.node), c.level);
+    }
+    (info.ghosts || []).forEach((g, i) => placeGhost(op, g, i));
+  });
+}
+
+// ---- ghosts: what the new spec no longer has, drawn where it used to be ----
+// Swagger UI renders the new spec only, so a removed field is not grey or struck out --
+// it is simply not there, and nothing on the tree says anything ever was. The generator
+// diffed the two specs and sent each removed subtree with the steps to its old place;
+// here it becomes a struck-through, DELETED row at that place. Our own markup, never
+// Swagger UI's classes, so neither walker can mistake a ghost for a live node.
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c =>
+    ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+}
+
+function ghostTree(name, shape, opts = {}) {
+  const kids = shape && shape.props && shape.props.length;
+  const el = document.createElement(kids ? 'details' : 'div');
+  el.className = 'dv-ghost' + (opts.top ? ' dv-ghost-top' : '');
+  const head = document.createElement(kids ? 'summary' : 'div');
+  head.className = 'dv-ghost-head';
+  head.innerHTML =
+    (name != null ? `<span class="dv-ghost-name">${esc(name)}</span>` : '')
+    + (opts.required ? '<span class="dv-ghost-req">*</span>' : '')
+    + (shape ? `<span class="dv-ghost-type">${esc(shape.label)}</span>` : '')
+    + (opts.top ? '<span class="dv-ghost-mark">deleted</span>' : '')
+    + (opts.note ? `<span class="dv-ghost-note">${esc(opts.note)}</span>` : '')
+    + (shape && shape.desc ? `<span class="dv-ghost-desc">${esc(shape.desc)}</span>` : '');
+  el.appendChild(head);
+  if (kids) {
+    const body = document.createElement('div');
+    body.className = 'dv-ghost-body';
+    shape.props.forEach(p =>
+      body.appendChild(ghostTree(p.name, p, { required: p.required })));
+    if (shape.more) {
+      body.insertAdjacentHTML('beforeend',
+        `<div class="dv-ghost-more">…and ${shape.more} more</div>`);
+    }
+    el.appendChild(body);
+  }
+  return el;
+}
+
+// Insert `el` right after the sibling that preceded it in the old spec -- a live node or
+// an earlier ghost -- or first when it led the list.
+function placeAfter(parent, el, anchor) {
+  if (anchor) anchor.insertAdjacentElement('afterend', el);
+  else parent.insertBefore(el, parent.firstChild);
+}
+
+function ghostRow(cells) {
+  const tr = document.createElement('tr');
+  tr.className = 'dv-ghost-row';
+  cells.forEach(([cls, node]) => {
+    const td = document.createElement('td');
+    if (cls) td.className = cls;
+    if (node) td.appendChild(node);
+    tr.appendChild(td);
+  });
+  return tr;
+}
+
+function placeGhost(op, g, i) {
+  if (op.querySelector(`[data-dv-ghost="${i}"]`)) return;
+  const tag = el => { el.dataset.dvGhost = i; return el; };
+  if (g.kind === 'prop') {
+    const got = walkVisible(op, g, g.steps);
+    if (!got || got.kit.collapsed(got.node)) return;
+    if (got.kit === SCHEMA_2020) {
+      const ghost = ghostTree(g.name, g.old, { top: true, required: g.required });
+      const body = got.node.querySelector(':scope > .json-schema-2020-12-body');
+      if (!body) return;
+      let ul = [...body.querySelectorAll('.json-schema-2020-12-keyword--properties > ul')]
+        .find(u => u.closest('.json-schema-2020-12-body') === body);
+      if (!ul) {                                  // every property went: start a list
+        ul = body.querySelector(':scope > ul.dv-ghost-list');
+        if (!ul) {
+          ul = document.createElement('ul');
+          ul.className = 'dv-ghost-list';
+          body.appendChild(ul);
+        }
+      }
+      const li = tag(document.createElement('li'));
+      li.className = 'dv-ghost-li';
+      li.dataset.dvGhostName = g.name;
+      li.appendChild(ghost);
+      const prev = g.after && ([...ul.children].find(x => x.dataset.dvGhostName === g.after)
+        || SCHEMA_2020.child(got.node, { kind: 'prop', name: g.after })
+             ?.closest('li.json-schema-2020-12-property'));
+      placeAfter(ul, li, prev && prev.parentElement === ul ? prev : null);
+    } else {
+      const rows = [...got.node.querySelectorAll('tr.property-row')]
+        .filter(tr => tr.closest('span.model') === got.node);
+      const tbody = rows[0]?.parentElement
+        || got.node.querySelector('table.model > tbody');
+      if (!tbody) return;
+      // The legacy table names a field in its first cell; the ghost keeps the rest.
+      const rest = ghostTree(null, g.old, { top: true });
+      const tr = tag(ghostRow([[null, null], [null, rest]]));
+      tr.dataset.dvGhostName = g.name;
+      tr.firstChild.innerHTML = `<span class="dv-ghost-name">${esc(g.name)}</span>`;
+      const prev = g.after && ([...tbody.children].find(x => x.dataset.dvGhostName === g.after)
+        || rows.find(r => r.children[0]?.textContent.trim() === g.after));
+      placeAfter(tbody, tr, prev || null);
+    }
+    return;
+  }
+  if (g.kind === 'type') {
+    const got = walkVisible(op, g, g.steps);
+    if (!got) return;
+    const name = g.steps.length ? g.steps[g.steps.length - 1].name : null;
+    const ghost = ghostTree(name || null, g.old,
+                            { top: true, note: 'the shape it had before' });
+    const at = got.kit.mark(got.node);
+    if (at.matches('tr')) {
+      at.insertAdjacentElement('afterend', tag(ghostRow([[null, null], [null, ghost]])));
+    } else {
+      at.insertAdjacentElement('afterend', tag(ghost));
+    }
+    return;
+  }
+  if (g.kind === 'param') {
+    let tbody = op.querySelector('table.parameters > tbody');
+    if (!tbody) {                                 // no parameters left at all
+      const box = op.querySelector('.parameters-container');
+      if (!box) return;
+      tbody = box.querySelector('table.dv-ghost-table > tbody');
+      if (!tbody) {
+        box.insertAdjacentHTML('beforeend',
+          '<table class="parameters dv-ghost-table"><tbody></tbody></table>');
+        tbody = box.querySelector('table.dv-ghost-table > tbody');
+      }
+    }
+    const name = ghostTree(g.name, { label: g.label }, { top: true, required: g.required,
+                                                       note: '(' + g.in + ')' });
+    const desc = document.createElement('div');
+    desc.className = 'dv-ghost-desc';
+    desc.textContent = g.desc || '';
+    const tr = tag(ghostRow([['parameters-col_name', name],
+                             ['parameters-col_description', desc]]));
+    tr.dataset.dvGhostName = g.name + '|' + g.in;
+    const prev = g.after && [...tbody.children].find(r =>
+      r.dataset.dvGhostName === g.after.join('|')
+      || (r.dataset.paramName === g.after[0] && r.dataset.paramIn === g.after[1]));
+    placeAfter(tbody, tr, prev || null);
+    return;
+  }
+  if (g.kind === 'response') {
+    const tbody = op.querySelector('.responses-table > tbody');
+    if (!tbody) return;
+    const status = ghostTree(g.status, null, { top: true });
+    const what = ghostTree(g.desc || '', g.old, {});
+    const tr = tag(ghostRow([['response-col_status', status],
+                             ['response-col_description', what], [null, null]]));
+    tr.dataset.dvGhostName = g.status;
+    const prev = g.after && [...tbody.children].find(r =>
+      r.dataset.dvGhostName === g.after || r.dataset.code === g.after);
+    placeAfter(tbody, tr, prev || null);
+    return;
+  }
+  if (g.kind === 'media') {
+    const host = schemaHost(op, g);
+    const cell = g.in === 'request' ? host
+      : host?.querySelector(':scope > .response-col_description');
+    if (!cell) return;
+    cell.appendChild(tag(ghostTree(g.media, g.old, { top: true, note: 'media type' })));
+    return;
+  }
+  if (g.kind === 'body') {
+    const section = op.querySelector('.opblock-body .opblock-section');
+    if (!section) return;
+    section.insertAdjacentElement('afterend',
+      tag(ghostTree('Request body', g.old, { top: true })));
+  }
+}
+
+// An ancestor shared by several changed fields wears the colour of the worst of them.
+function markPath(el, level) {
+  el.classList.add('dv-hit-path');
+  const had = [1, 2, 3].find(l => el.classList.contains('l' + l)) || 0;
+  if (level > had) {
+    el.classList.remove('l' + had);
+    el.classList.add('l' + level);
+  }
+}
+
+// ---- the road: one glowing line per changed field, root to leaf ----
+// Drawn as an SVG over the page rather than as borders on the boxes, because the road
+// is not the boxes' edges: it runs down an ancestor only as far as the child it leads
+// into, then steps in to that child, and a box's border cannot stop half-way down.
+// Positions are read off the live layout, so anything that moves the tree — another
+// operation opening, the window narrowing — re-draws it on the next frame.
+const ROADS = [];
+const SVG_NS = 'http://www.w3.org/2000/svg';
+let roadLayer = null, roadFrame = 0;
+
+function headOf(el) {
+  return el.querySelector(':scope > .json-schema-2020-12-head')
+      || el.querySelector(':scope > td:first-child')
+      || el.querySelector(':scope > span > button.model-box-control')
+      || el;
+}
+
+// Where the road turns at this node: just left of its name — a 2020-12 box starts at
+// its first letter, so its own edge would put the road through the "p" of "pets" — and
+// level with the middle of the name. The leaf's spine sits exactly there, 7px out.
+function roadPoint(el) {
+  const box = el.getBoundingClientRect(), head = headOf(el).getBoundingClientRect();
+  if (!box.height) return null;                 // filtered out, collapsed, detached
+  return {
+    x: box.left + scrollX - 5.5,
+    y: head.top + scrollY + Math.min(head.height / 2, 14),
+  };
+}
+
+function roadPath(road) {
+  if (!road.leaf.isConnected || road.chain.some(el => !el.isConnected)) return null;
+  const pts = [...road.chain, road.leaf].map(roadPoint);
+  if (pts.some(p => !p)) return null;
+  // Down the ancestor's rail to the level of the next name, then in to it.
+  let d = `M${pts[0].x} ${pts[0].y}`;
+  for (const p of pts.slice(1)) d += ` V${p.y} H${p.x}`;
+  return d;
+}
+
+function drawRoads() {
+  cancelAnimationFrame(roadFrame);
+  roadFrame = requestAnimationFrame(() => {
+    if (!roadLayer) {
+      roadLayer = document.createElementNS(SVG_NS, 'svg');
+      roadLayer.setAttribute('class', 'dv-roads');
+      roadLayer.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(roadLayer);
+    }
+    roadLayer.setAttribute('width', document.documentElement.scrollWidth);
+    roadLayer.setAttribute('height', document.documentElement.scrollHeight);
+    for (const road of ROADS) {
+      const d = roadPath(road);
+      if (!road.g) {
+        road.g = document.createElementNS(SVG_NS, 'g');
+        road.g.setAttribute('class', 'l' + road.level);
+        for (const cls of ['dv-road-bed', 'dv-road-spark']) {
+          const path = document.createElementNS(SVG_NS, 'path');
+          path.setAttribute('class', cls);
+          road.g.appendChild(path);
+        }
+        roadLayer.appendChild(road.g);
+      }
+      road.g.style.display = d ? '' : 'none';
+      if (!d || d === road.d) continue;
+      road.d = d;
+      const [bed, spark] = road.g.children;
+      bed.setAttribute('d', d);
+      spark.setAttribute('d', d);
+      // A short bright dash with a gap longer than the whole road is a spark: sliding
+      // its offset from "not yet started" to "past the end" runs it down the road and
+      // into the field. Speed is per pixel, so a deep field is not reached in a blur.
+      const len = spark.getTotalLength(), dash = 26;
+      spark.style.strokeDasharray = `${dash} ${len + dash}`;
+      road.spark?.cancel();
+      road.spark = spark.animate(
+        [{ strokeDashoffset: dash }, { strokeDashoffset: -len }],
+        { duration: 900 + len * 2.2, iterations: Infinity,
+          easing: 'cubic-bezier(.45,0,.2,1)' });
+    }
+  });
+}
+
+function clearRoads() {
+  for (const road of ROADS) { road.spark?.cancel(); road.g?.remove(); }
+  ROADS.length = 0;
+}
+
+// One road per leaf element, whoever found it first -- the reveal walk or the pass over
+// what is already open -- and none for a leaf Swagger UI has since thrown away.
+function addRoad(chain, leaf, level) {
+  if (ROADS.some(r => r.leaf === leaf)) return;
+  ROADS.push({ chain, leaf, level });
+  drawRoads();
+}
+
+function pruneRoads() {
+  for (let i = ROADS.length - 1; i >= 0; i--) {
+    const road = ROADS[i];
+    if (road.leaf.isConnected) continue;
+    road.spark?.cancel();
+    road.g?.remove();
+    ROADS.splice(i, 1);
+  }
+}
+
+new ResizeObserver(drawRoads).observe(document.body);
+new MutationObserver(() => { if (ROADS.length) drawRoads(); })
+  .observe(document.getElementById('swagger-ui'), { childList: true, subtree: true });
+
+// One run at a time. A second click supersedes the first rather than racing it.
+let revealRun = 0;
+
+async function revealImpacted() {
+  const run = ++revealRun;
+  const ops = [...document.querySelectorAll('.swagger-ui .opblock')].filter(op => {
+    const s = op.dataset.dvState;
+    return s && s !== 'untouched' && op.style.display !== 'none';
+  });
+  for (const op of ops) {
+    if (run !== revealRun) return;
+    const info = DATA.ops[keyOf(op)];
+    if (!info) continue;
+    if (!op.classList.contains('is-open')) {
+      op.querySelector('.opblock-summary-control')?.click();
+      await waitFor(() => op.querySelector('.opblock-body'), STEP_WAIT);
+    }
+    let missed = 0;
+    for (const c of info.changes) {
+      if (run !== revealRun) return;
+      if (c.target && !await revealTarget(op, c, run)) missed++;
+    }
+    // Open the way to every ghost inside a schema too: a removed field is a change like
+    // any other, and its row lives in its old parent's body.
+    for (const g of info.ghosts || []) {
+      if (run !== revealRun) return;
+      if (g.steps) await openTo(op, g, g.steps, run, g.kind === 'prop');
+    }
+    reportMissed(op, missed);
+    markVisible();
+  }
+}
+
+// A walk that ran out of tree — an unfamiliar renderer, a node that never rendered —
+// has to say so where the reader is looking. Silence here reads as "there was nothing
+// deeper", which is the belief this whole feature exists to correct.
+function reportMissed(op, missed) {
+  op.querySelector('.dv-missed')?.remove();
+  if (!missed) return;
+  const note = op.querySelector('.dv-note');
+  if (!note) return;
+  const line = document.createElement('div');
+  line.className = 'dv-deepmore dv-missed';
+  line.textContent = `${missed} changed field${missed > 1 ? 's' : ''} could not be opened `
+    + 'in this schema view — open it by hand with the schema’s own “Expand all”.';
+  note.appendChild(line);
+}
+
+// "expand impacted" now means what the reader always assumed it meant: not "open the
+// operations that changed" but "show me what changed". Stopping at the operation left
+// the fields four levels down inside a collapsed schema, which is where this started.
+document.getElementById('dv-expand').onchange = e => {
+  revealRun++;                                   // cancel anything still walking
+  clearRoads();
+  document.querySelectorAll('.swagger-ui .opblock').forEach(op => {
+    const s = op.dataset.dvState;
+    if (!s || s === 'untouched') return;
+    const open = op.classList.contains('is-open');
+    if (open !== e.target.checked) op.querySelector('.opblock-summary-control')?.click();
+  });
+  if (e.target.checked) revealImpacted();
+};
+
+window.ui = SwaggerUIBundle({
+  spec: DATA.spec,   // already fully dereferenced by the generator
+  dom_id: '#swagger-ui',
+  docExpansion: 'list',
+  defaultModelsExpandDepth: -1,
+  tryItOutEnabled: false,
+  supportedSubmitMethods: [],
+  deepLinking: false,
+  onComplete: decorate,
+});
+
+new MutationObserver(() => {
+  clearTimeout(window.__dvT);
+  window.__dvT = setTimeout(decorate, 50);
+}).observe(document.getElementById('swagger-ui'), { childList: true, subtree: true });
+
+// Embedded in a page, this document should not grow a scrollbar of its own: a frame
+// that scrolls internally traps the wheel and hides how much is left. Report our real
+// height instead and let the host size the frame — the outer page keeps the only
+// scrollbar. Cross-origin over file://, so it goes by postMessage, not by reading us.
+//
+// The height of the *content*, never of the viewport. `documentElement.scrollHeight` is
+// at least the viewport, and the viewport of a frame is whatever the host last set it
+// to from the number we posted, plus the few pixels it adds for the border: post that
+// and the host grows the frame, `resize` fires, we measure the taller viewport, post
+// again, and the frame creeps down the page four pixels at a time for as long as the
+// tab is open. The body's own box (margin 0, height auto) is the content and nothing
+// else, and does not move when the frame around it does.
+function postHeight() {
+  if (window.parent === window) return;
+  const h = Math.ceil(document.body.getBoundingClientRect().height);
+  if (h !== window.__dvH) {
+    window.__dvH = h;
+    window.parent.postMessage({ type: 'dv-height', height: h }, '*');
+  }
+}
+new MutationObserver(() => {
+  clearTimeout(window.__dvHT);
+  window.__dvHT = setTimeout(postHeight, 80);
+}).observe(document.body, { childList: true, subtree: true, attributes: true });
+window.addEventListener('load', postHeight);
+window.addEventListener('resize', postHeight);
+
+// The other half of that bargain. Having given up our scrollport we cannot pin our own
+// toolbar, so the host posts how far down this frame its pinned masthead now sits and we
+// slide the bar by that much -- clamped to the frame, so it stops at the bottom of the
+// diff rather than riding on into whatever follows. The offset is set on <html>, which
+// the observer above does not watch: on `.dv-bar` it would re-arm postHeight on every
+// scrolled frame.
+window.addEventListener('message', (e) => {
+  const d = e.data;
+  if (!d || d.type !== 'dv-stick') return;
+  const bar = document.querySelector('.dv-bar');
+  if (!bar) return;
+  const room = document.documentElement.scrollHeight - bar.offsetTop - bar.offsetHeight;
+  const y = Math.max(0, Math.min(d.top || 0, room));
+  document.documentElement.style.setProperty('--dv-stick', y + 'px');
+});
+</script>
+</body>
+</html>

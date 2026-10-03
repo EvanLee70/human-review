@@ -1,0 +1,36 @@
+[run-steps] base 5a97353ee542: the base the review audited (review-points.md), inside origin/main
+    $ git merge-base 5a97353ee5425de306846fc17181101b6470c580 HEAD
+  > city: started at +0 s (log: .human-review/logs/city.log)
+  > sequence: started at +0 s (log: .human-review/logs/sequence.log)
+  > basestack: started at +0 s (log: .human-review/logs/basestack.log)
+  < basestack: ran in 47.1 s, at +47 s
+  < city: ran in 76.8 s, at +77 s
+  > traces: started at +77 s (log: .human-review/logs/traces.log)
+  < traces: ran in 22.1 s, at +99 s
+  > video: started at +99 s (log: .human-review/logs/video.log)
+  < sequence: ran in 141.8 s, at +142 s
+  > c2: started at +142 s (log: .human-review/logs/c2.log)
+  > testcov: started at +142 s (log: .human-review/logs/testcov.log)
+  < c2: ran in 5.5 s, at +147 s
+  < testcov: ran in 52.5 s, at +194 s
+  < video: ran in 266.6 s, at +366 s
+  > dsaudit: started at +366 s (log: .human-review/logs/dsaudit.log)
+  < dsaudit: ran in 39.2 s, at +405 s
+
+[run-steps] 8 step(s) in 405 s wall clock, 6 at a time; each step's output is in .human-review/logs/
+
+  step         status   why / what to say
+  basestack    ran      
+               note     started the merge-base stack (5a97353e) early, for the design-system audit
+  sequence     ran      
+               note     the traced suites ran against http://localhost:57173, started by this run from the commit under review — not whatever was already listening
+               note     cd petclinic-backend && mvn -o -Pgenseq test -Dgroups=genseq: FunctionalCucumberTest discovered no tests under the tag filter — a tag filter that matched nothing, not a red suite
+  c2           ran      
+  city         ran      
+               note     codecity lit: 6 changed (put this measured number under the image; never type one)
+  video        ran      
+               note     filmed against http://localhost:56957, started by this run from the commit under review — not whatever was already listening on :4200
+  dsaudit      ran      
+  traces       ran      
+  testcov      ran      
+exit=0

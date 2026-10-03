@@ -1,0 +1,14 @@
+[video] the app cannot say which commit it is; this run started it itself, from e7b807e83fd3973993c980e3d5b88c62f947e8db
+[video] title card: "Demo" / "Owners grid: paged and sorted by Name or City", 3.42s
+[video] feature-script.js: 1/1 changed screens filmed: /owners, 13 cues (13 with a box) -> /Users/victorrentea/workspace/petclinic-eval/.human-review/assets/feature.raw.webm
+[video] viewport 1280x800 @ dpr 1
+[video] narration: 13/13 cues, 35.9s of speech, voice "Samantha"
+[annotate] 201 caption states from 201 frames
+[annotate] 13 captions, 13 spotlights, 13 spoken -> /Users/victorrentea/workspace/petclinic-eval/.human-review/assets/feature.webm
+[annotate] 226 caption states from 226 frames
+[annotate] 13 captions, 13 spotlights, 13 spoken -> /Users/victorrentea/workspace/petclinic-eval/.human-review/assets/feature.voice-trump.webm
+[video] 🐘 voice -> /Users/victorrentea/workspace/petclinic-eval/.human-review/assets/feature.voice-trump.webm
+[annotate] 228 caption states from 228 frames
+[annotate] 13 captions, 13 spotlights, 13 spoken -> /Users/victorrentea/workspace/petclinic-eval/.human-review/assets/feature.voice-discovery.webm
+[video] Discovery voice -> /Users/victorrentea/workspace/petclinic-eval/.human-review/assets/feature.voice-discovery.webm
+[video] 88.360000s, 4.3M

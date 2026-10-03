@@ -1,0 +1,262 @@
+{
+  "version": 1,
+  "commit_id": "e7b807e83fd3973993c980e3d5b88c62f947e8db",
+  "event": "COMMENT",
+  "body": "**Review record** from `review-points.md` (4 read-only reviewer subagents (correctness, security, tests, ticket-fit) on Sonnet + SonarCloud via CI): 6 auto-fixed · 13 declined and still open · 6 assumptions. Each is pinned on the line it is about.",
+  "comments": [
+    {
+      "hr_id": "F:a-failed-page-hid-the-paginator-so-only-a-new",
+      "pile": "fixed",
+      "title": "A failed page hid the paginator, so only a new search could retry",
+      "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.ts",
+      "line": 38,
+      "side": "RIGHT",
+      "anchor": "return this.loaded && this.totalElements === 0 && !this.errorMessage;",
+      "body": "🛠 **Auto-fixed** in e7b807e8 — A failed page hid the paginator, so only a new search could retry\n\n<sub>raised by correctness, tests and ticket-fit reviewers</sub>"
+    },
+    {
+      "hr_id": "F:paging-step-waited-for-rows-to-change-which-a",
+      "pile": "fixed",
+      "title": "Paging step waited for rows to change, which a page may not do",
+      "path": "petclinic-test/src/owner-search.feature.glue.ts",
+      "line": 79,
+      "side": "RIGHT",
+      "start_line": 69,
+      "anchor": "}",
+      "body": "🛠 **Auto-fixed** in e7b807e8 — Paging step waited for rows to change, which a page may not do\n\n<sub>raised by correctness and ticket-fit reviewers</sub>"
+    },
+    {
+      "hr_id": "F:rejected-request-values-echoed-into-the-log-and",
+      "pile": "fixed",
+      "title": "Rejected request values echoed into the log and the 400 body",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
+      "line": 96,
+      "side": "RIGHT",
+      "start_line": 86,
+      "anchor": "}",
+      "body": "🛠 **Auto-fixed** in e7b807e8 — Rejected request values echoed into the log and the 400 body\n\n<sub>raised by security reviewer</sub>"
+    },
+    {
+      "hr_id": "F:validation-literals-duplicated-four-times-in",
+      "pile": "fixed",
+      "title": "Validation literals duplicated four times in the advice",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
+      "line": 39,
+      "side": "RIGHT",
+      "start_line": 38,
+      "anchor": "private static final String VALIDATION_FAILED_LOG = \"Validation failed: {}\";",
+      "body": "🛠 **Auto-fixed** in e7b807e8 — Validation literals duplicated four times in the advice\n\n<sub>raised by CI (SonarCloud java:S1192)</sub>"
+    },
+    {
+      "hr_id": "F:size-assertions-on-length-instead-of-tohavesize",
+      "pile": "fixed",
+      "title": "Size assertions on .length instead of toHaveSize",
+      "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
+      "line": 90,
+      "side": "RIGHT",
+      "anchor": "expect(requests).toHaveSize(1);",
+      "body": "🛠 **Auto-fixed** in e7b807e8 — Size assertions on .length instead of toHaveSize\n\n<sub>raised by CI (SonarCloud typescript:S5906)</sub>"
+    },
+    {
+      "hr_id": "F:injected-services-not-readonly",
+      "pile": "fixed",
+      "title": "Injected services not readonly",
+      "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.ts",
+      "line": 34,
+      "side": "RIGHT",
+      "anchor": "constructor(private readonly router: Router, private readonly ownerService: OwnerService) {",
+      "body": "🛠 **Auto-fixed** in e7b807e8 — Injected services not readonly\n\n<sub>raised by CI (SonarCloud typescript:S2933)</sub>"
+    },
+    {
+      "hr_id": "I:owner-deleted-between-page-query-and-graph",
+      "pile": "ignored",
+      "title": "Owner deleted between page query and graph fetch answers 500",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+      "line": 145,
+      "side": "RIGHT",
+      "anchor": ".orElseThrow(() -> new IllegalStateException(\"Owner \" + id + \" vanished while listing\")))",
+      "body": "🔴 **Open issue** · medium · declined by the author — Owner deleted between page query and graph fetch answers 500\n\n**Why declined:** design.md decided to surface it, never silently drop a selected owner.\n\n<sub>raised by correctness reviewer</sub>"
+    },
+    {
+      "hr_id": "I:page-count-and-graph-fetch-share-no-snapshot",
+      "pile": "ignored",
+      "title": "Page, count and graph fetch share no snapshot",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+      "line": 106,
+      "side": "RIGHT",
+      "anchor": "public OwnerPageDto listOwners(",
+      "body": "🔴 **Open issue** · low · declined by the author — Page, count and graph fetch share no snapshot\n\n**Why declined:** design.md Risks accepts offset drift under concurrent writes; snapshots are out of scope.\n\n<sub>raised by correctness reviewer</sub>"
+    },
+    {
+      "hr_id": "I:empty-table-chrome-shows-before-the-first-page",
+      "pile": "ignored",
+      "title": "Empty table chrome shows before the first page arrives",
+      "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.html",
+      "line": 27,
+      "side": "RIGHT",
+      "anchor": "<div class=\"table-responsive\" id=\"ownersTable\" *ngIf=\"!noMatches && !errorMessage\">",
+      "body": "🔴 **Open issue** · low · declined by the author — Empty table chrome shows before the first page arrives\n\n**Why declined:** marked aria-busy and claims nothing; no false \"no owners\" message.\n\n<sub>raised by correctness reviewer</sub>"
+    },
+    {
+      "hr_id": "I:httpparams-sends-raw-read-as-a-space",
+      "pile": "ignored",
+      "title": "HttpParams sends \"+\" raw, read as a space",
+      "path": "petclinic-frontend/src/app/owners/owner.service.ts",
+      "line": 28,
+      "side": "RIGHT",
+      "anchor": "params = params.set(name, value);",
+      "body": "🔴 **Open issue** · info · declined by the author — HttpParams sends \"+\" raw, read as a space\n\n**Why declined:** refuted — Angular 16 encodes '+'; owner.service.spec.ts:80 decodes it back verbatim.\n\n<sub>raised by correctness reviewer</sub>"
+    },
+    {
+      "hr_id": "I:lastname-has-no-length-cap",
+      "pile": "ignored",
+      "title": "lastName has no length cap",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+      "line": 109,
+      "side": "RIGHT",
+      "anchor": "name = \"lastName\", defaultValue = \"\") String lastName,",
+      "body": "🔴 **Open issue** · low · declined by the author — lastName has no length cap\n\n**Why declined:** pre-existing filter, bound as a parameter; Tomcat caps the request line.\n\n<sub>raised by security reviewer</sub>"
+    },
+    {
+      "hr_id": "I:name-column-shows-first-last-but-sorts-by-last",
+      "pile": "ignored",
+      "title": "Name column shows \"First Last\" but sorts by last name",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerSort.java",
+      "line": 12,
+      "side": "RIGHT",
+      "anchor": "NAME(\"name\", \"lastName\", \"firstName\", \"id\"), CITY(\"city\", \"city\", \"lastName\", \"firstName\", \"id\");",
+      "body": "🔴 **Open issue** · low · declined by the author — Name column shows \"First Last\" but sorts by last name\n\n**Why declined:** Q3 decided by the human: Name sorts by last name, first name, id.\n\n<sub>raised by tests reviewer</sub>"
+    },
+    {
+      "hr_id": "I:index-test-never-checks-the-planner-uses-the",
+      "pile": "ignored",
+      "title": "Index test never checks the planner uses the indexes",
+      "path": "petclinic-backend/src/test/java/victor/training/petclinic/repository/OwnerListIndexesMigrationTest.java",
+      "line": 41,
+      "side": "RIGHT",
+      "anchor": "assertThat(ownerIndexes(\"fresh\")).containsAll(expected(\"fresh\"));",
+      "body": "🔴 **Open issue** · medium · declined by the author — Index test never checks the planner uses the indexes\n\n**Why declined:** plans need 100k rows; that measurement is deferred by the spec.\n\n<sub>raised by tests reviewer</sub>"
+    },
+    {
+      "hr_id": "I:query-budget-test-is-transactional-may-mask",
+      "pile": "ignored",
+      "title": "Query-budget test is @Transactional, may mask lazy loads",
+      "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListQueryBudgetTest.java",
+      "line": 51,
+      "side": "RIGHT",
+      "anchor": "@Transactional",
+      "body": "🔴 **Open issue** · info · declined by the author — Query-budget test is @Transactional, may mask lazy loads\n\n**Why declined:** refuted — statistics count every prepared statement, lazy loads included; a miss exceeds 3.\n\n<sub>raised by tests reviewer</sub>"
+    },
+    {
+      "hr_id": "I:ownertest-getall-narrowed-to-lastname-franklin",
+      "pile": "ignored",
+      "title": "OwnerTest.getAll narrowed to lastName=Franklin",
+      "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java",
+      "line": 131,
+      "side": "RIGHT",
+      "anchor": "List<OwnerDto> owners = search(\"/api/owners?lastName=Franklin\");",
+      "body": "🔴 **Open issue** · info · declined by the author — OwnerTest.getAll narrowed to lastName=Franklin\n\n**Why declined:** refuted — OwnerListTest.java:47 pins the unfiltered default page against SQL.\n\n<sub>raised by tests reviewer</sub>"
+    },
+    {
+      "hr_id": "I:no-recovery-when-the-current-page-falls-past",
+      "pile": "ignored",
+      "title": "No recovery when the current page falls past the last",
+      "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.ts",
+      "line": 57,
+      "side": "RIGHT",
+      "anchor": "this.pageIndex = event.pageSize === this.pageSize ? event.pageIndex : 0;",
+      "body": "🔴 **Open issue** · info · declined by the author — No recovery when the current page falls past the last\n\n**Why declined:** the spec asks only that navigation stays; its component test covers it.\n\n<sub>raised by tests reviewer</sub>"
+    },
+    {
+      "hr_id": "I:sort-direction-asc-hides-a-cleared-sort",
+      "pile": "ignored",
+      "title": "`sort.direction || 'asc'` hides a cleared sort",
+      "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.ts",
+      "line": 64,
+      "side": "RIGHT",
+      "anchor": "this.sortDirection = sort.direction || 'asc';",
+      "body": "🔴 **Open issue** · info · declined by the author — `sort.direction || 'asc'` hides a cleared sort\n\n**Why declined:** matSortDisableClear prevents it; the bound matSortDirection redraws the arrow anyway.\n\n<sub>raised by ticket-fit reviewer</sub>"
+    },
+    {
+      "hr_id": "I:v4-indexes-nobody-asked-for",
+      "pile": "ignored",
+      "title": "V4 indexes nobody asked for",
+      "path": "petclinic-backend/src/main/resources/db/migration/V4__owner_list_indexes.sql",
+      "line": 3,
+      "side": "RIGHT",
+      "anchor": "CREATE INDEX owners_last_name_pattern_idx ON owners (last_name text_pattern_ops);",
+      "body": "🔴 **Open issue** · info · declined by the author — V4 indexes nobody asked for\n\n**Why declined:** design.md Decision 3 and task 2.1 specify them.\n\n<sub>raised by ticket-fit reviewer</sub>"
+    },
+    {
+      "hr_id": "I:add-owner-shown-during-load-and-after-errors",
+      "pile": "ignored",
+      "title": "Add Owner shown during load and after errors",
+      "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.html",
+      "line": 62,
+      "side": "RIGHT",
+      "anchor": "<button id=\"addOwner\" class=\"btn btn-default\" (click)=\"addOwner()\">Add Owner</button>",
+      "body": "🔴 **Open issue** · info · declined by the author — Add Owner shown during load and after errors\n\n**Why declined:** the spec requires Add Owner across loading, empty and error layouts.\n\n<sub>raised by ticket-fit reviewer</sub>"
+    },
+    {
+      "hr_id": "A:an-empty-size-page-or-sort-means-omitted-not",
+      "pile": "assumption",
+      "title": "An empty ?size=, ?page= or ?sort= means omitted, not malformed",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+      "line": 115,
+      "side": "RIGHT",
+      "anchor": "name = \"size\", defaultValue = \"10\") int size,",
+      "body": "💭 **Assumption** · confidence 0.60 — An empty ?size=, ?page= or ?sort= means omitted, not malformed\n\n**Not taken:** answer 400 for an empty value\n\n**Why:** Spring's defaultValue also covers an empty string, and the spec defines only the omitted case. Pulling it down: the spec says malformed input is a 400, and `size=` could be read as malformed."
+    },
+    {
+      "hr_id": "A:a-type-mismatch-is-a-400-on-every-endpoint-not",
+      "pile": "assumption",
+      "title": "A type mismatch is a 400 on every endpoint, not only the list",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
+      "line": 88,
+      "side": "RIGHT",
+      "anchor": "@ExceptionHandler(MethodArgumentTypeMismatchException.class)",
+      "body": "💭 **Assumption** · confidence 0.70 — A type mismatch is a 400 on every endpoint, not only the list\n\n**Not taken:** scope the 400 to listOwners, leave /api/owners/abc a 500\n\n**Why:** a 500 for bad client input is wrong everywhere, and the advice is global by design. Pulling it down: the spec promises the detail and CRUD contracts unchanged, and /api/owners/abc moved from 500 to 400."
+    },
+    {
+      "hr_id": "A:a-page-whose-offset-overflows-an-int-is-a-400",
+      "pile": "assumption",
+      "title": "A page whose offset overflows an int is a 400",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+      "line": 128,
+      "side": "RIGHT",
+      "anchor": "if (page < 0 || (long) page * size > Integer.MAX_VALUE) {",
+      "body": "💭 **Assumption** · confidence 0.80 — A page whose offset overflows an int is a 400\n\n**Not taken:** clamp it and answer an empty page\n\n**Why:** the spec names \"unrepresentable\" page numbers as a 400, and Hibernate's offset is an int. Only how far \"unrepresentable\" reaches was mine to choose."
+    },
+    {
+      "hr_id": "A:sort-keys-and-directions-are-case-sensitive",
+      "pile": "assumption",
+      "title": "Sort keys and directions are case-sensitive",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerSort.java",
+      "line": 31,
+      "side": "RIGHT",
+      "anchor": ".filter(s -> s.key.equals(parts[0]))",
+      "body": "💭 **Assumption** · confidence 0.75 — Sort keys and directions are case-sensitive\n\n**Not taken:** accept Name,ASC and similar\n\n**Why:** the spec lists exactly four lowercase tokens and rejects everything else. A lenient parser would be friendlier to hand-written URLs, but nothing in-repo writes them."
+    },
+    {
+      "hr_id": "A:the-error-view-shows-the-server-s-message",
+      "pile": "assumption",
+      "title": "The error view shows the server's message verbatim",
+      "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.html",
+      "line": 24,
+      "side": "RIGHT",
+      "anchor": "Could not load owners: {{ errorMessage }}",
+      "body": "💭 **Assumption** · confidence 0.55 — The error view shows the server's message verbatim\n\n**Not taken:** a generic \"could not load owners\", details only in the console\n\n**Why:** the spec asks only for an explicit error. The handler's text (\"server returned code 500…\") helps whoever reports it, but it is technical wording on a clinic screen."
+    },
+    {
+      "hr_id": "A:no-match-message-keeps-the-old-lastname-wording",
+      "pile": "assumption",
+      "title": "No-match message keeps the old \"LastName\" wording",
+      "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.html",
+      "line": 26,
+      "side": "RIGHT",
+      "anchor": "<div id=\"noOwners\" *ngIf=\"noMatches\">No owners with LastName starting with \"{{ submittedLastName }}\"</div>",
+      "body": "💭 **Assumption** · confidence 0.85 — No-match message keeps the old \"LastName\" wording\n\n**Not taken:** reword it to \"last name\"\n\n**Why:** the spec only adds the submitted prefix, and e2e text matches may rely on the old wording."
+    }
+  ],
+  "generated_by": "push-pr-comments.py --from-review-points"
+}
