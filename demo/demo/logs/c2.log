@@ -1,4 +1,4 @@
   * c2 -> packages
     $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/c2-from-sequence.py --base origin/main --out-dir .human-review/assets/c2
-[c2] 5 container(s), 4 call(s), projected from 5 sequence diagram(s) -> /Users/victorrentea/workspace/petclinic-pr/.human-review/assets/c2
+[c2] 5 container(s), 4 call(s), projected from 5 sequence diagram(s) -> /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/c2
 [c2] against d4a63eb66062: no change of shape

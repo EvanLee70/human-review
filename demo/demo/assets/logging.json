@@ -3,7 +3,7 @@
     "logging": [
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/notification/NotificationServiceClient.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/notification/NotificationServiceClient.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/notification/NotificationServiceClient.java",
         "line": 37,
         "column": 13,
         "end_line": 37,
@@ -46,7 +46,7 @@
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
         "line": 199,
         "column": 9,
         "end_line": 199,
@@ -89,7 +89,7 @@
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
         "line": 201,
         "column": 13,
         "end_line": 201,
@@ -124,7 +124,7 @@
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/VisitRestController.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/rest/VisitRestController.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/rest/VisitRestController.java",
         "line": 75,
         "column": 9,
         "end_line": 75,
@@ -161,7 +161,7 @@
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
         "line": 52,
         "column": 9,
         "end_line": 52,
@@ -196,7 +196,7 @@
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
         "line": 66,
         "column": 9,
         "end_line": 66,
@@ -231,7 +231,7 @@
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
         "line": 76,
         "column": 9,
         "end_line": 76,
@@ -268,7 +268,7 @@
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
         "line": 87,
         "column": 9,
         "end_line": 87,
@@ -294,7 +294,7 @@
     "antipattern": [
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/PetClinicApplication.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/PetClinicApplication.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/PetClinicApplication.java",
         "line": 22,
         "column": 9,
         "kind": "System.out",
@@ -303,7 +303,7 @@
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/domain/Owner.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/domain/Owner.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/domain/Owner.java",
         "line": 47,
         "column": 9,
         "kind": "System.out",
@@ -312,7 +312,7 @@
       },
       {
         "file": "petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtension.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtension.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtension.java",
         "line": 133,
         "column": 13,
         "kind": "System.err",
@@ -321,7 +321,7 @@
       },
       {
         "file": "petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtension.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtension.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtension.java",
         "line": 154,
         "column": 13,
         "kind": "System.err",
@@ -330,7 +330,7 @@
       },
       {
         "file": "petclinic-backend/src/test/java/victor/training/petclinic/guardrail/JpaMatchesDBSchemaTest.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/test/java/victor/training/petclinic/guardrail/JpaMatchesDBSchemaTest.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/test/java/victor/training/petclinic/guardrail/JpaMatchesDBSchemaTest.java",
         "line": 34,
         "column": 9,
         "kind": "System.out",
@@ -2342,7 +2342,7 @@
     "logging": [
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
         "line": 199,
         "column": 9,
         "end_line": 199,
@@ -2385,7 +2385,7 @@
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
-        "abs_file": "/Users/victorrentea/workspace/petclinic-pr/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+        "abs_file": "/Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
         "line": 201,
         "column": 13,
         "end_line": 201,
