@@ -113,10 +113,16 @@ fi
 
 dest="$repo/demo/$slug"
 
+# Raw material the run keeps for itself and the page never links: the per-test coverage
+# store (testcov's jars, dumps and logs — 121 MB on petclinic-pr, a 70 MB backend jar among
+# them). Copying it made the size check below refuse every publish.
+NOT_PUBLISHED=(coverage)
+
 # A large asset silently blows past what GitHub Pages will serve; catch it before the push.
-if find "$src" -type f -size +50M | grep -q .; then
+too_big=$(find "$src" -type f -size +50M $(printf -- "-not -path */%s/* " "${NOT_PUBLISHED[@]}"))
+if [ -n "$too_big" ]; then
   echo "publish-demo: refusing — these files exceed 50 MB:" >&2
-  find "$src" -type f -size +50M >&2
+  echo "$too_big" >&2
   exit 1
 fi
 
@@ -133,6 +139,7 @@ else
   # session id, the vendored .tools/ — and a demo directory is a public repository, so the
   # split the run already makes by naming is the one to publish along.
   for entry in "$src"/*; do
+    case " ${NOT_PUBLISHED[*]} " in *" $(basename "$entry") "*) continue ;; esac
     cp -R "$entry" "$dest/"
   done
 
