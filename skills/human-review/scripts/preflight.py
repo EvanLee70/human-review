@@ -410,6 +410,13 @@ def clear_foreign_model_state(base: str) -> list[str]:
             gone.append(f"{name}: {len(runs) - len(kept)} run(s) of another branch")
             out = {**doc, "runs": kept} if isinstance(doc, dict) else kept
             path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    # The per-test coverage store too, on a branch switch: eval run 12's first pass failed
+    # before the browser suites wrote theirs, and testcov read run 11's Playwright
+    # coverage — measured on another branch's commit — as this run's.
+    cov = HR / "coverage"
+    if other and cov.is_dir():
+        shutil.rmtree(cov)
+        gone.append("coverage/ (another branch's per-test coverage)")
     if head:
         (HR / BRANCH_MARKER).write_text(head + "\n", encoding="utf-8")
     return gone

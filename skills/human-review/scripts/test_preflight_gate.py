@@ -389,3 +389,25 @@ def test_the_wipe_clears_model_state_that_belongs_to_another_branch(tmp_path):
     (hr / ".branch").write_text("hr-claude-7\n")
     assert _run(repo, env, "--no-gate", "--base", "main").returncode == 0
     assert not any(prev.iterdir())
+
+
+def test_a_branch_switch_clears_another_branchs_coverage(tmp_path, monkeypatch):
+    """Eval run 12 read run 11's Playwright coverage, measured on another branch."""
+    import importlib.util, subprocess
+    repo = tmp_path / "r"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "two"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                    "--allow-empty", "-m", "x"], cwd=repo, check=True)
+    hr = repo / ".human-review"
+    (hr / "coverage" / "playwright").mkdir(parents=True)
+    (hr / "coverage" / "playwright" / "run.json").write_text("{}")
+    (hr / ".branch").write_text("one\n")
+    monkeypatch.chdir(repo)
+    spec = importlib.util.spec_from_file_location("pf", Path(__file__).parent / "preflight.py")
+    pf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pf)
+    monkeypatch.setattr(pf, "HR", hr)
+    gone = pf.clear_foreign_model_state("HEAD")
+    assert not (hr / "coverage").exists()
+    assert any("coverage" in g for g in gone)
