@@ -7,14 +7,41 @@ document.querySelectorAll('.vidwrap').forEach(function (wrap) {
   // may throw, or the scripts after it never run.
   if (!video) return;
 
+  // Where each caption starts in the film being played. Each voice is its own cut of the
+  // take (a slower voice holds every shot longer), so its radio carries its own cue times
+  // in data-ts; a film without them shares the transcript clock.
+  var clock = items.map(function (li) { return parseFloat(li.dataset.t); });
+  var timesOf = function (radio) {
+    var ts = (radio.dataset.ts || '').split(',').map(parseFloat);
+    return ts.length === items.length && !ts.some(isNaN) ? ts : clock;
+  };
+  var cueAt = function (t) {
+    var i = -1;
+    clock.forEach(function (c, k) { if (c <= t) i = k; });
+    return i;
+  };
+  var showTimes = function () {
+    items.forEach(function (li, k) {
+      var s = li.querySelector('.ts'), t = Math.floor(clock[k]);
+      if (s) s.textContent = Math.floor(t / 60) + ':' + ('0' + t % 60).slice(-2);
+    });
+  };
+
   // The voice switch: the same take in another voice, one radio button per film under the
-  // player. All the films share one cue clock, so the swap keeps the second the reader was
-  // at, and playing stays playing. The choice is remembered per browser — whoever picked a
-  // voice once wants it on the next review too.
+  // player. The swap lands on the same caption, as far into it as the reader was, and
+  // playing stays playing. The choice is remembered per browser — whoever picked a voice
+  // once wants it on the next review too.
   var radios = Array.prototype.slice.call(wrap.querySelectorAll('.voice-switch input'));
   if (radios.length) {
     var swap = function (radio) {
       var t = video.currentTime, playing = !video.paused;
+      var next = timesOf(radio), i = cueAt(t);
+      if (i >= 0) {
+        var end = i + 1 < next.length ? next[i + 1] : Infinity;
+        t = Math.min(next[i] + (t - clock[i]), end - 0.05);
+      }
+      clock = next;
+      showTimes();
       video.src = radio.dataset.src;
       video.addEventListener('loadedmetadata', function once() {
         video.removeEventListener('loadedmetadata', once);
@@ -47,7 +74,7 @@ document.querySelectorAll('.vidwrap').forEach(function (wrap) {
       // The play button is right there, and the frame they asked for is now under it.
       // Seeking alone keeps whatever state the video was in: paused stays paused, and a
       // film already running keeps running from the new point.
-      video.currentTime = parseFloat(li.dataset.t);
+      video.currentTime = clock[items.indexOf(li)];
     });
   });
 
@@ -61,9 +88,8 @@ document.querySelectorAll('.vidwrap').forEach(function (wrap) {
   }
   video.addEventListener('timeupdate', function () {
     var active = null;
-    items.forEach(function (li) {
-      if (parseFloat(li.dataset.t) <= video.currentTime) active = li;
-    });
+    var i = cueAt(video.currentTime);
+    if (i >= 0) active = items[i];
     items.forEach(function (li) { li.classList.toggle('on', li === active); });
     if (!active) return;
     // Measured against the panel's own box: offsetTop is relative to the nearest

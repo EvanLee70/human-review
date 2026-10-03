@@ -257,7 +257,7 @@ set +e
 NODE_PATH="$ROOT/petclinic-test/node_modules" node -e '
 const {chromium} = require("playwright");
 const [baseUrl, apiUrl, videoDir, raw, cuesPath, voiceDir, narrator, featurePath,
-    cardTitle, cardSubtitle, leadPath] = process.argv.slice(1);
+    cardTitle, cardSubtitle, leadPath, idlePath] = process.argv.slice(1);
 const fs = require("fs");
 const path = require("path");
 const {execFileSync} = require("child_process");
@@ -373,11 +373,20 @@ const get = async (url) => {
   // read at the moment the cue is spoken — after any scrolling — never earlier.
   let spokenUntil = 0;
   const voicesUsed = new Set();
+  // Stretches of footage where nothing moves and nothing is spoken, in seconds on the cue
+  // clock: cut-idle.py drops them from the raw take and shifts every cue to match.
+  const idleSpans = [];
+  const PAUSE_KEEP_MS = 500;
+  const idle = (from, to) => {
+    from = Math.max(from, spokenUntil + 350);
+    if (to - from > 100) idleSpans.push([(from - t0) / 1000, (to - t0) / 1000]);
+  };
   const say = async (text, target) => {
     const box = target ? await target.boundingBox() : null;
     // The warning glyph is a caption device, not something to read out loud.
     const wav = path.join(voiceDir, `cue${String(cues.length).padStart(2, "0")}.wav`);
     const said = text.replace(/^⚠\s*/, "");
+    const synthFrom = Date.now();
     const speech = speak(said, wav);
     const alts = {};
     for (const v of fishVoices.filter(v => speech && v.on)) {
@@ -387,6 +396,9 @@ const get = async (url) => {
       alts[v.key] = {audio: path.basename(voiceDir) + `/fish/${v.key}/` + path.basename(fishWav),
           speech: alt.duration, words: alt.words, voice: alt.voice};
     }
+    // Every voice is synthesized while the camera rolls: seconds of frozen screen per cue
+    // (eval run 14: 4-7 s each, 72% of a 2:48 film was silence). Cut afterwards.
+    idle(synthFrom, Date.now());
     const cue = {t: (Date.now() - t0) / 1000, text};
     if (box) {
       cue.box = {
@@ -409,6 +421,9 @@ const get = async (url) => {
         spokenUntil = Math.max(spokenUntil, Date.now() + a.speech * 1000);
       }
     }
+    // How long this shot holds from its cue: the longest voice, plus a beat. A voice that
+    // says the line faster gets the rest cut from its own film (cut-idle.py).
+    if (spokenUntil) cue.hold = Math.max(0, (spokenUntil + 350 - t0) / 1000 - cue.t);
     cues.push(cue);
     // The shot HOLDS while the line is spoken, whatever the script does next. say() used to
     // return at once and only pause() waited, so a script writing say() then a click moved
@@ -420,7 +435,14 @@ const get = async (url) => {
   };
   // Every hardcoded pause is a floor, never a ceiling: the shot also has to last long enough
   // for the sentence being spoken over it to finish, plus a beat before the next one starts.
-  const pause = (ms) => page.waitForTimeout(Math.max(ms, spokenUntil + 350 - Date.now()));
+  // A pause longer than PAUSE_KEEP_MS is cut down to it afterwards: the reviewer watches a
+  // still frame for a beat, not for the 1.5 s a script asked for. Never while a line is
+  // still being spoken over it.
+  const pause = async (ms) => {
+    const from = Date.now();
+    await page.waitForTimeout(Math.max(ms, spokenUntil + 350 - Date.now()));
+    idle(from + PAUSE_KEEP_MS, Date.now());
+  };
 
   // Everything above is the harness; everything the film SHOWS comes from the project.
   const flow = require(featurePath);
@@ -447,6 +469,7 @@ const get = async (url) => {
   if (!webm) throw new Error("playwright produced no .webm");
   fs.copyFileSync(webm, raw);
   fs.writeFileSync(cuesPath, JSON.stringify(cues, null, 1));
+  fs.writeFileSync(idlePath, JSON.stringify(idleSpans));
   const boxed = cues.filter(c => c.box).length;
   console.error(`[video] ${path.basename(featurePath)}${note ? ": " + note : ""}, `
       + `${cues.length} cues (${boxed} with a box) -> ${raw}`);
@@ -465,17 +488,27 @@ const get = async (url) => {
   }
 })().catch(e => { console.error("[video] " + e.message); process.exit(1); });
 ' "$BASE_URL" "$API_URL" "$TMP" "$RAW" "$CUES" "$VOICEDIR" "$SCRIPT_DIR/narrate-cue.py" "$FEATURE" \
-  "$CARD_TITLE" "$CARD_SUBTITLE" "$LEADFILE"
+  "$CARD_TITLE" "$CARD_SUBTITLE" "$LEADFILE" "$TMP/idle.json"
 RC=$?
 set -e
 if [ "$RC" != 0 ] && [ "$RC" != 3 ]; then exit "$RC"; fi
+
+# The take as filmed holds still while each line is synthesized, through every long pause,
+# and while the slowest voice finishes a line a faster one already said. Each voice gets
+# its own cut of the raw take (cut-idle.py), with the cues shifted to match. The uncut
+# cues and the still stretches stay in the narration folder, so the footage can be re-cut
+# without re-filming; <out>.cues.json is the standard voice on its own cut clock.
+cp "$CUES" "$VOICEDIR/cues.raw.json"
+cp "$TMP/idle.json" "$VOICEDIR/idle.json" 2>/dev/null || echo "[]" > "$VOICEDIR/idle.json"
+python3 "$SCRIPT_DIR/cut-idle.py" "$RAW" "$VOICEDIR/cues.raw.json" "$VOICEDIR/idle.json" \
+    "$TMP/raw.std.webm" "$CUES"
 
 # How long the card holds, straight from the run that filmed it. It lives beside the .wavs
 # because it is part of the same answer: everything needed to re-cut this footage without
 # re-filming it. A missing or unreadable file means "no card", which is what a pre-title
 # recording is — so old footage re-annotates exactly as it always did.
 LEAD="$(cat "$LEADFILE" 2>/dev/null || echo 0)"
-python3 "$SCRIPT_DIR/annotate-feature-video.py" "$RAW" "$CUES" "$OUT" --lead "${LEAD:-0}"
+python3 "$SCRIPT_DIR/annotate-feature-video.py" "$TMP/raw.std.webm" "$CUES" "$OUT" --lead "${LEAD:-0}"
 
 # One more film per cloned voice: same footage, same cue clock, that voice and its own word
 # times. Only when EVERY spoken cue has it — a radio button in the Demo tab promises the whole
@@ -484,7 +517,7 @@ echo "[]" > "$VOICES_META"
 # The list comes in on fd 3: ffmpeg, inside the annotator, reads stdin and would eat it.
 while IFS=$'\t' read -r KEY LABEL <&3; do
   FILM="${OUT%.webm}.voice-$KEY.webm"
-  if python3 - "$CUES" "$TMP/$KEY.cues.json" "$KEY" <<'PY'
+  if python3 - "$VOICEDIR/cues.raw.json" "$TMP/$KEY.cues.json" "$KEY" <<'PY'
 import json, sys
 cues, key = json.load(open(sys.argv[1])), sys.argv[3]
 spoken = [c for c in cues if c.get("audio")]
@@ -497,13 +530,18 @@ json.dump(cues, open(sys.argv[2], "w"))
 PY
   then
     # The annotator resolves each .wav against the folder of its OUTPUT, which is this one.
-    python3 "$SCRIPT_DIR/annotate-feature-video.py" "$RAW" "$TMP/$KEY.cues.json" "$FILM" \
-        --lead "${LEAD:-0}"
-    python3 - "$VOICES_META" "$KEY" "$LABEL" "$(basename "$FILM")" <<'PY'
+    python3 "$SCRIPT_DIR/cut-idle.py" "$RAW" "$TMP/$KEY.cues.json" "$VOICEDIR/idle.json" \
+        "$TMP/raw.$KEY.webm" "$TMP/$KEY.cut.json"
+    python3 "$SCRIPT_DIR/annotate-feature-video.py" "$TMP/raw.$KEY.webm" "$TMP/$KEY.cut.json" \
+        "$FILM" --lead "${LEAD:-0}"
+    python3 - "$VOICES_META" "$KEY" "$LABEL" "$(basename "$FILM")" "$TMP/$KEY.cut.json" <<'PY'
 import json, sys
-meta, key, label, video = sys.argv[1:]
+meta, key, label, video, cues = sys.argv[1:]
 films = json.load(open(meta))
-films.append({"key": key, "label": label, "video": video})
+# Each voice has its own cut, so its own cue times: the page maps the reader's moment
+# from one film to the other cue by cue.
+films.append({"key": key, "label": label, "video": video,
+              "t": [round(c["t"], 2) for c in json.load(open(cues))]})
 json.dump(films, open(meta, "w"), ensure_ascii=False)
 PY
     echo "[video] $LABEL voice -> $FILM" >&2

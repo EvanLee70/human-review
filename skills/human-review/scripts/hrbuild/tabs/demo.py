@@ -120,8 +120,11 @@ def video_verdict_html(rel: str, out_dir: Path) -> str:
     return '<div class="vidverdict" role="alert">' + "".join(parts) + "</div>"
 
 
-def voice_films(rel: str, out_dir: Path) -> list[tuple[str, str, str]]:
-    """(key, src, label) of the same film in each cloned voice the recorder cut.
+def voice_films(rel: str, out_dir: Path) -> list[tuple[str, str, str, list]]:
+    """(key, src, label, cue times) of the same film in each cloned voice the recorder cut.
+
+    Each voice is its own cut of the take (a slow voice holds a shot longer), so each lists
+    its own cue times; empty for a film recorded before that, on the shared clock.
 
     `record-feature-video.sh` lists in `<film>.voices.json` only the voices every spoken cue
     got, and deletes the list on a run that had no key — so each radio button under the
@@ -144,16 +147,22 @@ def voice_films(rel: str, out_dir: Path) -> list[tuple[str, str, str]]:
     for f in films if isinstance(films, list) else []:
         src = str(Path(rel).parent / str(f.get("video") or ""))
         if f.get("video") and f.get("key") and (out_dir / src).is_file():
-            out.append((str(f["key"]), src, str(f.get("label") or f["key"])))
+            times = f.get("t") if isinstance(f.get("t"), list) else []
+            out.append((str(f["key"]), src, str(f.get("label") or f["key"]), times))
     return out
 
 
-def voice_switch(rel: str, voices: list[tuple[str, str, str]]) -> str:
-    """The radio buttons under the player: the offline voice first, then each cloned one."""
+def voice_switch(rel: str, voices: list[tuple[str, str, str, list]],
+                 times: list | None = None) -> str:
+    """The radio buttons under the player: the offline voice first, then each cloned one.
+    `data-ts` is that film's cue times, which caption.js maps the reader's moment through."""
     if not voices:
         return ""
     name = "voice-" + re.sub(r"[^A-Za-z0-9]+", "-", rel)
-    opts = [("", rel, "standard")] + voices
+    opts = [("", rel, "standard", times or [])] + list(voices)
+
+    def ts(t) -> str:
+        return (f' data-ts="{",".join(f"{float(x):.2f}" for x in t)}"' if t else "")
 
     def named(key: str, label: str) -> tuple[str, str]:
         # A label that is a bare emoji (`🐘`) gives a screen reader nothing to say and a
@@ -167,10 +176,10 @@ def voice_switch(rel: str, voices: list[tuple[str, str, str]]) -> str:
     return ('<div class="voice-switch" role="radiogroup" aria-label="Narration voice">'
             + "".join(f'<label{named(key, label)[1]}><input type="radio" '
                       f'name="{html.escape(name)}" '
-                      f'value="{html.escape(key)}" data-src="{html.escape(src)}"'
+                      f'value="{html.escape(key)}" data-src="{html.escape(src)}"{ts(t)}'
                       f'{named(key, label)[0]}'
                       f'{" checked" if not key else ""}> {html.escape(label)}</label>'
-                      for key, src, label in opts)
+                      for key, src, label, t in opts)
             + "</div>")
 
 
@@ -295,7 +304,8 @@ def video_html(s, out_dir: Path) -> str:
     # The same take, cue for cue, in every voice, so caption.js swaps the source and keeps
     # the second the reader was at; the transcript and its timestamps are shared by all.
     # The radio buttons sit right under the player they switch.
-    switch = voice_switch(rel, voices)
+    switch = voice_switch(rel, voices, [c["t"] for c in cues if "t" in c]
+                          if any(v[3] for v in voices) else [])
     player = (f'<video controls preload="metadata" src="{html.escape(rel)}"></video>'
               if (out_dir / rel).is_file() else
               f'<p class="embedded-note"><b>Not filmed.</b> <code>{html.escape(rel)}</code> '
