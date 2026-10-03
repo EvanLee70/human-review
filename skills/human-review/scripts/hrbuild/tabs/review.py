@@ -247,7 +247,8 @@ def pile_intro(kind: str, points: dict | None) -> str:
     if kind == "assumptions":
         return ("Where the ticket was ambiguous, the reading that was taken — and under "
                 "<b>Read the other way</b>, the reading that was not. Nothing here is a "
-                "defect, and nothing here is in the diff: it is the only pile no pass, "
+                "defect. The code an assumption shaped is quoted under it; the choice "
+                "itself is not in the diff, which is why this is the only pile no pass, "
                 "script or reviewer could reconstruct afterwards.")
     if kind == "findings":
         # "Open", like the chip, the tab's badge and the grade panel that count them: run 6
@@ -601,9 +602,27 @@ def pile_numbers(spec) -> tuple[int, int, int]:
     as the coder's `N assumptions` and the line as `N implementation assumptions`. It used
     to be the other way round: a hand-typed `/code-review 8 findings` outlived the ninth
     finding being added, and nothing caught it, because nothing was looking. Both callers
-    now count nothing twice."""
-    return (len(spec.get("findings", [])), len(spec.get("autofixes", [])),
+    now count nothing twice.
+
+    `open` leaves out the findings the agent refuted (`refuted_number`): eval run 8's
+    header, counts line and tab pill all said "11 open" over four CONTEXT cards the page
+    itself marked "refuted — …", so a reviewer was told to rule on seven live issues and
+    four settled ones as if they were the same thing."""
+    findings = [f for f in spec.get("findings", []) or [] if not is_refuted(f)]
+    return (len(findings), len(spec.get("autofixes", [])),
             len(spec.get("assumptions", [])))
+
+
+def is_refuted(item) -> bool:
+    """`review-points.py:is_refuted` — the parser's own reading, so the page and the
+    parser's warnings can never disagree about which item is a refuted claim."""
+    return _points_parser().is_refuted(item)
+
+
+def refuted_number(spec) -> int:
+    """How many declined findings are refuted claims: counted apart from `open` so every
+    summary can say `7 open · 4 refuted` rather than folding them in."""
+    return sum(1 for f in spec.get("findings", []) or [] if is_refuted(f))
 
 
 def review_tab_badge(spec) -> dict:
@@ -630,11 +649,15 @@ def review_tab_badge(spec) -> dict:
     reader has to guess at.
     """
     open_n, fixed_n, assumed_n = pile_numbers(spec)
+    refuted_n = refuted_number(spec)
     rest = " and ".join(x for x in (
+        f"the {refuted_n} refuted" if refuted_n else "",
         f"the {fixed_n} auto-fixed" if fixed_n else "",
         f'the {assumed_n} assumption{"" if assumed_n == 1 else "s"}' if assumed_n else "",
     ) if x)
     label = f'{open_n} open review issue{"" if open_n == 1 else "s"}'
+    if refuted_n:
+        label += f" · {refuted_n} refuted"
     if rest:
         label += f". {rest[:1].upper()}{rest[1:]} are further down the tab, already dealt " \
                  "with, and this number leaves them out"
@@ -664,7 +687,10 @@ def scope_chip_face(spec, reviewer: str | None = None) -> str:
     model is not on the face (`reviewer` is accepted and ignored here): the pill names
     the role, the hover names the model."""
     open_n, fixed_n, assumed_n = pile_numbers(spec)
-    face = f"\U0001f916Review: <b>{open_n} open</b>, <b>{fixed_n} fixed</b>"
+    refuted_n = refuted_number(spec)
+    face = (f"\U0001f916Review: <b>{open_n} open</b>"
+            + (f" · {refuted_n} refuted" if refuted_n else "")
+            + f", <b>{fixed_n} fixed</b>")
     if assumed_n:
         face = f"\U0001f916Code: <b>{assumed_n} unsure</b>; " + face
     return face
@@ -902,14 +928,25 @@ def _ci_signal(out_dir: Path) -> dict | None:
     sha = str(gate.get("sha") or "")[:8]
     caveat = _plain_text(str(gate.get("caveat") or ""))
     runs = [w for w in gate.get("workflows") or [] if isinstance(w, dict)]
+    def linked(sig: dict, run: dict) -> dict:
+        # The run is the evidence, so it is a link a reader can click — eval run 8 had the
+        # URL only in the hover, where "CI green" had to be taken on trust.
+        url = str(run.get("url") or "")
+        if url.startswith(("https://", "http://")):
+            sig.update(href=url, linkText=f"{run.get('name') or 'CI'} run"
+                       + (f" {run['runId']}" if run.get("runId") else "") + " \u2197")
+        return sig
     if gate["verdict"] == "green":
         run = next((w for w in runs if w.get("runId")), {})
-        return _signal("ci-green", f"CI green on {sha}" if sha else "CI green",
-                       caveat or f"{run.get('name', 'CI')} run {run.get('runId', '')} passed")
+        return linked(_signal(
+            "ci-green", f"CI green on {sha}" if sha else "CI green",
+            caveat or f"{run.get('name', 'CI')} run {run.get('runId', '')} passed"), run)
     if any(w.get("verdict") == "failure" for w in runs) or gate["verdict"] == "failure":
-        return _signal("ci-failed", f"CI failed on {sha}" if sha else "CI failed",
-                       caveat or "a CI workflow concluded failure on the reviewed commit",
-                       GRADE_CAPS["ci-failed"])
+        run = next((w for w in runs if w.get("verdict") == "failure"), None) \
+            or next((w for w in runs if w.get("runId")), {})
+        return linked(_signal("ci-failed", f"CI failed on {sha}" if sha else "CI failed",
+                              caveat or "a CI workflow concluded failure on the reviewed commit",
+                              GRADE_CAPS["ci-failed"]), run)
     return _signal("ci-unproven", "No build proved this commit",
                    caveat or f"the CI gate says {gate['verdict']!r}, not green",
                    GRADE_CAPS["ci-unproven"])
@@ -1143,8 +1180,9 @@ def _pile_signals(spec) -> list[dict]:
     """The open pile by severity and the unconfirmed assumptions — the two signals a spec
     carries on its own, with no build around it."""
     out = []
-    findings = [f for f in spec.get("findings") or [] if isinstance(f, dict)] \
-        if isinstance(spec.get("findings"), list) else []
+    # A refuted claim is not an open issue, so it neither counts nor grades (eval run 8).
+    findings = [f for f in spec.get("findings") or [] if isinstance(f, dict)
+                and not is_refuted(f)] if isinstance(spec.get("findings"), list) else []
     if findings:
         by: dict[str, int] = {}
         for f in findings:
@@ -1361,9 +1399,10 @@ def opening_lede(spec) -> str:
         # comes next, and what nobody could be asked about is always the tail — see the
         # `block is not None` clause below.
         if spec.get("findings"):
-            n_open = len(spec["findings"])
+            n_open, n_refuted = pile_numbers(spec)[0], refuted_number(spec)
             parts.append(clause(
-                f"{n_open} open review issue{'' if n_open == 1 else 's'}",
+                f"{n_open} open review issue{'' if n_open == 1 else 's'}"
+                + (f" · {n_refuted} refuted" if n_refuted else ""),
                 "findings", "first"))
         if spec.get("autofixes"):
             parts.append(clause(f"{len(spec['autofixes'])} auto-fixed", "autofixes", "fixed"))
@@ -1375,9 +1414,10 @@ def opening_lede(spec) -> str:
             # not. What they do act on is *who raised these*, because the page carries two
             # piles a machine produced and one a human owns, and the clause that opens the
             # line is the one that has to say which of them it is counting.
-            n_open = len(spec["findings"])
+            n_open, n_refuted = pile_numbers(spec)[0], refuted_number(spec)
             parts.append(clause(
-                f"{n_open} open LLM review issue{'' if n_open == 1 else 's'}",
+                f"{n_open} open LLM review issue{'' if n_open == 1 else 's'}"
+                + (f" · {n_refuted} refuted" if n_refuted else ""),
                 "findings", "first"))
         if spec.get("autofixes"):
             # `auto-fixed`, the same word the badge on every one of those items already
@@ -1634,9 +1674,12 @@ def render_autofixes(fixes, badge: str = "auto-fixed") -> str:
 # --------------------------------------------------------------------------- #
 
 #: How far, in lines, a hunk's change may sit from a Fixed card's `file:line` and still be
-#: that card's. Nearer than this, the nearest card takes it; further, nobody does, and it
-#: is listed under the pile as another change in the fix commit.
-FIX_HUNK_REACH = 15
+#: that card's: the context the hunk itself shows (`DIFF_CONTEXT`), so a card takes a hunk
+#: only when its line is ON the hunk as drawn. It was 15, and eval run 8's two Fixed cards
+#: on one spec (lines 179 and 192) both "reached" the same +25 hunk and both drew it in
+#: full. Further than this nobody takes it, and it is listed under the pile as another
+#: change in the fix commit — shown once, never dropped.
+FIX_HUNK_REACH = DIFF_CONTEXT
 
 #: Files a fix commit carries that are the review's bookkeeping rather than a fix. The
 #: points file itself is added from the report's own `source`.
@@ -1782,6 +1825,11 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
         files = [p for p in listed.splitlines()
                  if p and p not in skip and Path(p).name not in FIX_BOOKKEEPING]
         owned: list[dict[str, list[int]]] = [{} for _ in items]
+        # A hunk two cards' lines both sit on is drawn ONCE, under the first of them, with
+        # every title it serves; the others say where it is (eval run 8 drew one +25 spec
+        # hunk in full under two cards in a row).
+        shared: list[list[tuple[str, int, list[int]]]] = [[] for _ in items]
+        pointers: list[list[tuple[str, int]]] = [[] for _ in items]
         unowned: dict[str, list[int]] = {}
         for rel in files:
             for idx, span in enumerate(fix_hunks(rel, base, head, root)):
@@ -1802,11 +1850,15 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
                     takers = sorted({i for g, i in near if g == best})
                 else:
                     takers = sorted(set(whole))
-                for i in takers:
-                    owned[i].setdefault(rel, []).append(idx)
+                if len(takers) == 1:
+                    owned[takers[0]].setdefault(rel, []).append(idx)
+                elif takers:
+                    shared[takers[0]].append((rel, idx, takers))
+                    for i in takers[1:]:
+                        pointers[i].append((rel, takers[0]))
                 if not takers:
                     unowned.setdefault(rel, []).append(idx)
-        for f, mine in zip(items, owned):
+        for i, (f, mine) in enumerate(zip(items, owned)):
             # The card's own files first, in the order it named them; then any other file
             # its anchors reached (a whole-file ref), in diff order.
             order = []
@@ -1815,11 +1867,22 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
                 if path in mine and path not in order:
                     order.append(path)
             order += [p for p in mine if p not in order]
-            f["_fixDiffs"] = "".join(diff_html(p, base, root, None, head, hunks=mine[p])
-                                     for p in order)
+            body = "".join(diff_html(p, base, root, None, head, hunks=mine[p])
+                           for p in order)
+            for rel, idx, takers in shared[i]:
+                titles = " and ".join(f'<b>{items[t]["title"]}</b>' for t in takers)
+                body += (f'<p class="fixshared">One hunk serves {len(takers)} fixes — '
+                         f'{titles} — and is shown once, here.</p>'
+                         + diff_html(rel, base, root, None, head, hunks=[idx]))
+            for rel, owner in pointers[i]:
+                body += (f'<p class="fixshared">Its change in <code>{html.escape(Path(rel).name)}'
+                         f'</code> shares one hunk with <b>{items[owner]["title"]}</b>, and '
+                         'is shown once, under that card.</p>')
+            f["_fixDiffs"] = body
+            drawn = set(mine) | {rel for rel, _, _ in shared[i]} | {rel for rel, _ in pointers[i]}
             if f.get("snippets"):
                 f["snippets"] = [s for s in f["snippets"]
-                                 if _ref_spans(str(s.get("ref", "")))[0] not in mine]
+                                 if _ref_spans(str(s.get("ref", "")))[0] not in drawn]
             f["diffs"] = []
         if unowned:
             rng = (f"<code>{html.escape(base[:8])}..{html.escape(head[:8])}</code>" if head

@@ -479,6 +479,42 @@ def test_every_other_family_still_reads_cache_at_a_tenth(fam, inp):
     assert rc.price(fam, {"cache_read_input_tokens": 1_000_000}) == pytest.approx(inp * 0.1)
 
 
+def test_opus_5_5_is_priced_at_its_own_rate_not_its_familys():
+    """Eval run 8 billed its implementation $20.40 at the Opus family's $5/$25 with cache
+    reads at a tenth; the CLI's own `total_cost_usd` for those same 27.4M cache-read tokens
+    was $9.65 — Opus 5.5 is $4/$20, cache reads $0.20. Opus 5 keeps the family's rate."""
+    assert rc.family("claude-opus-5-5") == "opus-5-5"
+    assert rc.family("claude-opus-5") == "opus"
+    assert rc.price(rc.family("claude-opus-5-5"),
+                    {"cache_read_input_tokens": 1_000_000}) == pytest.approx(0.20)
+    assert rc.price(rc.family("claude-opus-5-5"), {"input_tokens": 1_000_000,
+                                                   "output_tokens": 1_000_000}) == \
+        pytest.approx(24.0)
+    # The 1h cache write is twice input: $8/M.
+    assert rc.price(rc.family("claude-opus-5-5"), {"cache_creation": {
+        "ephemeral_1h_input_tokens": 1_000_000}}) == pytest.approx(8.0)
+    assert rc.price(rc.family("claude-opus-5"),
+                    {"cache_read_input_tokens": 1_000_000}) == pytest.approx(0.50)
+
+
+def test_a_turn_streamed_across_a_window_edge_is_billed_once_where_it_started(tmp_path):
+    """A message is several rows. Filtered row by row, run 8's turn that straddled the
+    reviewers-done stamp landed in the review AND the auto-fixes, and the phases summed
+    $0.12 past the session they cut."""
+    f = tmp_path / "s.jsonl"
+    rows = [("2026-10-02T10:00:00Z", 100), ("2026-10-02T10:00:20Z", 900)]
+    f.write_text("".join(json.dumps({
+        "type": "assistant", "timestamp": ts, "message": {
+            "id": "m1", "model": "claude-sonnet-5-5",
+            "usage": {"input_tokens": 0, "output_tokens": out}}}) + "\n"
+        for ts, out in rows))
+    edge = rc._parse_iso("2026-10-02T10:00:10Z")
+    before = rc._window(f, None, edge)
+    after = rc._window(f, edge, None)
+    assert before["cost"] == pytest.approx(900 * 10.0 / 1e6), "the fullest row, in its window"
+    assert after["messages"] == 0 and after["cost"] == 0
+
+
 def test_the_multiplier_is_per_family_and_not_a_constant_anyone_can_forget():
     """A family with no entry falls back to the tenth, so adding a model cannot silently
     price its cache reads at zero."""

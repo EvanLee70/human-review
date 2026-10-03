@@ -1316,11 +1316,44 @@ def test_the_change_frame_is_labelled_and_its_colour_is_in_the_legend():
     screen["frames"] = {"new": [{"x": 52, "y": 240, "w": 1176, "h": 540, "insert": False}],
                         "old": [{"x": 52, "y": 240, "w": 1176, "h": 900, "insert": False}]}
     frag = ds.render(ds.build_result([screen], reg), "")
-    assert "<b>✗ matSort · ✗ mat-paginator — added</b></div>" in frag
+    # Eval run 8: the chip on the frame's edge covered the table header it framed. The
+    # words are a caption under the picture now; the frame itself carries none.
+    assert '<p class="dsa-framecap"><span class="dsa-fcap"><i></i>' \
+           "<b>✗ matSort · ✗ mat-paginator — added</b></span></p>" in frag
     assert "<b>changed — nothing here to judge</b>" in frag     # the Old view
+    assert not re.search(r'class="dsa-frame"[^>]*><b', frag), "no chip on the picture"
+    assert frag.index('class="dsa-frame"') < frag.index('class="dsa-framecap"')
     assert 'class="k-frame"' in ds.LEGEND and 'class="k-frame"' in ds.DIFF_LEGEND
     assert ".dsa-legend .k-frame i" in ds.CSS and "var(--dsa-frame)" in ds.CSS
     assert "changed on this branch</span>" not in ds.LEGEND, "blue named no box in New/Old"
+
+
+def test_several_frames_are_numbered_and_the_caption_is_keyed_by_number():
+    reg, screen = _owners_screen()
+    screen["frames"] = {"new": [{"x": 52, "y": 240, "w": 600, "h": 100, "insert": False},
+                                {"x": 52, "y": 700, "w": 600, "h": 100, "insert": False}],
+                        "old": []}
+    frag = ds.render(ds.build_result([screen], reg), "")
+    assert '<b class="dsa-fnum">1</b>' in frag and '<b class="dsa-fnum">2</b>' in frag
+    assert '<span class="dsa-fcap"><i></i>2 <b>' in frag
+    assert ".dsa:has(.dsa-frameon:not(:checked)) .dsa-framecap" in ds.CSS
+
+
+def test_the_element_column_wraps_a_selector_only_between_its_steps():
+    """Eval run 8: `div#ownersTable>ta / ble.mat-sort.tabl / e:1` — `break-all` cut the
+    selector mid-token. It breaks only after a `>` now, and the full path is the tip."""
+    reg, screen = _owners_screen()
+    frag = ds.render(ds.build_result([screen], reg), "")
+    cells = re.findall(r'<code class="dsa-sel" data-tip="([^"]*)">(.*?)</code>', frag)
+    assert cells
+    for tip, shown in cells:
+        assert "<wbr>" not in tip, "the tip is the whole path, as text"
+        assert shown.count("<wbr>") == shown.count("&gt;"), shown
+    assert ds.selector_html("div#a>mat-x:1") == \
+        '<span class="dsa-step">div#a</span>&gt;<wbr><span class="dsa-step">mat-x:1</span>'
+    assert ".dsa-sel .dsa-step { white-space: nowrap; }" in ds.CSS, "no break after a hyphen"
+    rule = re.search(r"\.dsa-sel \{([^}]*)\}", ds.CSS).group(1)
+    assert "break-all" not in rule and "word-break: normal" in rule
 
 
 def _repo(tmp_path):

@@ -321,6 +321,80 @@ def claude_entry(session: str | None, lo, hi, what: str) -> dict | None:
     return out
 
 
+#: What the harness types into a conversation on its own, never a person: a background
+#: task finishing, a skill's body loaded under its slash command, a hook's reminder.
+_HARNESS_PROMPTS = ("<task-notification>", "<system-reminder>", "<local-command-",
+                    "Base directory for this skill:")
+
+
+def _real_prompt(rec: dict) -> bool:
+    """A user record that opens a new turn: somebody (or `claude -p`) asked for something.
+
+    A tool result is the model's own turn going on; a meta record or a `<task-notification>`
+    is the harness waking the same turn up — eval run 8's `ci --push` waited on CI in the
+    background and its turn ended seven minutes later, on the notification, not before it."""
+    if rec.get("type") != "user" or rec.get("isMeta") or rec.get("isSidechain"):
+        return False
+    content = (rec.get("message") or {}).get("content")
+    if isinstance(content, list):
+        if any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
+            return False
+        text = " ".join(b.get("text") or "" for b in content if isinstance(b, dict))
+    else:
+        text = str(content or "")
+    return bool(text.strip()) and not text.lstrip().startswith(_HARNESS_PROMPTS)
+
+
+def claude_turn_bounds(session: str | None, t) -> tuple:
+    """`(start, end)` of the turn of `session` that was running at `t`: from the prompt
+    that opened it to the last record before the next prompt. `(None, None)` when the
+    transcript is gone or `t` is before its first prompt.
+
+    The boundary a stamp cannot give: `lastCiAt` is written when `ci` *starts*, `.started`
+    when Step 2 runs, and the model's work on either goes on until its turn ends."""
+    t = parse(t)
+    path = rc().transcript(session) if session and t else None
+    if path is None:
+        return None, None
+    start = end = None
+    for rec in rc()._rows(path):
+        when = parse(rec.get("timestamp"))
+        if when is None:
+            continue
+        if _real_prompt(rec):
+            if when <= t:
+                start, end = when, when
+                continue
+            if start is not None:
+                break
+        if start is not None and when >= start:
+            end = when
+    return start, end
+
+
+def claimed_sessions(root: Path, base: str) -> list[str]:
+    """The `Claude-Session:` trailers of the branch's own commits: the record of which
+    conversation wrote it, which outlives `.human-review/` and a rebase."""
+    fork = git(root, "merge-base", base, "HEAD") or base
+    out = git(root, "log", "--format=%(trailers:key=Claude-Session,valueonly)", f"{fork}..HEAD")
+    return sorted({s.strip() for s in out.splitlines() if s.strip()})
+
+
+def _missing_claude(sessions, what: str) -> str:
+    """Why a Claude window came back empty, in the words that say what to do about it."""
+    sessions = [s for s in sessions or [] if s]
+    if not sessions:
+        return (f"no Claude session is named for the {what} — `.human-review/review/state.json` "
+                "has no `session`/`sessions` and no commit carries a `Claude-Session:` "
+                "trailer; rerun `record-review.py finish` inside the session that did it")
+    gone = [s for s in sessions if rc().transcript(s) is None]
+    if gone:
+        return (f"the transcript of session {', '.join(s[:8] for s in gone)} is not under "
+                f"{rc().PROJECTS} — cleaned up, or recorded on another machine")
+    return (f"session {', '.join(s[:8] for s in sessions)} has no model turn inside the "
+            f"{what}'s window")
+
+
 _MODEL_FIELD = re.compile(r'"model"\s*:\s*"([^"]+)"')
 
 
@@ -650,17 +724,29 @@ def _is_implementation(r: dict) -> bool:
 # ----------------------------------------------------------------------------- components
 
 def measure_implementation(root: Path, base: str, lo, hi,
-                           harnesses=(CLAUDE, COPILOT_CLI, VSCODE)) -> dict:
+                           harnesses=(CLAUDE, COPILOT_CLI, VSCODE),
+                           vouched: list[str] | tuple = ()) -> dict:
     """Writing the code: every harness that edited a file of the change set between the
     fork and `hi` (prepare, or the implementation commit). Edit evidence is required in
-    each store — a session that only read the files, or ran git beside them, wrote nothing."""
+    each store — a session that only read the files, or ran git beside them, wrote nothing.
+
+    A Claude session the branch itself names — `state.json`'s `session`, a
+    `Claude-Session:` trailer — is the implementing session, and is billed from the fork to
+    `hi` whole: reading the spec before the first edit and running the tests after the last
+    are writing the code too. Eval run 8's first edit came 2.5 minutes and $1.09 into the
+    session, and prepare 19 minutes after its last edit."""
     lo, hi = parse(lo), parse(hi)
     files = changed_files(root, base)
     out: list[dict] = []
     searched = []
     if CLAUDE in harnesses:
         searched.append("Claude transcripts")
+        named = [s for s in dict.fromkeys(vouched or ()) if s]
+        for sid in named:
+            out.append(claude_entry(sid, lo, hi, "the implementing session, fork → prepare"))
         for s in claude_authors(root, base):
+            if s["session"] in named:
+                continue
             # Its first edit to its last, never past `hi`: the same conversation goes on to
             # take the review's advice, and those edits are the auto-fix row's.
             a = max([x for x in (parse(s.get("first")), lo) if x], default=None)
@@ -681,9 +767,11 @@ def measure_implementation(root: Path, base: str, lo, hi,
                 continue
             out.append(vscode_entry(chat, lo, hi, chat["title"] or "edited the change set",
                                     keep=_is_implementation))
-    return component("implementation", [e for e in out if e], window=(lo, hi),
-                     reason=f"no session in {', '.join(searched)} edited these files "
-                            f"between the fork and the implementation commit")
+    why = (f"no session in {', '.join(searched)} edited these files between the fork "
+           f"({iso(lo) or 'undated'}) and {iso(hi) or 'an undated implementation commit'}")
+    if CLAUDE in harnesses and vouched:
+        why += "; " + _missing_claude(vouched, "implementation")
+    return component("implementation", [e for e in out if e], window=(lo, hi), reason=why)
 
 
 def measure_review_fixes(root: Path, harness: str, sessions: list[str], t_prep, t_done,
@@ -727,7 +815,8 @@ def measure_review_fixes(root: Path, harness: str, sessions: list[str], t_prep, 
     if t_done is None:
         review = component("review", [e for e in pick(t_prep, t_finish, "review and its fixes")
                                       if e], window=(t_prep, t_finish), source=source,
-                           reason=f"no {who} session found for the review")
+                           reason=(_missing_claude(sessions, "review") if harness == CLAUDE
+                                   else f"no {who} session found for the review"))
         fixes = component("autofix", [], (
             "the reviewers' end was not stamped (`RR ci` after the reviewers stamps it) and "
             "no reviewer subagent dates it — the fixes are inside the review row"),
@@ -744,12 +833,14 @@ def measure_review_fixes(root: Path, harness: str, sessions: list[str], t_prep, 
         return review, fixes
     review = component("review", [e for e in pick(t_prep, t_done, "the reviewers and their brief")
                                   if e], window=(t_prep, t_done), source=source,
-                       reason=f"no {who} turn between prepare and the reviewers' end")
+                       reason=(_missing_claude(sessions, "review") if harness == CLAUDE
+                               else f"no {who} turn between prepare and the reviewers' end"))
     # Half-open: the reviewers' last call is the review's, not the fixes' too.
     after = t_done + dt.timedelta(microseconds=1)
     fixes = component("autofix", [e for e in pick(after, t_finish, "deciding and fixing")
                                   if e], window=(t_done, t_finish), source=source,
-                      reason=f"no {who} turn between the reviewers' end and finish")
+                      reason=(_missing_claude(sessions, "auto-fixes") if harness == CLAUDE
+                              else f"no {who} turn between the reviewers' end and finish"))
     return review, fixes
 
 
@@ -759,7 +850,9 @@ def record(root: Path, base: str, state: dict, harness: str, at=None) -> dict:
     at = parse(at) or now()
     t_prep = parse(state.get("reviewStartedAt"))
     impl_hi = t_prep or committed_at(root, state.get("implementation"))
-    impl = measure_implementation(root, base, fork_time(root, base), impl_hi)
+    vouched = [s for s in [state.get("session"), *claimed_sessions(root, base)] if s]
+    impl = measure_implementation(root, base, fork_time(root, base), impl_hi,
+                                  vouched=vouched)
     sessions = [s for s in state.get("sessions") or [] if s]
     if not sessions and state.get("session"):
         sessions = [state["session"]]
@@ -781,11 +874,17 @@ def record(root: Path, base: str, state: dict, harness: str, at=None) -> dict:
 
 
 def last_round_at(root: Path, state: dict) -> "dt.datetime | None":
-    """The end of the last CI round: the later of the last `ci` stamp and the last
-    `[auto-fix]` commit on the branch."""
-    stamps = [parse(state.get("lastCiAt"))]
+    """The end of the last CI round: the latest of the last `ci` stamp, the last
+    `[auto-fix]` commit on the branch, and — in Claude Code — the end of the turn that ran
+    that `ci`. `lastCiAt` is stamped when `ci` starts; the wait for CI and the turns that
+    read its verdict come after it (eval run 8: $0.48 of five turns, 02:54 → 03:01)."""
+    last_ci = parse(state.get("lastCiAt"))
+    stamps = [last_ci]
     out = git(root, "log", "--format=%cI", "--grep=^\\[auto-fix\\]", "-1", "HEAD")
     stamps.append(parse(out.strip()) if out.strip() else None)
+    if last_ci and normalize_harness(state.get("harness")) in (CLAUDE, ""):
+        for sid in dict.fromkeys([*(state.get("sessions") or []), state.get("session")]):
+            stamps.append(claude_turn_bounds(sid, last_ci)[1] if sid else None)
     stamps = [t for t in stamps if t]
     return max(stamps) if stamps else None
 
@@ -802,7 +901,8 @@ def extend_to_last_round(root: Path, base: str, rec: dict) -> dict:
     end, recorded = last_round_at(root, state), parse(rec.get("recordedAt"))
     if not end or not recorded or end <= recorded:
         return rec
-    again = record(root, base, {**state, "finishes": rec.get("rounds") or []},
+    again = record(root, state.get("base") or base,
+                   {**state, "finishes": rec.get("rounds") or []},
                    rec.get("harness") or "", at=end)
     for c in again["components"]:
         if c["key"] == "autofix":
@@ -997,8 +1097,11 @@ def _from_phase(row: dict | None, key: str, session: str | None, what: str) -> d
 def derive(root: Path, base: str, phases: dict | None, commits: dict | None = None) -> dict:
     """1–3 for a branch recorded before `review-cost.json` existed — a scan, said so.
 
-    A Claude-recorded branch keeps its phase cut (`session-cost.py`, trailers and reviewer
-    transcripts); other harnesses' implementation sessions are added beside it. A Copilot
+    A Claude-recorded branch whose `state.json` stamped prepare is measured from the
+    transcripts over the same windows `finish` uses (`record`). Without that stamp it keeps
+    its phase cut (`session-cost.py`, trailers and reviewer transcripts), other harnesses'
+    implementation sessions added beside it, and every row it cannot fill says which file
+    was missing and what to run. A Copilot
     one is read from the session store: the `/record-review` sessions after the
     implementation commit, split at their last subagent call."""
     commits = commits or {}
@@ -1016,6 +1119,27 @@ def derive(root: Path, base: str, phases: dict | None, commits: dict | None = No
     rows = {r.get("key"): r for r in (phases or {}).get("rows") or [] if isinstance(r, dict)}
     claude_branch = harness == CLAUDE or (not harness and rows.get("implementation", {})
                                           .get("measured"))
+    # Why there is no record to read, said on every derived row: run 8's finish refused
+    # its own review-cost.json (a key the schema did not know), and the page blamed the
+    # branch for predating the record.
+    because = ("record-review.py finish did not write review-cost.json"
+               + (f" ({state['costError']})" if state.get("costError") else ""))
+    if claude_branch and state.get("reviewStartedAt"):
+        # The review's own stamps are on disk: measure the four windows from the
+        # transcripts exactly as `finish` would have, rather than ask `session-cost.py`
+        # for a phase cut it only makes when someone ran it.
+        sessions = [s for s in dict.fromkeys([*(state.get("sessions") or []),
+                                              state.get("session"), commits.get("session")])
+                    if s]
+        at = (last_round_at(root, state) or parse((state.get("finishes") or [None])[-1])
+              or t_review or now())
+        doc = record(root, state.get("base") or base, {**state, "sessions": sessions},
+                     CLAUDE, at=at)
+        for c in doc["components"]:
+            c["source"] = "derived"
+            c["derivedBecause"] = because
+        return {"schema": RECORD_SCHEMA, "harness": CLAUDE, "derived": True,
+                "components": doc["components"]}
     if claude_branch:
         sid = (phases or {}).get("session")
         impl = measure_implementation(root, base, fork_time(root, base), t_impl,
@@ -1032,8 +1156,16 @@ def derive(root: Path, base: str, phases: dict | None, commits: dict | None = No
                           rc()._merge_models([r.get("models") or {} for r in fix_rows]),
                           usd=sum(r.get("cost") or 0 for r in fix_rows),
                           calls=sum(r.get("messages") or 0 for r in fix_rows))
-        why = lambda key: ((rows.get(key) or {}).get("reason")
-                           or "session-cost.py did not date it")
+        missing = (because + ", and " + (
+            "there is no .human-review/review/state.json" if not state else
+            "state.json has no reviewStartedAt (prepare predates the stamp)")
+            + " — so the windows come from session-cost.py's phase cut, and ")
+
+        def why(key):
+            row = rows.get(key) or {}
+            return missing + (row.get("reason")
+                              or (phases or {}).get("reason")
+                              or "phases.json has no dated row for it — run session-cost.py")
         comps = [component("implementation", [e for e in impl_entries if e],
                            why("implementation"), source="derived"),
                  component("review", [e for e in [_from_phase(rows.get("code_review"),
@@ -1042,6 +1174,8 @@ def derive(root: Path, base: str, phases: dict | None, commits: dict | None = No
                            why("code_review"), source="derived"),
                  component("autofix", [fixes] if fixes else [], why("post_review_fixes"),
                            source="derived")]
+        for c in comps:
+            c["derivedBecause"] = because
         return {"schema": RECORD_SCHEMA, "harness": CLAUDE, "derived": True,
                 "components": comps}
 
@@ -1195,7 +1329,12 @@ def measure_guide(root: Path, review: Path, harness: str | None = None, end=None
     branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
     entries: list[dict] = []
     if harness == CLAUDE or (not harness and sid):
-        entries.append(claude_entry(sid, started, end, "the /human-review run"))
+        # From the prompt that started the run, not from `.started`: Step 2 writes that
+        # marker after the skill was read and the change set resolved, and those turns
+        # are the run's too.
+        opened = claude_turn_bounds(sid, started)[0] if started else None
+        lo = min([t for t in (opened, started) if t], default=None)
+        entries.append(claude_entry(sid, lo, end, "the /human-review run"))
         harness = CLAUDE
     if harness in (COPILOT_CLI, "") and started:
         for s in copilot_sessions(root, branch):
@@ -1272,6 +1411,8 @@ def complete_guide(root: Path, review: Path, report: dict) -> tuple[dict, dict |
     are this page's; a Claude session is not extended, because the conversation that ran
     the page goes on to other work and its later turns are not this report's."""
     guide, wall = report["guide"], report.get("wallclock")
+    if CLAUDE in (guide.get("harnesses") or [report.get("harness")]):
+        return _complete_claude_guide(root, review, report)
     if COPILOT_CLI not in (guide.get("harnesses") or [report.get("harness")]):
         return guide, wall
     recorded = parse(report.get("recordedAt"))
@@ -1287,6 +1428,33 @@ def complete_guide(root: Path, review: Path, report: dict) -> tuple[dict, dict |
         return guide, wall
     again["source"] = "recorded, completed at build to the session's last call"
     return again, wall2
+
+
+def _complete_claude_guide(root: Path, review: Path, report: dict) -> tuple[dict, dict | None]:
+    """A Claude guide row recorded in Step 5, carried to the end of the turn that ran
+    `/human-review` — the build and the close come after the snapshot. Only that turn:
+    the next prompt in the same conversation is other work, and not this page's.
+    Eval run 8 recorded $0.81 of the session's $1.35 this way round."""
+    guide, wall = report["guide"], report.get("wallclock")
+    recorded = parse(report.get("recordedAt"))
+    sid = run_session_harness(review)[1]
+    started = parse(report.get("started"))
+    if not sid or not started or not any(e.get("session") == sid
+                                         for e in guide.get("entries") or []):
+        return guide, wall
+    end = claude_turn_bounds(sid, started)[1]
+    if not recorded:
+        return guide, wall
+    later = bool(end and end > recorded)
+    again, wall2 = measure_guide(root, review, CLAUDE, end=end if later else recorded)
+    # Re-read while the transcript is on disk, even over the recorded window: the record
+    # keeps the window, the store keeps the tokens, and a price corrected since (Opus 5.5
+    # at $4/$20, not the family's $5/$25) must not stay frozen in the report.
+    if not any(e.get("session") == sid for e in again.get("entries") or []):
+        return guide, wall
+    again["source"] = ("recorded, completed at build to the end of the /human-review turn"
+                       if later else "recorded, re-priced at build from the transcript")
+    return again, (wall2 if later else wall)
 
 
 def note_refresh(review: Path, seconds: float, steps: str = "none") -> None:

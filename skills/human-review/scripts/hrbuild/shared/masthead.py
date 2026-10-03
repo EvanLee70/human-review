@@ -96,7 +96,9 @@ def outside_note(state: dict | None, repo: str = "") -> str:
 
     # Folded to one short line: eval run 6 spelled six hashes across the masthead, which
     # never scrolls away, and pushed the tab strip down on every tab for a fact a reader
-    # needs once. The list opens over the page rather than inside the sticky header.
+    # needs once. Opened, the list sits in flow under the chips (never over the tab
+    # strip — eval run 8 found the overlay covering 11 of 13 tabs) and closes on Esc or
+    # an outside click (tabs.js).
     return (f'<details class="scopenote"><summary>{n} earlier commit{"" if n == 1 else "s"} '
             f'{where} <span class="sn-caret" aria-hidden="true">&#9656;</span></summary>'
             f'<ul class="sn-list">{"".join(one(c) for c in outside)}</ul></details>')

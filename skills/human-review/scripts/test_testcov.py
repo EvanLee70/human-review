@@ -236,6 +236,39 @@ def test_the_join_counts_measurable_changed_lines_only():
     assert j["unmeasurable"][1]["reached"] == 1
 
 
+def test_a_template_line_a_component_spec_renders_is_unseen_not_unrun():
+    """Eval run 8: owner-list.component.html:23 (the error alert) sat under "Changed lines
+    no test runs" although spec:212 renders and asserts it. Karma instruments only the
+    TypeScript, so a template line no browser run reached is unseen — proxied by the
+    component lines its specs ran — never "no test runs"."""
+    doc = _doc()
+    doc["changed"]["w/a.html"] = [5, 6]
+    doc["executable"]["w/a.html"] = [5, 6]
+    doc["tests"].append({"id": "e:1", "suite": "E2E Playwright", "title": "renders",
+                         "file": "e/a.spec.ts", "line": 3, "status": "passed",
+                         "source": "jacoco+v8", "hits": {"w/a.html": [5]}})
+    j = T.coverage_join(doc)
+    assert j["gaps"] == {"F.java": [13]}, "line 6 left the gaps, line 5 was run"
+    unseen = [u for u in j["unmeasurable"] if u["file"] == "w/a.html"]
+    assert unseen == [{"file": "w/a.html", "lines": [6], "reason": T.TEMPLATE_UNSEEN,
+                       "proxy": {"w/a.ts": [3]}, "reached": 1}]
+    assert {r["id"]: r for r in j["rows"]}["k:1"]["via"] == [2]
+    # A template whose component no Karma spec ran stays a gap: nothing rendered it.
+    doc["tests"] = [t for t in doc["tests"] if t["source"] != "karma"]
+    assert T.coverage_join(doc)["gaps"]["w/a.html"] == [6]
+
+
+def test_the_karma_hook_charges_function_heads_and_owns_lines_innermost():
+    """Eval run 8: owner-list.component.ts:67 (`error => {`) was "never run" — Istanbul
+    counts it as a function, not a statement, and only statements were snapshotted. And
+    the one statement wrapping both callbacks charged the success body to the failing spec."""
+    client = (HERE / "testcov" / "karma" / "client.js").read_text(encoding="utf-8")
+    plugin = (HERE / "testcov" / "karma" / "plugin.js").read_text(encoding="utf-8")
+    assert "cov[k].f" in client and "fhits: fhits" in client
+    assert "fc.fnMap" in plugin and "s.fhits" in plugin
+    assert "inner.some(" in plugin
+
+
 def test_a_test_that_runs_only_what_most_of_its_suite_runs_passes_through():
     by = {r["id"]: r for r in T.coverage_join(_doc())["rows"]}
     assert by["s:0"]["aimed"]

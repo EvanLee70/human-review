@@ -14,6 +14,11 @@
 
 - **One fold per test** — tagged API · JUnit, UI · Playwright or UI · Gherkin. Open one and
   the diagram that test's run actually produced is beside its source.
+- **Why each picture is there** — `tagged` (the test carries `@generate_sequence` /
+  `@GenerateSequence`) or `new test` / `edited test` (the branch wrote it, and the step traced
+  it untagged). A line under the title names the branch's tests that were traced, the ones
+  that came back without a picture, and the ones left out — over the cap, or in a file no
+  traced suite runs.
 - **Diff / New/Old** — what the branch changed in that flow: new calls green, calls that
   disappeared red and struck.
 - Nothing is drawn by hand: a call is on the diagram because it *happened* during the test.
@@ -41,6 +46,28 @@
     "commands": ["cd petclinic-test && ./run-tests-with-tracing.sh"]
   }
   ```
+
+- The branch's own tests, untagged: `select` reads the test manifest, keeps the tests a
+  traced suite runs and that carry no tag, ranks them (the file with the most new tests
+  first, added before edited), lets the suites take turns up to `max` (default 6), and
+  expands `{tests.<suite>}` in the commands to the picks — each spelled by `item` (`{name}`
+  `{file}` `{path}` `{line}` `{class}`), joined by `join`, as one shell word. A command
+  written `{"run": …, "when": "<suite>"}` runs only when that suite picked something:
+
+  ```json
+  "select": {"max": 6, "suites": {
+    "e2e":  {"files": ["petclinic-test/src/**/*.feature"], "item": "{file}::{name}",
+             "join": "\n", "max": 4},
+    "java": {"files": ["petclinic-backend/src/test/java/**/*.java"],
+             "item": "{class}#{name}", "join": ",", "max": 2}}},
+  "commands": [
+    "cd petclinic-test && GENSEQ_SELECT={tests.e2e} ./run-tests-with-tracing.sh",
+    {"run": "cd petclinic-backend && GENSEQ_SELECT={tests.java} mvn -Pgenseq test -Dtest={tests.java}",
+     "when": "java"}]
+  ```
+
+  The project's runners decide how a named test is traced; petclinic's read `GENSEQ_SELECT`
+  beside the tag. What was picked and left is in `assets/sequence.selection.json`.
 
 ## Deeper
 

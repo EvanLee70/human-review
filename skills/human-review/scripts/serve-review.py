@@ -161,16 +161,87 @@ def price_estimate(served_root, ledger: str = MODEL_RUNS_FILE,
     try:
         doc = json.loads((Path(served_root) / ledger).read_text(encoding="utf-8"))
         runs = doc["runs"] if isinstance(doc, dict) else doc
-        costs = [float(r["cost"]) for r in runs
-                 if isinstance(r, dict) and isinstance(r.get("cost"), (int, float))
-                 and float(r["cost"]) > 0]
+        runs = [r for r in runs
+                if isinstance(r, dict) and isinstance(r.get("cost"), (int, float))
+                and float(r["cost"]) > 0]
     except Exception:
-        costs = []
+        runs = []
+    # Only this branch's runs, on the model the newest of them used. The ledger lives in
+    # `.human-review/`, which outlives a branch: eval run 8's chip quoted "~$0.16 on
+    # Sonnet" out of a row written two hours before the branch forked, over a Haiku run.
+    since, branch = _branch_scope(served_root)
+    runs = [r for r in runs
+            if (not r.get("branch") or not branch or r["branch"] == branch)
+            and (since is None or (_stamp(r.get("when")) or since) >= since)]
+    model = str(runs[-1].get("model") or "") if runs else ""
+    if model:
+        runs = [r for r in runs if str(r.get("model") or "") == model]
+    costs = [float(r["cost"]) for r in runs]
     if not costs:
         return {"text": unknown, "last": None, "n": 0}
     recent = costs[-PRICE_SAMPLE:]
-    return {"text": f"~${sum(recent) / len(recent):.2f}", "last": round(costs[-1], 2),
-            "n": len(recent)}
+    out = {"text": f"~${sum(recent) / len(recent):.2f}", "last": round(costs[-1], 2),
+           "n": len(recent)}
+    name = _model_name(runs[-1])
+    if name:
+        out["model"] = name
+    return out
+
+
+def _stamp(raw):
+    try:
+        import datetime as _dt
+        t = _dt.datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return t if t.tzinfo else t.replace(tzinfo=_dt.timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _branch_scope(served_root):
+    """`(since, branch)`: when HEAD's branch forked from the review's base — the earlier of
+    the base commit's time and the oldest author date after it — and its name. The base is
+    the one the review recorded (`review-commits.json`, `review/state.json`): `origin/main`
+    can sit days behind it. `(None, "")` when git or the base cannot say."""
+    import datetime as _dt
+    root = Path(served_root)
+    base = None
+    for name in ("review-commits.json", "review/state.json"):
+        try:
+            base = json.loads((root / name).read_text(encoding="utf-8")).get("base")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if base:
+            break
+    repo = git_root(root)
+    if repo is None:
+        return None, ""
+
+    def run(*args):
+        out = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+        return out.stdout.strip() if out.returncode == 0 else ""
+    branch = run("rev-parse", "--abbrev-ref", "HEAD")
+    if not base or not REF_RE.match(base):
+        return None, branch
+    secs = run("log", "-1", "--format=%ct", base).split()
+    secs += run("log", "--format=%at", f"{base}..HEAD").split()
+    secs = [int(x) for x in secs if x.isdigit()]
+    since = _dt.datetime.fromtimestamp(min(secs), _dt.timezone.utc) if secs else None
+    return since, branch
+
+
+_MODEL_ID = re.compile(r"claude-(?P<fam>[a-z]+)-(?P<major>\d+)(?:-(?P<minor>\d{1,2}))?(?=$|[-@\[])")
+
+
+def _model_name(run) -> str:
+    """`Haiku 4.5` from the CLI's own model id when the run kept it, else the alias it
+    was asked for (`haiku` → `Haiku`)."""
+    for mid in (run.get("models") or {}) if isinstance(run.get("models"), dict) else ():
+        hit = _MODEL_ID.match(str(mid))
+        if hit:
+            return (f"{hit['fam'].capitalize()} {hit['major']}"
+                    + (f".{hit['minor']}" if hit["minor"] else ""))
+    alias = str(run.get("model") or "").strip()
+    return alias[:1].upper() + alias[1:] if alias else ""
 
 # A ref, and nothing that could be a flag or a second argument. `git show` is invoked
 # without a shell, so this is not about quoting — it is about `--upload-pack=…` and

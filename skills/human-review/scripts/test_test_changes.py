@@ -190,6 +190,65 @@ def test_a_test_the_diff_never_reached_is_unchanged():
     assert _rows()["delete_ok"]["status"] == "unchanged"
 
 
+LAST_BEFORE = """class ProxyTest {
+  @Test
+  void first() {
+    ok();
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {1, 2})
+  void sizes(int n) {
+    ok();
+  }
+
+  private void helper() {
+    old();
+  }
+
+  @Test
+  void ownerSearchThroughProxy() throws Exception {
+    mockMvc.perform(get("/api/owners"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$", hasSize(greaterThanOrEqualTo(10))));
+  }
+}
+"""
+
+
+def test_a_body_edit_under_an_unchanged_signature_is_modified_even_in_the_last_test():
+    """Eval run 8: OwnerSearchThroughLatencyProxyTest's only test had its assertion
+    rewritten and was reported `unchanged` — the last test's body was taken to be its
+    declaration line alone. An annotation edit belongs to the test it annotates, and a
+    helper edited between two tests belongs to neither."""
+    after = (LAST_BEFORE.replace("ints = {1, 2}", "ints = {1, 2, 3}")
+             .replace("old();", "fresh();")
+             .replace('.andExpect(jsonPath("$", hasSize(greaterThanOrEqualTo(10))));',
+                      '.andExpect(jsonPath("$.content", hasSize(10)))\n'
+                      '        .andExpect(jsonPath("$.totalElements", greaterThanOrEqualTo(10)));'))
+    added, removed = tc.hunk_lines(
+        "--- a/ProxyTest.java\n+++ b/ProxyTest.java\n"
+        "@@ -8 +8 @@\n-  @ValueSource(ints = {1, 2})\n+  @ValueSource(ints = {1, 2, 3})\n"
+        "@@ -14 +14 @@\n-    old();\n+    fresh();\n"
+        "@@ -21 +21,2 @@\n-        .andExpect(x);\n+        .andExpect(a)\n+        .andExpect(b);\n")
+    rows = {r["name"]: r["status"] for r in
+            tc.classify_file("ProxyTest.java", "M", LAST_BEFORE, after, added, removed)}
+    assert rows == {"first": "unchanged", "sizes": "modified",
+                    "ownerSearchThroughProxy": "modified"}
+
+
+@pytest.mark.parametrize("rel, text, line, span", [
+    ("a.spec.ts", "describe('x', () => {\n  it('a', () => {\n    expect(1).toBe(1);\n  });\n"
+                  "\n  const helper = () => 1;\n});\n", 2, (2, 4)),
+    ("test_a.py", "@pytest.mark.slow\ndef test_a():\n    x = 1\n\n    assert x\n\ndef helper():\n"
+                  "    pass\n", 2, (1, 5)),
+    ("a.feature", "Feature: f\n  @smoke\n  Scenario: one\n    Given x\n    Then y\n\n  @wip\n", 3,
+     (2, 5)),
+])
+def test_a_case_s_own_lines_end_where_its_body_does(rel, text, line, span):
+    assert tc.case_span(rel, text.splitlines(), line, None) == span
+
+
 def test_a_deleted_test_keeps_a_line_to_open_in_the_surviving_file():
     row = _rows()["obsolete"]
     assert row["status"] == "deleted"

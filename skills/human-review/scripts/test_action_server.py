@@ -1110,6 +1110,32 @@ def test_the_price_is_derived_from_what_this_pages_runs_really_cost(tmp_path):
     assert price["n"] == 3
 
 
+def test_the_price_counts_only_this_branchs_runs_on_the_model_they_used(tmp_path):
+    """Eval run 8's chip: "~$0.16 on Sonnet", out of a row written two hours before the
+    branch forked, over a run that was Haiku. A reused `.human-review/` carries other
+    branches' runs; the quote is this branch's, and names its model."""
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+           "GIT_AUTHOR_DATE": "2026-10-03T01:33:00Z", "GIT_COMMITTER_DATE": "2026-10-03T01:33:00Z"}
+    run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                                    capture_output=True, text=True, env=env).stdout.strip()
+    run("init", "-q", "-b", "feat")
+    (tmp_path / "x").write_text("x")
+    run("add", "-A")
+    run("commit", "-qm", "base")
+    review = tmp_path / ".human-review"
+    review.mkdir()
+    (review / "review-commits.json").write_text(json.dumps({"base": run("rev-parse", "HEAD")}))
+    (review / srv.MODEL_RUNS_FILE).write_text(json.dumps({"runs": [
+        {"when": "2026-10-03T00:03:32+00:00", "model": "sonnet", "cost": 4.0},
+        {"when": "2026-10-03T02:00:00+00:00", "model": "sonnet", "cost": 6.0,
+         "branch": "another"},
+        {"when": "2026-10-03T03:12:02+00:00", "model": "haiku", "cost": 0.165,
+         "models": {"claude-haiku-4-5-20251001": 61136}}]}))
+    price = srv.price_estimate(review)
+    assert price == {"text": "~$0.17", "last": 0.17, "n": 1, "model": "Haiku 4.5"}
+
+
 def test_a_page_nobody_has_paid_for_says_a_range_and_not_a_number(tmp_path):
     """A number with nothing behind it is a promise. A ledger that is missing, unreadable,
     or holds only runs whose cost could not be read all mean the same thing here."""
@@ -1203,8 +1229,8 @@ def test_the_model_step_spends_nothing_on_a_dry_run(tmp_path):
         capture_output=True, text=True, cwd=str(tmp_path),
         env={**os.environ, "HUMAN_REVIEW_MAPPING_MODEL": ""})
     assert out.returncode == 0, out.stderr
-    # A cheap model, named, and no tools: everything it needs is in the prompt.
-    assert "claude -p --model haiku" in out.stdout
+    # The model, named (Sonnet by default), and no tools: everything it needs is in the prompt.
+    assert "claude -p --model sonnet" in out.stdout
     assert '--tools ""' in out.stdout
     assert "dry run" in out.stdout
     # The prompt goes in on stdin and is named, not quoted, with what is asked beside it.
@@ -1219,9 +1245,9 @@ def test_the_mapping_model_is_a_setting_with_a_cheap_default(tmp_path, monkeypat
     model = _load("rerun_model", "rerun-model.py")
     monkeypatch.delenv("HUMAN_REVIEW_MAPPING_MODEL", raising=False)
     cfg = tmp_path / "human-review.json"
-    assert model.mapping_model(None, cfg) == "haiku"
-    cfg.write_text('{"mappingModel": "sonnet"}', encoding="utf-8")
     assert model.mapping_model(None, cfg) == "sonnet"
+    cfg.write_text('{"mappingModel": "haiku"}', encoding="utf-8")
+    assert model.mapping_model(None, cfg) == "haiku"
     monkeypatch.setenv("HUMAN_REVIEW_MAPPING_MODEL", "opus")
     assert model.mapping_model(None, cfg) == "opus"
     assert model.mapping_model("haiku", cfg) == "haiku"

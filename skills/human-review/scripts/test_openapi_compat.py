@@ -567,12 +567,18 @@ def test_a_different_count_under_the_same_verdict_is_said_on_the_band():
     assert "counts" not in same, same
 
 
-def test_the_counts_wrap_beside_the_verdict_not_under_it():
-    """A whole `.n` span dropping onto line two opened that line with a stray '·'. Basis 0
-    keeps the box beside the verdict and wraps its words inside it."""
+def test_the_band_wraps_as_a_sentence_and_never_opens_a_line_on_the_dot():
+    """Eval run 8: as a flex row the label sat vertically centred beside a two-line count
+    whose second line hung under nothing. The band is running text now, wrapping from the
+    left edge; and the spaces either side of the '·' are no-break, so a wrapped line never
+    opens on a stray '·' (the reason the row was flex in the first place)."""
     css = oac.PANEL_CSS
-    rule = re.search(r"\.apiverdict \.n\{([^}]*)\}", css).group(1)
-    assert "flex:1 1 0" in rule and "min-width:0" in rule, rule
+    band = re.search(r"\.apiverdict\{([^}]*)\}", css).group(1)
+    assert "display:block" in band and "align-items:center" not in band, band
+    result = _result(oac.INCOMPATIBLE, breaks=[_op("GET", "/api/owners", 1)])
+    html_ = oac.panel(result, None)
+    assert '</span>&nbsp;<span class="n">·&nbsp;' in html_
+    assert "Breaking change" in _panel_text(html_)
 
 
 def test_a_replaced_schema_is_one_breaking_change_not_three():

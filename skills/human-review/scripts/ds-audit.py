@@ -1164,7 +1164,10 @@ CSS = """/* ds-audit — the annotated screenshots and the findings table, and n
 .dsa-v.ok  { color: var(--dsa-ok); }
 .dsa-table tr.ok td:first-child { border-left: 4px solid var(--dsa-ok); }
 .dsa-prov { opacity: .7; font-style: italic; }
-.dsa-sel { font-size: .78rem; opacity: .72; word-break: break-all; }
+/* Wraps only at the `<wbr>` after each `>` (`selector_html`), never mid-token. */
+.dsa-sel { font-size: .78rem; opacity: .72; word-break: normal; overflow-wrap: normal;
+  white-space: normal; }
+.dsa-sel .dsa-step { white-space: nowrap; }
 /* A side is a branch name or a short sha: one word, never broken over three lines. */
 .dsa-table td:nth-child(2) { white-space: nowrap; }
 /* One collapsible row per screen, closed by default — the same furniture the Sequence
@@ -1194,13 +1197,20 @@ details.dsa-screen > summary:hover { color: var(--link); }
 .dsa-frame { position: absolute; box-sizing: border-box; pointer-events: none;
   border: 3px solid var(--dsa-frame); border-radius: .35rem; }
 .dsa-frame.insert { border: 0; border-top: 3px dashed var(--dsa-frame); border-radius: 0; }
-/* The frame's chip sits on its top edge, right-aligned: the marks' own badges take the
-   top-left corner of the boxes inside it, which is often the frame's corner too. */
-.dsa-frame > b { position: absolute; right: -3px; top: -1.15rem; font: 700 .68rem/1.15rem
-  -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--dsa-label-fg);
-  background: var(--dsa-frame); padding: 0 .35rem; border-radius: .2rem; white-space: nowrap;
-  z-index: 2; }
-.dsa:has(.dsa-frameon:not(:checked)) .dsa-frame { display: none; }
+/* What a frame holds is said in a caption UNDER the picture (`.dsa-framecap`), never on
+   it: the chip that rode the frame's top edge covered the table header it framed (eval
+   run 8). With several frames each carries only its number, outside its top-left corner. */
+.dsa-frame > b.dsa-fnum { position: absolute; left: -3px; top: -3px; transform: translateX(-100%);
+  font: 700 .68rem/1.15rem -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--dsa-label-fg); background: var(--dsa-frame); padding: 0 .3rem;
+  border-radius: .2rem; z-index: 2; }
+.dsa-framecap { margin: .4rem 0 0; font-size: .82rem; line-height: 1.5; display: flex;
+  flex-wrap: wrap; gap: .2rem 1rem; }
+.dsa-fcap { display: inline-flex; align-items: baseline; gap: .35rem; }
+.dsa-fcap i { width: .85rem; height: .85rem; border: 2px solid var(--dsa-frame);
+  border-radius: .2rem; box-sizing: border-box; align-self: center; flex: none; }
+.dsa:has(.dsa-frameon:not(:checked)) .dsa-frame,
+.dsa:has(.dsa-frameon:not(:checked)) .dsa-framecap { display: none; }
 .dsa-frametoggle { margin-left: .6rem; font-size: .82rem; display: inline-flex; gap: .35rem;
   align-items: center; cursor: pointer; user-select: none; color: var(--fg); }
 .dsa-frametoggle input { accent-color: var(--dsa-frame); margin: 0; }
@@ -1270,14 +1280,25 @@ def shot_html(png_rel: str, page: dict, marks: list[dict],
     change frames (`change_frames`), drawn under the marks so a badge stays readable."""
     w, h = max(page["w"], 1), max(page["h"], 1)
     out = [f'<div class="dsa-shot"><img src="{html.escape(png_rel)}" alt="" loading="lazy">']
+    # A frame's words go UNDER the picture, never on it. The chip used to ride the frame's
+    # top edge, and eval run 8's sat over the table's own header (`Pets`) — the screen the
+    # reader came to look at, covered by the label explaining it. With more than one frame
+    # each gets a small number outside its corner, and the caption is keyed by it.
+    boxed = [fr for fr in frames or [] if not fr.get("insert")]
+    caps = []
     for fr in frames or []:
         style = (f'left:{_pct(fr["x"], w)};top:{_pct(fr["y"], h)};'
                  f'width:{_pct(fr["w"], w)};height:{_pct(fr["h"], h)}')
+        label = "" if fr.get("insert") else frame_label(fr, marks)
         tip = ("the change goes in here \u2014 the other side has it"
-               if fr.get("insert") else "changed on this branch")
-        chip = "" if fr.get("insert") else f'<b>{html.escape(frame_label(fr, marks))}</b>'
+               if fr.get("insert") else f"changed on this branch: {label}")
+        chip = ""
+        if not fr.get("insert"):
+            n = len(caps) + 1
+            caps.append((n, label))
+            chip = f'<b class="dsa-fnum">{n}</b>' if len(boxed) > 1 else ""
         out.append(f'<div class="dsa-frame{" insert" if fr.get("insert") else ""}" '
-                   f'style="{style}" data-tip="{tip}">{chip}</div>')
+                   f'style="{style}" data-tip="{html.escape(tip)}">{chip}</div>')
     for m in marks:
         b = m["box"]
         style = (f'left:{_pct(b["x"], w)};top:{_pct(b["y"], h)};'
@@ -1287,6 +1308,10 @@ def shot_html(png_rel: str, page: dict, marks: list[dict],
             f'data-find="{html.escape(m["id"])}" data-tip="{html.escape(m["tip"])}">'
             f'<b>{html.escape(m["badge"])}</b></div>')
     out.append("</div>")
+    if caps:
+        out.append('<p class="dsa-framecap">' + "".join(
+            f'<span class="dsa-fcap"><i></i>{f"{n} " if len(caps) > 1 else ""}'
+            f'<b>{html.escape(label)}</b></span>' for n, label in caps) + "</p>")
     return "".join(out)
 
 
@@ -1296,6 +1321,18 @@ def short_selector(selector: str, keep: int = 2) -> str:
     cell — and only its tail tells two rows apart. The whole path stays in the tip."""
     steps = selector.split(">")
     return selector if len(steps) <= keep + 1 else "\u2026>" + ">".join(steps[-keep:])
+
+
+def selector_html(selector: str) -> str:
+    """A selector that may only wrap between its steps: `<wbr>` after each `>`, and the
+    cell's CSS forbids any other break. Eval run 8's column cut `div#ownersTable>ta / ble.
+    mat-sort.tabl / e:1` — `word-break: break-all` splitting tokens wherever the column
+    ran out, which is unreadable for the one string a reader would search the code for.
+    The whole path is in the tip."""
+    # Each step is nowrap too: in normal wrapping a browser still breaks after a hyphen,
+    # and `mat-` / `mdc-paginator` is the same mid-token cut by another route.
+    return "&gt;<wbr>".join(f'<span class="dsa-step">{html.escape(step)}</span>'
+                            for step in selector.split(">"))
 
 
 def frame_label(frame: dict, marks: list[dict]) -> str:
@@ -1557,7 +1594,7 @@ def render_screen(screen: dict, assets_prefix: str, build) -> str:
             f'<td>{html.escape(screen["sides"][f["side"]]["label"])}</td>'
             f'<td><b>{html.escape(element_name(f))}</b>'
             f'<br><code class="dsa-sel" data-tip="{html.escape(f["selector"])}">'
-            f'{html.escape(short_selector(f["selector"]))}</code></td>'
+            f'{selector_html(short_selector(f["selector"]))}</code></td>'
             f'<td>{html.escape(f["role"] or "")}</td>'
             + f'<td>{f["message"]}'
             + (f'<br><span class="dsa-prov">{f["history"]}</span>'

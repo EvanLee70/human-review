@@ -619,13 +619,17 @@ OURS_LABEL = "<code>openapi-diff.py</code>"
 REPORTS = {"engine": "openapi-compat-report.html", "ours": "openapi-diff-report.html"}
 
 PANEL_CSS = """<style>
-.apiverdict{display:flex;align-items:center;gap:.6rem;width:100%;box-sizing:border-box;
- padding:.75rem 1.1rem;border-radius:8px;font-weight:600;font-size:1rem;
- margin:.2rem 0 1.2rem;flex-wrap:wrap}
-.apiverdict .dot{width:.7rem;height:.7rem;border-radius:50%;background:currentColor;flex:none}
-.apiverdict .n{font-weight:400;opacity:.85;font-size:.94rem;flex:1 1 0;min-width:0}
-/* Basis 0: the counts wrap *inside* their own box, beside the verdict, instead of the box
-   dropping whole onto a second line that then opens with a stray '·'. */
+/* Running text, not a flex row. As a row the label sat vertically centred beside a
+   two-line count, so the count's second line hung under nothing (eval run 8: "Breaking
+   changes" floating mid-band, "openapi-diff.py (report)" wrapped beneath the counts). Inline,
+   the sentence wraps the way a sentence does: from the left edge, under the label. */
+.apiverdict{display:block;width:100%;box-sizing:border-box;
+ padding:.75rem 1.1rem;border-radius:8px;font-weight:600;font-size:1rem;line-height:1.5;
+ margin:.2rem 0 1.2rem}
+.apiverdict .dot{display:inline-block;width:.7rem;height:.7rem;border-radius:50%;
+ background:currentColor;margin-right:.5rem;vertical-align:.02em}
+.apiverdict .v{white-space:nowrap}
+.apiverdict .n{font-weight:400;opacity:.85;font-size:.94rem}
 .apiverdict a{color:inherit;text-decoration:underline;text-underline-offset:2px}
 /* Smaller and quieter than the name it follows: the verdict is what this band says, and
    the report is where to go and check it. Same colour, so it still reads as one clause. */
@@ -773,11 +777,12 @@ def panel(result: dict, ours: dict | None,
     if not result.get("complete", True) and state != NO_CHANGES:
         counts += " — a lower bound, <code>oasdiff</code> is not installed"
 
-    # The newline between the spans is not cosmetic: `gap` spaces them on screen, but a
-    # reader copying the line out gets "Backwards compatible· …" with the dot glued on.
+    # The space between the spans is not cosmetic: a reader copying the line out would
+    # get "Backwards compatible· …" with the dot glued on. It is a no-break space, and so is
+    # the one after the dot, so a wrapped band never opens its second line on a stray '·'.
     return (f'{PANEL_CSS}\n<div class="apiverdict {cls}"><span class="dot"></span>'
-            f'<span class="v">{verdict}</span>\n'
-            f'<span class="n">· {counts} · {checked}</span></div>')
+            f'<span class="v">{verdict}</span>&nbsp;'
+            f'<span class="n">·&nbsp;{counts} · {checked}</span></div>')
 
 
 # ── the tool's markdown, as HTML we control ───────────────────────────────────────

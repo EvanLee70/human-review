@@ -469,6 +469,70 @@ def pair_renames(rel: str, before: str, after: str, rows: list[dict],
     return out
 
 
+# --------------------------------------------------------------------------- #
+# where a test case's own lines end
+# --------------------------------------------------------------------------- #
+# "Modified" means the diff touched a line of the test's own: its tags or annotations, its
+# declaration, its body. The body used to be "up to the next declaration", which for the
+# last test of a file was nothing at all — `next(…, line + 1)`, the declaration line alone —
+# so eval run 8's OwnerSearchThroughLatencyProxyTest, one test with its assertion rewritten,
+# came out `unchanged` and the ✍️ chip read one short. It also charged a changed
+# `@ValueSource` to the test *above* it, and a helper edited between two tests to the first.
+_BRACED = (".java", ".kt", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".go")
+_STRINGS = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`")
+_GHERKIN_STOP = re.compile(r"^\s*(?:Scenario|Scenario Outline|Scenario Template|Example|"
+                           r"Rule|Feature|Background)\s*:|^\s*@")
+
+
+def case_span(rel: str, lines: list[str], line: int, next_start: int | None) -> tuple[int, int]:
+    """`(first, last)` 1-based lines, inclusive, that are this test case's own: the
+    `@…` lines right above its declaration, down to the end of its body — the brace that
+    closes it, the end of its indented block (Python), the line before the next scenario
+    or tag (Gherkin). Never past the line before the next declaration, and never short of
+    the declaration itself."""
+    cap = (next_start - 1) if next_start else len(lines)
+    first = line
+    while first > 1 and lines[first - 2].strip().startswith("@"):
+        first -= 1
+    last = cap
+    if rel.endswith(_BRACED):
+        depth, opened = 0, False
+        for n in range(line, cap + 1):
+            code = _STRINGS.sub("", lines[n - 1]).split("//", 1)[0]
+            for ch in code:
+                if ch == "{":
+                    depth, opened = depth + 1, True
+                elif ch == "}":
+                    depth -= 1
+            if opened and depth <= 0:
+                last = n
+                break
+    elif rel.endswith(".py"):
+        own = _indent(lines[line - 1])
+        last = line
+        for n in range(line + 1, cap + 1):
+            text = lines[n - 1]
+            if text.strip() and _indent(text) <= own:
+                break
+            if text.strip():
+                last = n
+    elif rel.endswith(".feature"):
+        last = line
+        for n in range(line + 1, cap + 1):
+            if _GHERKIN_STOP.match(lines[n - 1]):
+                break
+            if lines[n - 1].strip():
+                last = n
+    return first, max(last, line)
+
+
+def _spans(rel: str, text: str, cases: dict) -> dict[str, tuple[int, int]]:
+    lines = text.splitlines()
+    starts = sorted(ln for ln, _ in cases.values())
+    return {name: case_span(rel, lines, ln, next((s for s in starts if s > ln), None))
+            for name, (ln, _) in cases.items()}
+
+
 def classify_file(rel: str, status: str, before: str | None, after: str | None,
                   added: set[int], removed: dict[int, int]) -> list[dict]:
     """Every test case in one changed file, with what happened to it."""
@@ -478,24 +542,24 @@ def classify_file(rel: str, status: str, before: str | None, after: str | None,
     touched = added | set(removed.values())
     rows: list[dict] = []
 
-    after_starts = sorted(ln for ln, _ in after_cases.values())
+    after_spans = _spans(rel, after, after_cases) if after is not None else {}
     for name, (line, silenced) in sorted(after_cases.items(), key=lambda kv: kv[1][0]):
-        end = next((s for s in after_starts if s > line), line + 1)
+        first, last = after_spans[name]
         was = before_cases.get(name)
         if was is None:
             state = "added"
-        elif any(line <= t < end for t in touched):
+        elif any(first <= t <= last for t in touched):
             state = "modified"
         else:
             state = "unchanged"
         rows.append(_row(name, rel, state, line, silenced, was[1] if was else None))
 
-    before_starts = sorted(ln for ln, _ in before_cases.values())
+    before_spans = _spans(rel, before, before_cases) if before is not None else {}
     for name, (line, was_silenced) in sorted(before_cases.items(), key=lambda kv: kv[1][0]):
         if name in after_cases:
             continue
-        end = next((s for s in before_starts if s > line), line + 1)
-        anchors = [new for old, new in removed.items() if line <= old < end]
+        first, last = before_spans[name]
+        anchors = [new for old, new in removed.items() if first <= old <= last]
         # Commented out rather than removed: the body is still in the file, so the row
         # still has somewhere to go -- the comment itself, which is the thing the
         # reviewer has to judge.

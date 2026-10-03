@@ -24,19 +24,55 @@ from .util import PENCIL, _git
 # to switch the default off, because "count the generated files too" is not a reviewing
 # preference -- it is the mistake this exists to prevent. The tooltip states the
 # unfiltered totals anyway, so nothing is hidden, only ranked.
-GENERATED_PATHSPECS = [
-    "*/generated/*", "generated/*",
-    "*.genseq.json", "*.genseq.puml",
-    "*.min.js", "*.min.css", "*.snap",
-    "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.ico", "*.pdf",
-    "package-lock.json", "*/package-lock.json",
-    "yarn.lock", "*/yarn.lock",
-    "pnpm-lock.yaml", "*/pnpm-lock.yaml",
-    "go.sum", "*/go.sum",
-    "Cargo.lock", "*/Cargo.lock",
-    "poetry.lock", "*/poetry.lock",
-    ".human-review/*",
-]
+#
+# ONE list, read by both places that ask "did a human write this?": this header and
+# `run-steps.py`'s aftermath band (which imports it as `GENERATED_DEFAULT`). There used to
+# be two, and eval run 8 caught them disagreeing: the band called the springdoc-written
+# `openapi.yaml` generated, this chip counted its +79/−29 as hand-written lines. Spelled as
+# `**` globs -- `*` stops at a slash, `**` crosses them, a leading `**/` is optional --
+# which is both `run-steps.py:glob_rx` and git's own `:(glob)` pathspec magic, so the same
+# string means the same paths in both readers. A project's `"generated"` in
+# `human-review.json` replaces it, in both places alike (`generated_globs`).
+GENERATED_GLOBS = (
+    "**/generated/**", "docs/generated/**", "openapi.yaml",
+    "**/*.genseq.*", "**/api-types.ts", "**/*.drawio*",
+    "**/*.min.js", "**/*.min.css", "**/*.snap",
+    "**/*.png", "**/*.jpg", "**/*.jpeg", "**/*.gif", "**/*.webp", "**/*.ico", "**/*.pdf",
+    "**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml",
+    "**/go.sum", "**/Cargo.lock", "**/poetry.lock",
+    ".human-review/**",
+)
+# Kept under the old name: the orchestrator re-exports it, and a test or a caller reaching
+# for "the list" must get this one, not a stale copy.
+GENERATED_PATHSPECS = list(GENERATED_GLOBS)
+
+# What the review itself commits beside the code: the findings record and its cost ledger.
+# Not generated -- an agent wrote every line on purpose -- but not the change under review
+# either, so the code chips leave it out and say so by name. It stays out of
+# `GENERATED_GLOBS` because the aftermath band reads that list, and a hand edit to the
+# review record after the agent finished is something that band must still see.
+REVIEW_BOOKKEEPING = ("**/review-points.md", "**/review-cost.json")
+
+
+def generated_globs(cfg: dict | None) -> list[str]:
+    """The project's `"generated"` list when it names one, else `GENERATED_GLOBS` --
+    the same rule `run-steps.py:generated_globs` applies, so the header and the aftermath
+    band can never be reading two lists again."""
+    got = cfg.get("generated") if isinstance(cfg, dict) else None
+    if isinstance(got, list):
+        named = [g for g in got if isinstance(g, str) and g.strip()]
+        if named:
+            return named
+    return list(GENERATED_GLOBS)
+
+
+def _project_cfg(root: Path) -> dict:
+    """`human-review.json` at the top of the checkout, or {} when there is none."""
+    try:
+        cfg = json.loads((root / "human-review.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return cfg if isinstance(cfg, dict) else {}
 
 
 def _resolve_base(root: Path, named: str) -> tuple[str, str] | None:
@@ -377,10 +413,19 @@ def diffstat_chips(root: Path, state: dict | None, extra: list[str] | None,
     # gap. The left side is `page_base`'s answer when there is one: the same commit every
     # tab below was measured from, never a second one of the header's own.
     rng = f"{start}...{state['head']}"
-    excludes = [f":(exclude){p}" for p in GENERATED_PATHSPECS + list(extra or [])]
-    a, e, d, adds, dels = _numstat(root, rng, excludes)
+    # The project's list and the built-in one are `**` globs (`:(glob)` magic); a content
+    # file's `exclude` keeps the plain pathspec spelling it was always written in.
+    gen = [f":(exclude,glob){p}" for p in generated_globs(_project_cfg(root))]
+    gen += [f":(exclude){p}" for p in (extra or [])]
+    books = [f":(exclude,glob){p}" for p in REVIEW_BOOKKEEPING]
+    a, e, d, adds, dels = _numstat(root, rng, gen + books)
     fa, fe, fd, fadds, fdels = _numstat(root, rng, [])
-    hidden = (fa + fe + fd) - (a + e + d)
+    ga, ge, gd, _, _ = _numstat(root, rng, books)
+    booked = (fa + fe + fd) - (ga + ge + gd)
+    hidden = (ga + ge + gd) - (a + e + d)
+    booked_names = sorted({ln.split("\t")[-1] for ln in (_git(
+        root, "diff", "--name-only", rng, "--", *[f":(glob){p}" for p in REVIEW_BOOKKEEPING])
+        or "").splitlines() if ln.strip()})
 
     where = f"vs {measured_from(state)}"
     # The signs are the page's, not this chip's: `+` added, `-` removed, a pencil for
@@ -405,10 +450,18 @@ def diffstat_chips(root: Path, state: dict | None, extra: list[str] | None,
     # true, neither actionable, and a tooltip is read standing up in one glance. Whoever
     # needs the reasoning is reading this function.
     if hidden:
-        skipped = (f" {hidden} generated left out; with them {fa + fe + fd} files, "
-                   f"+{fadds} / −{fdels}.")
+        skipped = f" {hidden} generated left out"
     else:
-        skipped = " No generated files to leave out."
+        skipped = " No generated files to leave out"
+    if booked:
+        # Named, because "1 file of review bookkeeping" is a reason a reader has to take
+        # on trust, and `review-points.md` is one they recognise at a glance.
+        skipped += (f"; review bookkeeping left out too ({', '.join(booked_names)}: the "
+                    f"review's own record, not the change)")
+    if hidden or booked:
+        skipped += f"; with them {fa + fe + fd} files, +{fadds} / −{fdels}."
+    else:
+        skipped += "."
 
     # The line count is the one number on the bar a reader wants to *open*: "+921 / −68"
     # is the size of what there is to read, and the next question is always what those

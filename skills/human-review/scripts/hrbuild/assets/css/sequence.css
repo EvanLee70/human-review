@@ -107,3 +107,15 @@ details.testpair > summary:hover > .testcat { color:var(--tc); }
 /* The warning inside a pair whose re-trace lost what the committed diagram shows: a band,
    as the tab's own verdict is, but at the pair's own text size. */
 .rband.seqlost { font-size:.9rem; line-height:1.6; margin:.4rem 0 .6rem; }
+/* Why the picture exists: tagged in the source, or a test this branch wrote that the step
+   traced untagged. Quieter than the kind chip beside it — a fact about the evidence, not
+   about the test — so an outline rather than a fill. */
+.seqwhy { flex:0 0 auto; align-self:center; padding:1px 6px; border-radius:999px;
+  font:600 .62rem/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em;
+  --sw:var(--muted); color:var(--sw); border:1px solid currentColor; }
+.seqwhy[data-why=added], .seqwhy[data-why=modified] { --sw:#2e6b2e; }
+details.testpair > summary:hover > .seqwhy { color:var(--sw); }
+@media (prefers-color-scheme: dark) {
+  .seqwhy[data-why=added], .seqwhy[data-why=modified] { --sw:#8fd18f; }
+}
+.seqsel { font-size:.9rem; line-height:1.6; margin:.3rem 0 .8rem; }

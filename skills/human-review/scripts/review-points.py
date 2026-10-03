@@ -115,6 +115,19 @@ REFUTED = re.compile(
 # `why:`: an observation may well open on "Wrong status code…", which is the defect.
 REFUTED_WHY = re.compile(r"^\s*(?:the\s+reviewer\s+(?:was|is)\s+)?wrong\b", re.I)
 
+
+def is_refuted(item: dict) -> bool:
+    """A declined finding the agent says was never true — an Ignored item at `severity:
+    info` whose `why:` opens on the verdict ("refuted — this spec asserts %2B", "wrong —
+    handleError rethrows") or names it ("false positive"). The page's one reading of it:
+    the Review tab counts these apart from the open pile (eval run 8 counted four of them
+    as "11 open" when seven were). Only `why:` decides: it is where the agent answers, and
+    an observation that says "refuted" is quoting someone, not ruling."""
+    if not isinstance(item, dict) or (item.get("severity") or "info") != "info":
+        return False
+    why = re.sub(r"<[^>]+>", "", html.unescape(str(item.get("why") or "")))
+    return bool(REFUTED_WHY.search(why) or REFUTED.search(why))
+
 H2 = re.compile(r"^##\s+(.*?)\s*#*\s*$")
 H3 = re.compile(r"^###\s+(.*?)\s*#*\s*$")
 FIELD = re.compile(r"^[-*]\s*([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*)$")

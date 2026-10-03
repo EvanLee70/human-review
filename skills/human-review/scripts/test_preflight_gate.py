@@ -330,3 +330,32 @@ def test_the_newest_run_of_the_workflow_decides(tmp_path):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+def test_the_wipe_clears_model_state_that_belongs_to_another_branch(tmp_path):
+    """Eval run 8 reused a `.human-review/` three branches old: `.model-prev/` still held
+    `feature-script.hr-claude-5.js`, and the AI chip priced itself off a run from before
+    the branch forked. What predates the fork goes; what this branch made stays."""
+    repo = _repo(tmp_path)
+    hr = repo / ".human-review"
+    prev = hr / ".model-prev"
+    prev.mkdir()
+    (prev / "feature-script.hr-claude-5.js").write_text("old")
+    os.utime(prev / "feature-script.hr-claude-5.js", (1_600_000_000, 1_600_000_000))
+    (prev / "test-mapping.json").write_text("{}")             # made after the fork: kept
+    os.utime(prev / "test-mapping.json", (4_000_000_000, 4_000_000_000))
+    (hr / ".model-runs.json").write_text(json.dumps({"version": 1, "runs": [
+        {"when": "2020-01-01T00:00:00+00:00", "model": "sonnet", "cost": 4.0},
+        {"when": "2099-01-01T00:00:00+00:00", "model": "haiku", "cost": 0.17}]}))
+    env = _stub_gh(tmp_path, [])
+    p = _run(repo, env, "--no-gate", "--base", "main")
+    assert p.returncode == 0, p.stderr
+    assert sorted(f.name for f in prev.iterdir()) == ["test-mapping.json"]
+    runs = json.loads((hr / ".model-runs.json").read_text())["runs"]
+    assert [r["model"] for r in runs] == ["haiku"]
+    assert "cleared .model-prev/feature-script.hr-claude-5.js" in p.stdout
+    assert (hr / ".branch").read_text().strip() == "main"
+    # The last run was on another branch: everything it kept goes, however recent.
+    (hr / ".branch").write_text("hr-claude-7\n")
+    assert _run(repo, env, "--no-gate", "--base", "main").returncode == 0
+    assert not any(prev.iterdir())

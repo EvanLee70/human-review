@@ -8,8 +8,10 @@ of the test's name and assertions, synonyms, literals, the changed lines its cov
 and a shared word is a candidate, not proof. This file asks a **cheap** model, in one call,
 to read the tests behind every proposed link and confirm or reject it, to pair the
 sentences the script could not, and to say which sentences a recorded scope decision
-narrowed. `rerun-model.py` appends all of it as JSON under `## Input` and hands the whole
-thing to `claude -p --model haiku` with no tools. A GitHub Copilot session runs the same
+narrowed — and a second cheap call (`reference/matrix-check-prompt.md`) re-reads every link
+it kept against the test bodies and can only lower what it claimed, never raise it.
+`rerun-model.py` appends all of it as JSON under `## Input` and hands the whole
+thing to `claude -p --model sonnet` (the default; `haiku` is a setting away) with no tools. A GitHub Copilot session runs the same
 step with its own cheap model (*Auto*, or `gpt-5-mini`): `rerun-model.py --prompt-only`
 prints this prompt with its input, and `rerun-model.py --answer reply.json` checks and
 installs the reply. Everything below is addressed to that run and not to a reader.
@@ -66,19 +68,27 @@ is checked by a program before anything uses it.
 One entry per sentence in `sentences`, every one of them, none twice:
 
 - `review` — **one verdict per test in that sentence's `scripted`, every one, none
-  twice**: `confirm` when the test's body really checks (or at least runs) what the
-  sentence claims, `reject` when the shared words are a coincidence — and a `why` of one
+  twice**: `confirm` when the test's body touches the sentence's **subject** — calls the
+  endpoint it is about, renders the screen or message it is about, sets or reads the field
+  it is about — `reject` when it does not, whatever words it shares — and a `why` of one
   line naming what in the body decides it. A confirmed test goes in `tests`; a rejected
-  one must not. A sentence with an empty `scripted` has no `review`.
-- `coverage` — `covered` (a test asserts every claim the sentence makes), `partial` (a
-  test asserts part of it — say which part is not, in `gap`), `exercised` (a test runs
-  through it but asserts none of it), `missing` (no test proves or reaches it),
+  one must not. A sentence with an empty `scripted` has no `review`. **Never confirm a link
+  whose test does not touch the sentence's subject**: "lists the owners" does not touch
+  authorization, a backend request does not touch what the grid shows, a DOM check does
+  not touch styling.
+- `coverage` — `covered` (a listed test **asserts the sentence's specific claim** — every
+  claim it makes), `partial` (a test asserts part of it — say which part is not, in
+  `gap`), `exercised` (a test runs through it but asserts none of it), `missing` (no test
+  proves or reaches it),
   `narrowed` (the branch deliberately delivers less than the sentence says, and one of
   `decisions` records that — name it in `decision`), or `n/a` (not a claim at all:
   background, history, motivation).
-- `tests` — the tests that pin it, from `scripted` (confirmed) or `candidates`, each with
-  `strength`: `asserted` when the body checks the claim, `exercised` when it only runs the
-  code — and a `why` of one line. Only ids from `tests`; never invent or retype one.
+- `tests` — the tests that pin it, from `scripted` (confirmed), `candidates`, or anywhere
+  in `tests`, each with `strength`: `asserted` when an assertion line of the body checks
+  *this sentence's* claim, `exercised` when the body only runs the code or asserts
+  something else nearby (the same endpoint, another field) — and a `why` of one line that
+  names **the assertion line** (what it compares, against what), not the test's title.
+  Only ids from `tests`; never invent or retype one.
   `missing` and `n/a` have `"tests": []`; `narrowed` may list the tests that pin what was
   delivered instead.
 - `gap` (optional, one sentence) — what is not proven, or how it was narrowed; `gapKind`
@@ -94,7 +104,30 @@ One entry per sentence in `sentences`, every one of them, none twice:
   `narrowed`, not `covered` and not `missing`.
 - `covered` and `partial` need at least one `asserted` test; `exercised` needs at least one
   test and no `asserted` one. An answer that breaks this is refused.
+- **A sentence that lists several things is several claims.** "Bootstrap styling,
+  owner-detail navigation, and Add Owner behavior SHALL remain available" is `covered`
+  only when each of the three is asserted; a test of the Add Owner button and one of the
+  detail link make it `partial`, with "styling" in `gap`.
+- **"Unchanged", "remains", "preserved" are claims too, and the hardest to cover.** A test
+  that merely *uses* an existing feature has `exercised` it; only a test that asserts the
+  preserved behaviour itself (an unauthorised request is refused, the response keeps its
+  fields) covers it. Contracts of another module (a chatbot, an MCP tool) are covered only
+  by a test of that module.
+- **Prove it at the layer the sentence speaks of.** A sentence about the screen — the grid,
+  its initial state, a message, a button — is proven by a UI or component (unit) test of
+  that screen; a backend test proves what the API returns, not what the screen does with
+  it. A sentence about the API is proven by an API test. When the right layer's test is
+  in `candidates` or anywhere in `tests`, pair it — do not let a test of the other layer
+  stand in for it.
+- **Read the `candidates`, and the whole `tests` list, for every sentence.** The test that
+  asserts a claim most directly is often not among the `scripted` guesses: an e2e scenario
+  titled for exactly this case, a component spec named for the initial state.
+- Never write a `why` the body does not support. If you cannot name the line that checks
+  the claim, the link is `exercised` at best.
 - The honest answer is usually not the flattering one. A sentence with nothing behind it is
-  `missing`, and saying so is the value of the matrix.
+  `missing`, and saying so is the value of the matrix. If nearly every sentence comes out
+  `covered`, you are reading names, not bodies: go back over each `covered` and find its
+  assertion line. A second, independent read checks every `covered` and `partial` against
+  the bodies and lowers what it cannot find — it can never raise anything.
 - Prefer few, strong pairings over many weak ones: three tests that assert the claim are
   the answer; ten that mention the same entity are noise.

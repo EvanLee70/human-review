@@ -303,6 +303,74 @@ def test_the_review_records_its_own_cost_in_the_harness_that_ran_it(tmp_path):
     assert {c["key"]: c for c in doc["components"]}["autofix"]["aic"] == 5.0
 
 
+def test_a_headless_claude_review_commits_its_cost_with_the_reviewer_count(tmp_path):
+    """Eval run 8, `claude -p --resume … /record-review`: finish printed `review-cost.json:
+    not written — unknown key subagents` and committed nothing, so the page fell back to a
+    derivation that measured nothing. The record is the primary source; it must be written."""
+    import datetime as dt
+    import time
+    from test_harness_cost import _prompt, _turn
+
+    home = tmp_path / "home"
+    sid = "s-claude"
+    env = {**ENV, "HOME": str(home), "CLAUDE_CODE_SESSION_ID": sid,
+           "HUMAN_REVIEW_COPILOT_DB": str(tmp_path / "none.db"),
+           "HUMAN_REVIEW_VSCODE_USER": str(tmp_path / "none")}
+    r = (tmp_path / "repo").resolve()
+    r.mkdir()
+    git(r, "init", "-q", "-b", "main")
+    (r / ".gitignore").write_text(".human-review/\n")
+    (r / "README").write_text("x\n")
+    git(r, "add", "-A")
+    git(r, "commit", "-q", "-m", "base")
+    base = git(r, "rev-parse", "HEAD")
+    git(r, "checkout", "-qb", "feat")
+    (r / "app.py").write_text("def total(xs):\n    return sum(xs)\n")
+    git(r, "add", "-A")
+    git(r, "commit", "-q", "-m", f"feature\n\nClaude-Session: {sid}")
+    slug = home / ".claude" / "projects" / str(r).replace("/", "-")
+    slug.mkdir(parents=True)
+    f = slug / f"{sid}.jsonl"
+
+    def stamp():
+        return dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds") \
+            .replace("+00:00", "Z")
+
+    def run(*args):
+        return subprocess.run([sys.executable, str(RR), *args], cwd=r, capture_output=True,
+                              text=True, env=env)
+
+    time.sleep(1.1)
+    _prompt(f, stamp(), "/openspec-apply-change x")
+    _turn(f, stamp(), "m1", edit=r / "app.py")
+    time.sleep(1.1)
+    assert run("prepare", "--base", base, "--no-ci").returncode == 0
+    time.sleep(1.1)
+    _turn(f, stamp(), "m2")
+    agents = slug / sid / "subagents"
+    agents.mkdir(parents=True)
+    _turn(agents / "agent-r1.jsonl", stamp(), "r1", model="claude-sonnet-5-5", read=0,
+          out=10_000)
+    time.sleep(1.1)
+    run("ci", "--wait-minutes", "0")                   # stamps the reviewers' end
+    time.sleep(1.1)
+    _turn(f, stamp(), "m3")
+    (r / "review-points.md").write_text(POINTS)
+    done = run("finish", "--subject", "s", "--harness", "claude-code")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "not written" not in done.stdout, done.stdout
+    assert "review-cost.json" in git(r, "show", "--name-only", "--format=", "HEAD")
+    doc = json.loads((r / "review-cost.json").read_text())
+    assert schema.cost_problems(doc) == []
+    comps = {c["key"]: c for c in doc["components"]}
+    assert comps["implementation"]["usd"] == pytest.approx(0.20)
+    assert comps["review"]["usd"] == pytest.approx(0.30)
+    assert comps["review"]["entries"][0]["subagents"] == 1
+    assert comps["autofix"]["usd"] == pytest.approx(0.20)
+    state = json.loads((r / ".human-review/review/state.json").read_text())
+    assert "costError" not in state
+
+
 # ── what the prompt asks of the record, held to the words the page depends on ───────
 
 PROMPT = (HERE.parent.parent / "record-review" / "prompt.md").read_text(encoding="utf-8")

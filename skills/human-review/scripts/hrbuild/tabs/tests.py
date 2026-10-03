@@ -694,8 +694,48 @@ def coverage_join(doc: dict) -> dict:
         for f, ls in r["changedHits"].items():
             run[f].update(ls)
     gaps = {f: sorted(measurable[f] - run[f]) for f in measurable if measurable[f] - run[f]}
+    _rendered_templates(doc, measurable, rows, gaps, unm)
     return {"measurable": measurable, "total": sum(map(len, measurable.values())),
             "rows": rows, "gaps": gaps, "unmeasurable": unm, "quiet": quiet}
+
+
+#: Said of a changed template line no browser test ran, in a component a Karma spec
+#: rendered. Eval run 8 listed owner-list.component.html:23 — the `#ownersError` alert —
+#: under "Changed lines no test runs" while owner-list.component.spec.ts:212 renders it and
+#: asserts its text: Istanbul instruments the component's TypeScript, never its template,
+#: so a unit spec runs every template line and is seen running none. Only a browser run
+#: maps template lines (`v8-join.js`); where it did not reach one, the honest word is
+#: "unseen", not "unrun" — the component's specs are its proxy.
+TEMPLATE_UNSEEN = ("template — its component's unit specs render it, but Karma sees "
+                   "TypeScript only, not which template lines ran")
+
+
+def _rendered_templates(doc: dict, measurable: dict, rows: list[dict], gaps: dict,
+                        unm: list[dict]) -> None:
+    """Move the gap lines of a template whose component a Karma spec ran (`x.html` beside
+    `x.ts`) out of `gaps` into `unm`, proxied by the component lines those specs ran."""
+    karma: dict[str, set] = {}
+    for t in doc.get("tests") or []:
+        if t.get("source") == "karma":
+            for f, ls in (t.get("hits") or {}).items():
+                karma.setdefault(f, set()).update(ls)
+    for f in sorted(gaps):
+        if not f.endswith(".html"):
+            continue
+        ts = f[:-len(".html")] + ".ts"
+        if not karma.get(ts):
+            continue
+        lines = gaps.pop(f)
+        measurable[f] = measurable[f] - set(lines)
+        if not measurable[f]:
+            del measurable[f]
+        proxy = {ts: sorted(karma[ts])}
+        idx = len(unm)
+        unm.append({"file": f, "lines": lines, "reason": TEMPLATE_UNSEEN, "proxy": proxy})
+        for r in rows:
+            if set((r.get("hits") or {}).get(ts, ())) & karma[ts]:
+                r["via"].append(idx)
+        unm[idx]["reached"] = sum(1 for r in rows if idx in r["via"])
 
 
 def model_pairing(frag: str) -> dict:

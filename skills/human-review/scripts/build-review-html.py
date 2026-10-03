@@ -109,7 +109,8 @@ from hrbuild.shared.bands import (
 from hrbuild.shared.chips import (
     base_state, base_warning, chip_face, chip_html, diffstat_chips, GENERATED_PATHSPECS,
     _compare_href, _numstat, _resolve_base, BASE_SOURCES, COMMITS_JSON, measured_from,
-    page_base, POINTS_JSON, _front_matter, _is_ancestor, _recorded_bases
+    page_base, POINTS_JSON, _front_matter, _is_ancestor, _recorded_bases,
+    GENERATED_GLOBS, generated_globs, REVIEW_BOOKKEEPING, _project_cfg
 )
 from hrbuild.shared.masthead import (
     FAVICON, FAVICON_EMOJI, FAVICON_SVG, masthead_html, outside_note, page_title, ref_badges,
@@ -136,7 +137,7 @@ from hrbuild.shared.layout import (
 from hrbuild.tabs.review import (
     AFTERMATH_FILES, aftermath_html, aftermath_reads_takeover, AFTERMATH_JSON, CONFIDENCE_TIP,
     opening_lede, PASS_DOCS,
-    PILE_BLOCKS, pile_numbers, PILELEDE_SPY_JS, points_empty_html, POINTS_MISSING_BAND, points_note_band,
+    PILE_BLOCKS, pile_numbers, is_refuted, refuted_number, PILELEDE_SPY_JS, points_empty_html, POINTS_MISSING_BAND, points_note_band,
     POINTS_PILES, render_assumptions, render_autofixes, render_findings, render_pile_block,
     review_tab_badge, ASSUMPTION_BADGE, _decided_by, own_review_tab, pile_intro, PILE_TITLES,
     REVIEW_TAB_TIP,
@@ -172,7 +173,9 @@ from hrbuild.tabs.sequence import (
     sequence_verdict_alarm, sequence_verdict_html, lost_note_html, _lost,
     AUTO_SNIPPETS, derived_snippets, GENSEQ_TAG, scenario_span, tagged_scenarios, _counted,
     _drew_nothing, _FEATURE_DECL, _FEATURE_STOP, _JAVA_DECL, _ref, _SKIP_LINE, _STRINGS,
-    _tagged_decl, _test_kind, _TS_DECL
+    _tagged_decl, _test_kind, _TS_DECL,
+    SEQ_SELECTION, SEQ_WHY, sequence_selection, _slug, picked_for, _why_chip, _names,
+    selection_note_html
 )
 from hrbuild.tabs.tests import (
     LEDGER_TAB, render_requirements, render_test_ledger, render_tests, render_traces,
@@ -188,6 +191,7 @@ from hrbuild.tabs.tests import (
     _gh_issue, _issue_url, _ms, _take, _test_changes_module,
     COVERAGE_JSON, COVCARD_WHO, COVCARD_TIP, COV_COMMON_SHARE, COV_COMMON_MIN,
     COV_NOT_MEASURED, load_coverage, coverage_join, model_pairing, coverage_side, _model_key,
+    TEMPLATE_UNSEEN, _rendered_templates,
     _cov_files, _cov_ranges, _snippet_module, COV_PART_MAX, _GHERKIN_NEXT, _cov_part,
     _API_MARKERS, _cov_cat, coverage_tests, coverage_gaps, _load_test_changes
 )
@@ -212,7 +216,7 @@ from hrbuild.tabs.cost import (
     COST_CACHE, cost_chip, cost_ledger_html, cost_ledger_report, COST_TAB_ID, PASS_ROWS,
     PHASE_ROWS, phase_rows_html, RESIDUAL_ROWS, tab_cost_report, TOTAL_FORMULA,
     _cost_env, _cost_inputs, _cost_money, cost_session,
-    _cost_tab_rows, _cost_tokens, _when, components_html, cost_pill_label,
+    _cost_tab_rows, _cost_tokens, _when, components_html, cost_pill_label, cost_pill_title,
     _legacy_ledger_html, _HARNESS, _aic, _component_money, _minutes, _entry_line,
     COMPONENT_HINTS, guide_breakdown_html
 )
@@ -574,7 +578,9 @@ def _main(argv=None) -> int:
             # A chip counting items the reader then cannot find is the same lie as a
             # hand-typed number, arrived at by a longer route.
             open_n, fixed, assumed = pile_numbers(spec)
-            total = open_n + fixed
+            # Everything the reviewers raised, refuted claims included: the hover's
+            # breakdown is counted off the same items (`_raised_by`).
+            total = len(spec.get("findings", []) or []) + fixed
             # The REVIEWERS' model, not the first model on the run's bill — that one is
             # the implementation's, and named four Sonnet reviewers `Opus 5`.
             import harness_cost
@@ -1158,10 +1164,18 @@ def _main(argv=None) -> int:
             # this disk. `$0` on the pill read as "free"; the `?` says the number is partial.
             # With the four components measured, the pill is their total (cost.py).
             cost_label = cost_pill_label(led)
+            # While the number is partial the pill's accessible name says which share it
+            # leaves out — the `?` alone told eval run 8's judges nothing. No `data-tip`:
+            # tab headers stay bare (test_the_breakdown_did_not_come_back_as_a_tab_header_
+            # tooltip); the same sentence opens the tab, visibly (cost.py).
+            partial = (led.get("components") or {}).get("unmeasured")
+            cost_name = html.escape(cost_pill_title(led) if partial else
+                                    f"{cost_label} to write and review this change",
+                                    quote=True)
             strip.append(
                 f'<button type="button" class="tab" role="tab" id="tabbtn-{COST_TAB_ID}" '
                 f'aria-controls="{COST_TAB_ID}" aria-selected="false" tabindex="-1" '
-                f'aria-label="cost — {cost_label} to write and review this change">'
+                f'aria-label="cost — {cost_name}">'
                 f'{cost_label}</button>')
             panels.append(
                 f'<section class="panel" id="{COST_TAB_ID}" role="tabpanel" '

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "test-mapping.schema.json",
   "title": "The ticket-sentence to test pairing behind the Tests tab",
-  "description": "Written by scripts/semcov.py (the scripted pass, every link with its evidence — a candidate, not proof) and by a cheap model through scripts/rerun-model.py into .human-review/test-mapping.json: the model is asked about every sentence that makes a claim, confirms or rejects each link the script made (`review`), and may mark a sentence `narrowed` when a scope decision the branch recorded narrows it (`decision`). The build merges the two and draws the matrix; a sentence the model has not answered shows its scripted links as unconfirmed, never as covered. A model answer names only the sentences it was asked about, only test ids from the list it was given, and only decision ids it was shown.",
+  "description": "Written by scripts/semcov.py (the scripted pass, every link with its evidence — a candidate, not proof) and by a cheap model through scripts/rerun-model.py into .human-review/test-mapping.json: the model is asked about every sentence that makes a claim, confirms or rejects each link the script made (`review`), and may mark a sentence `narrowed` when a scope decision the branch recorded narrows it (`decision`). The build merges the two and draws the matrix; a sentence the model has not answered shows its scripted links as unconfirmed, never as covered. A model answer names only the sentences it was asked about, only test ids from the list it was given, and only decision ids it was shown. After it, two passes can only lower what it claimed — a script rule that drops a link whose test shares nothing specific with its sentence, and a second cheap read (`reference/matrix-check-prompt.md`) that must quote the assertion line from the body — and each records what it lowered in `downgrades`.",
   "type": "object",
   "required": ["schema", "sentences"],
   "additionalProperties": false,
@@ -26,7 +26,22 @@
         "review": {"type": "array", "items": {"$ref": "#/$defs/verdict"},
                    "description": "One verdict per link the script made for this sentence: confirm (it stays in `tests`) or reject (it does not)."},
         "decision": {"type": "string", "pattern": "^d[0-9]+$",
-                     "description": "`narrowed` only: the id of the recorded decision that narrows the sentence."}
+                     "description": "`narrowed` only: the id of the recorded decision that narrows the sentence."},
+        "downgrades": {"type": "array", "items": {"$ref": "#/$defs/downgrade"},
+                       "description": "What the downgrade-only passes took away after the model answered: the script's sanity rule (`script`) and the second cheap read (`second read`). Never written by the model; nothing on it ever raises a link or a sentence."}
+      }
+    },
+    "downgrade": {
+      "type": "object",
+      "required": ["by", "from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[^\\s]+:[0-9]+$",
+               "description": "The link lowered; absent when the sentence itself was."},
+        "by": {"enum": ["script", "second read"]},
+        "from": {"enum": ["asserted", "exercised", "covered", "partial"]},
+        "to": {"enum": ["exercised", "dropped", "partial", "missing"]},
+        "why": {"type": "string", "minLength": 1}
       }
     },
     "verdict": {

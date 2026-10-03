@@ -339,6 +339,17 @@ def genseq_by_test(root: Path) -> dict[str, tuple[str, ...]]:
                 continue
             rel = str((Path(folder) / name).relative_to(root))
             found.setdefault(test_of_genseq(rel, root), []).append(rel)
+    # And what only this run drew: a test the Sequence step traced for the first time — one
+    # this branch wrote, selected untagged — has its picture in the overlay alone, since the
+    # step removes from the work tree every file the run created. Walking the work tree only,
+    # the tab paired that picture with no quote of its test.
+    overlay = genseq_overlay(root)
+    if overlay is not None:
+        for puml in overlay.rglob("*.genseq.puml"):
+            rel = puml.relative_to(overlay).as_posix()
+            test = test_of_genseq(rel, root)
+            if rel not in found.get(test, []):
+                found.setdefault(test, []).append(rel)
     return {test: tuple(sorted(pumls)) for test, pumls in found.items()}
 
 

@@ -290,10 +290,7 @@ def _reviewpoints(ctx: Ctx):
 #: paths a repository generates is a fact about that repository and nothing here can guess
 #: it. Replaces the list rather than adding to it: a project that says what it generates
 #: has said it.
-GENERATED_DEFAULT = (
-    "**/generated/**", "docs/generated/**", "openapi.yaml",
-    "**/*.genseq.*", "**/api-types.ts", "**/*.drawio*",
-)
+from hrbuild.shared.chips import GENERATED_GLOBS as GENERATED_DEFAULT  # noqa: E402 - one list, the header's too
 
 
 def glob_rx(pattern: str) -> "re.Pattern[str]":
@@ -496,6 +493,22 @@ def _sequence(ctx: Ctx):
     cfg = ctx.step_cfg("sequence")
     commands = cfg.get("commands") or []
     verdict = SEQ_VERDICT
+    # The branch's own tests, on top of the tagged ones (`steps.sequence.select`): what the
+    # commands' `{tests.<suite>}` expand to. Without `select` they expand to nothing and the
+    # tagged suites run exactly as they always did.
+    select = cfg.get("select") if isinstance(cfg.get("select"), dict) else None
+    selection = select_traced(_test_manifest(ctx), select) if select and not ctx.dry else None
+    values = selection_values(selection, select or {})
+    if not ctx.dry:
+        write_selection(selection)
+    if selection and selection["picked"]:
+        ctx.notes.append(
+            f"also traced {len(selection['picked'])} test(s) this branch wrote or edited, "
+            "untagged: " + "; ".join(f"{Path(t['path']).name}: {t['name']}"
+                                     for t in selection["picked"])
+            + (f" — {sum(1 for t in selection['left'] if t.get('suite'))} more over the cap "
+               f"of {selection['max']}" if any(t.get("suite") for t in selection["left"])
+               else ""))
     # The previous run's drawings go before anything can fail: a run that is skipped below
     # shows the committed diagrams, and a stale copy of last time's would win over them.
     if not ctx.dry:
@@ -522,13 +535,18 @@ def _sequence(ctx: Ctx):
                                for p in genseq_files()}
     runs = []
     try:
-        _run_traced(ctx, cfg, commands, runs)
+        _run_traced(ctx, cfg, commands, runs, values)
     finally:
         # Before the restore below, which rewrites the files it puts back and would
         # otherwise read as diagrams this run drew.
         drawn = [] if ctx.dry else sorted(p for p, st in genseq_stamps().items()
                                           if before.get(p) != st)
         kept, put_back = ([], []) if ctx.dry else keep_drawn_and_restore(held)
+    if selection is not None and not ctx.dry:
+        # What each command cost, beside what it was asked to trace: the price of tracing
+        # the branch's tests is the `when` run's seconds plus what the shared runs grew by.
+        write_selection({**selection, "runs": [{"command": r["command"],
+                                                "seconds": r.get("seconds")} for r in runs]})
     failed = [f"{r['command']} (exit {r['exit']})" for r in runs if r["outcome"] == FAILED]
     for r in runs:
         if r["outcome"] == NO_TESTS:
@@ -597,7 +615,186 @@ def _sequence(ctx: Ctx):
         verdict.unlink(missing_ok=True)
 
 
-def _run_traced(ctx: Ctx, cfg: dict, commands: list[str], runs: list[dict]) -> None:
+#: Which tests `_sequence` traced beyond the tagged ones, and why — for the Sequence tab to
+#: say beside each picture whether it exists because somebody tagged the test or because
+#: this branch wrote it, and to name the branch's tests that were left untraced. Eval run 8:
+#: only `@generate_sequence` / `@GenerateSequence` tests were traced, so none of the paging
+#: and sorting scenarios the branch added got a picture, and two of the three diagrams were
+#: visit flows that only touched the changed `GET /api/owners` in their setup.
+SEQ_SELECTION = ART / "sequence.selection.json"
+
+#: `steps.sequence.select` defaults. `max` bounds the run: every traced test costs a Tempo
+#: fetch and a picture, and a JVM suite a context boot on top.
+SELECT_MAX = 6
+SELECT_STATUSES = ("added", "modified")
+#: What marks a test as already traced by its tag, looked for on the lines that belong to
+#: its declaration (annotations / Gherkin tags above it, a Playwright options object below).
+SELECT_TAGGED = r"@generate_sequence\b|@GenerateSequence\b|GENERATE_SEQUENCE_TAG"
+#: `{tests.<suite>}` in a command: that suite's selection, joined and shell-quoted.
+_SEL_PLACEHOLDER = re.compile(r"\{tests\.([A-Za-z0-9_-]+)\}")
+
+
+def _test_manifest(ctx: Ctx) -> dict:
+    """The branch's test manifest — `test-changes.py`, the `tests` step's producer.
+
+    Re-derived here rather than read from `assets/test-changes.json`: the two steps run in
+    parallel, a `--only sequence` run has no fresh copy, and a stale one would name the tests
+    of whatever HEAD was reviewed last. It costs half a second."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "test-changes.json"
+        r = sh(f"{HERE}/test-changes.py --base {shlex.quote(ctx.base)} --out {out}", ctx,
+               check=False, capture=True)
+        try:
+            doc = json.loads(out.read_text(encoding="utf-8")) if r.returncode == 0 else {}
+        except (OSError, ValueError):
+            doc = {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _carries_tag(path: str, line: int, tagged: "re.Pattern[str]") -> bool:
+    """Whether the test declared at `line` (1-based) of `path` already carries the tracing
+    tag: on the annotation/tag lines directly above it, or the two lines after it, where a
+    Playwright `{tag: …}` options object sits."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    if not 0 < line <= len(lines):
+        return False
+    i = line - 1
+    while i < len(lines) - 1 and lines[i].strip().startswith("@"):
+        i += 1                         # a manifest line on the annotation, not the declaration
+    lo = i
+    while lo > 0 and lines[lo - 1].strip().startswith("@"):
+        lo -= 1
+    return any(tagged.search(x) for x in lines[lo:i + 3])
+
+
+def select_traced(manifest: dict, select: dict) -> dict:
+    """Which of the branch's added or edited tests to trace on top of the tagged ones.
+
+    A test is a candidate when the manifest says this branch added or modified it and a
+    configured suite runs its file (`suites.<name>.files`, minus `exclude`); a test that
+    already carries the tracing tag is traced by its tag and takes no slot. Within a suite,
+    the file the branch wrote the most tests in comes first — that is the file about the
+    change, where the one migration test or the edited neighbour is not — then added before
+    edited, then file order. Suites take turns, in the order the config lists them, so each
+    gets its best test before any gets a second, until `max` (or a suite's own `max`).
+
+    Returns `{"max", "picked": [...], "left": [...], "suites": {name: [picked…]}}`, each
+    test as `{path, name, line, status, suite, why}`; `left` says why each candidate was not
+    traced — over the cap, or no traced suite runs its file."""
+    suites = select.get("suites") or {}
+    cap = int(select.get("max") or SELECT_MAX)
+    statuses = tuple(select.get("statuses") or SELECT_STATUSES)
+    tagged = re.compile(select.get("tagged") or SELECT_TAGGED)
+    rxs = {name: ([glob_rx(g) for g in (s.get("files") or [])],
+                  [glob_rx(g) for g in (s.get("exclude") or [])])
+           for name, s in suites.items() if isinstance(s, dict)}
+    pool: dict[str, list[dict]] = {name: [] for name in rxs}
+    left: list[dict] = []
+    for t in manifest.get("tests") or []:
+        if not isinstance(t, dict) or t.get("status") not in statuses:
+            continue
+        path, name = str(t.get("path") or ""), str(t.get("name") or "")
+        if not path or not name:
+            continue
+        entry = {"path": path, "name": name, "line": int(t.get("line") or 0),
+                 "status": t["status"],
+                 "why": "written by this branch" if t["status"] == "added"
+                 else "edited by this branch"}
+        suite = next((n for n, (inc, exc) in rxs.items()
+                      if any(r.fullmatch(path) for r in inc)
+                      and not any(r.fullmatch(path) for r in exc)), None)
+        if suite is None:
+            left.append({**entry, "suite": None, "left": "no traced suite runs this file"})
+            continue
+        if _carries_tag(path, entry["line"], tagged):
+            continue                   # traced anyway, by its tag
+        pool[suite].append({**entry, "suite": suite})
+    for name, tests in pool.items():
+        weight: dict[str, int] = {}
+        for t in tests:
+            weight[t["path"]] = weight.get(t["path"], 0) + 1
+        tests.sort(key=lambda t: (-weight[t["path"]], t["status"] != "added", t["path"],
+                                  t["line"]))
+    picked: list[dict] = []
+    taken = {name: 0 for name in pool}
+    queues = {name: list(tests) for name, tests in pool.items()}
+    while len(picked) < cap:
+        moved = False
+        for name in pool:
+            limit = int((suites.get(name) or {}).get("max") or cap)
+            if queues[name] and taken[name] < limit and len(picked) < cap:
+                picked.append(queues[name].pop(0))
+                taken[name] += 1
+                moved = True
+        if not moved:
+            break
+    for tests in queues.values():
+        left += [{**t, "left": f"over the cap of {cap} traced tests"
+                  if len(picked) >= cap else "over its suite's cap"} for t in tests]
+    return {"max": cap, "picked": picked, "left": left,
+            "suites": {name: [t for t in picked if t["suite"] == name] for name in pool}}
+
+
+def _selection_item(test: dict, template: str) -> str:
+    """One test as its suite's command spells it: `{name}`, `{file}` (basename), `{path}`,
+    `{line}`, `{class}` (the file's stem — a JUnit class)."""
+    path = test["path"]
+    fields = {"name": test["name"], "file": Path(path).name, "path": path,
+              "line": str(test.get("line") or ""), "class": Path(path).stem}
+    return re.sub(r"\{(name|file|path|line|class)\}", lambda m: fields[m.group(1)], template)
+
+
+def selection_values(selection: dict | None, select: dict) -> dict[str, str]:
+    """`{suite: "<item><join><item>…"}` — unquoted; `expand_selection` quotes."""
+    out = {}
+    for name, s in (select.get("suites") or {}).items():
+        if not isinstance(s, dict):
+            continue
+        items = [_selection_item(t, s.get("item") or "{name}")
+                 for t in ((selection or {}).get("suites") or {}).get(name) or []]
+        out[name] = (s.get("join") if s.get("join") is not None else "\n").join(items)
+    return out
+
+
+def expand_selection(command: str, values: dict[str, str]) -> str:
+    """`{tests.<suite>}` → that suite's selection as ONE shell word (`''` when empty), so a
+    title with a quote or a newline in it reaches the command intact."""
+    return _SEL_PLACEHOLDER.sub(lambda m: shlex.quote(values.get(m.group(1), "")), command)
+
+
+def traced_commands(commands, values: dict[str, str]) -> list[tuple[str, str]]:
+    """`(as configured, as run)` for every command that runs.
+
+    A command is a string, run always, or `{"run": "...", "when": "<suite>"}`, run only when
+    that suite has a selection — the JVM run that exists only to trace the selected tests
+    must not boot a Spring context to trace nothing."""
+    out = []
+    for c in commands or []:
+        if isinstance(c, dict):
+            when = c.get("when")
+            if when and not values.get(when):
+                continue
+            c = c.get("run") or ""
+        if c:
+            out.append((c, expand_selection(c, values)))
+    return out
+
+
+def write_selection(selection: dict | None) -> None:
+    if selection is None:
+        SEQ_SELECTION.unlink(missing_ok=True)
+        return
+    SEQ_SELECTION.parent.mkdir(parents=True, exist_ok=True)
+    SEQ_SELECTION.write_text(json.dumps({**selection, "at": _stamp()}, indent=1) + "\n",
+                             encoding="utf-8")
+
+
+def _run_traced(ctx: Ctx, cfg: dict, commands, runs: list[dict],
+                values: dict[str, str] | None = None) -> None:
     """Start the stack (when `app` says how), probe what it must carry, run the commands."""
     with app_instance(ctx, cfg.get("app"), _app_slots(ctx)) as app:
         if app.started:
@@ -619,13 +816,15 @@ def _run_traced(ctx: Ctx, cfg: dict, commands: list[str], runs: list[dict]) -> N
                           "--only sequence")
                 write_seq_verdict("skipped", reason, missing=down)
                 raise LookupError(reason)
-        for cmd in commands:
-            r = sh(app.command(cmd), ctx, check=False, capture=True)
+        for cmd, expanded in traced_commands(commands, values or {}):
+            t0 = time.monotonic()
+            r = sh(app.command(expanded), ctx, check=False, capture=True)
             out = (r.stdout or "") + (r.stderr or "")
             print(out, end="", flush=True)
             outcome, detail = suite_outcome(r.returncode, out)
             runs.append({"command": cmd, "exit": r.returncode, "outcome": outcome,
-                         "detail": detail, "log": _tail(out), "skips": skipped_lines(out)})
+                         "detail": detail, "log": _tail(out), "skips": skipped_lines(out),
+                         "seconds": round(time.monotonic() - t0, 1)})
 
 
 #: Where `_sequence` files what its traced run drew: the review directory, mirroring each

@@ -13,6 +13,12 @@ table.costtab td:last-child { font-weight:600; }
    footnote a popover has to be. */
 .costledger { font-size:.95rem; max-width:64rem; }
 .costledger caption { font-size:.88rem; margin-bottom:.9rem; }
+/* The tab's first line is the table's caption, and a caption has no margin of its own:
+   it sat flush under the pinned tab strip, its top half behind the strip's edge in both
+   themes (eval run 8). Every other panel opens on a band or a heading that clears it. */
+#cost > .paneltag + * { margin-top:1.4rem; }
+.costpartial { max-width:64rem; margin:0 0 .9rem; padding:.45rem .7rem; font-size:.9rem;
+               color:var(--drift-fg); background:var(--drift); border-radius:6px; }
 /* The three acts — writing it, reviewing it, building this guide. A caption row rather
    than three tables, because the whole point of the tab is comparing magnitudes ACROSS
    them, and three tables means three column widths and nothing lines up. */

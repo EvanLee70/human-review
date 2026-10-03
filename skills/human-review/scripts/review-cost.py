@@ -47,6 +47,11 @@ PROJECTS = Path(os.path.expanduser("~/.claude/projects"))
 # $ per 1M tokens: (input, output). Cache write is 1.25x input (5m TTL) / 2x (1h).
 # Kept in step with victor-skills-private/claude-usage.
 PRICES = {
+    # A version priced apart from its family comes first: `family` takes the first key
+    # found in the id. Opus 5.5 is $4 / $20 with cache reads at $0.20 — the family rate
+    # ($5 / $25, reads at a tenth) billed eval run 8's implementation $20.40 where the
+    # CLI's own `total_cost_usd` for the same 27.4M cache-read tokens said $9.65.
+    "opus-5-5": (4.0, 20.0),
     "opus": (5.0, 25.0),
     "fable": (10.0, 50.0),
     "mythos": (10.0, 50.0),
@@ -58,7 +63,7 @@ PRICES = {
 # 0.025x, not 0.1x. Applying the flat tenth to a Fable run overcharges its cache reads
 # fourfold, and on a long agentic run cache reads are most of the tokens, so that lands on
 # the total rather than in the noise. A family with no entry keeps the tenth.
-CACHE_READ = {"fable": 0.025}
+CACHE_READ = {"fable": 0.025, "opus-5-5": 0.05}
 CACHE_READ_DEFAULT = 0.10
 LABELS = [
     ("claude-opus-5", "Opus 5"), ("claude-opus-4-8", "Opus 4.8"),
@@ -319,6 +324,12 @@ def agent_span(files) -> tuple["dt.datetime | None", "dt.datetime | None"]:
 
 def _scan(path: Path, since: dt.datetime | None, force_side: bool, best: dict,
           until: dt.datetime | None = None) -> None:
+    rows = []
+    # A message streams as several rows, and a row is not a turn: a turn is placed by its
+    # FIRST row, wholly, in one window. Filtered row by row, the turn that straddled eval
+    # run 8's reviewers-done stamp was billed to the review AND the auto-fixes — $0.12
+    # counted twice, and the three phases summed past the session they cut.
+    first: dict = {}
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         if not line.strip():
             continue
@@ -339,16 +350,21 @@ def _scan(path: Path, since: dt.datetime | None, force_side: bool, best: dict,
                 when = dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
             except ValueError:
                 when = None
-        if since is not None and when is not None and when < since:
+        mid = msg.get("id") or f"{d.get('uuid')}"
+        rows.append((d, msg, usage, when, mid))
+        if when is not None and (mid not in first or when < first[mid]):
+            first[mid] = when
+    for d, msg, usage, when, mid in rows:
+        start = first.get(mid, when)
+        if since is not None and start is not None and start < since:
             continue
         # The far end of the window. It exists for the one caller that measures a session
         # it does not own -- the conversation that WROTE the code, costed between its
         # first and last edit to the change set. Without it that row would charge this
         # review for everything that session ever did afterwards, which is a different
         # question and a much larger number.
-        if until is not None and when is not None and when > until:
+        if until is not None and start is not None and start > until:
             continue
-        mid = msg.get("id") or f"{d.get('uuid')}"
         prev = best.get(mid)
         # `key` is the dedup tie-break only (a missing timestamp must still lose to a real
         # one, so it sorts last); `when` rides along separately and stays None when the

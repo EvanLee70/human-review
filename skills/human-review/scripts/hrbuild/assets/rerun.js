@@ -410,6 +410,16 @@
     var kind = (btn && btn.getAttribute('data-price')) || 'model';
     return prices[kind] || null;
   }
+  // The model the quoted runs were on, out of the same ledger rows as the price — never a
+  // name typed into the markup. Eval run 8's chip said "on Sonnet" over a Haiku run. A
+  // probe that names none (an older server, an empty ledger) keeps the markup's own word.
+  function onModel(price, fallback) {
+    return ' on ' + ((price && price.model) || fallback || 'Sonnet');
+  }
+  function fillPrice(fmt, price) {
+    return fmt.replace('{price} on Sonnet', price.text + onModel(price))
+      .replace('{price}', price.text);
+  }
   function lastLine(price) {
     if (!price || !price.last) return '';
     return 'The last one really cost $' + price.last.toFixed(2)
@@ -423,7 +433,7 @@
     if (bodyP) {
       var own = btn && btn.getAttribute('data-confirm');
       if (own) {
-        bodyP.textContent = (price && price.text ? 'About ' + price.text + ' on Sonnet. ' : '')
+        bodyP.textContent = (price && price.text ? 'About ' + price.text + onModel(price) + '. ' : '')
           + own;
       } else bodyP.innerHTML = bodyDefault;
     }
@@ -499,12 +509,15 @@
       var fmt = btn.getAttribute('data-tip-fmt');
       var own = priceOf(btn);
       if (!fmt || !own || !own.text) return;
-      btn.setAttribute('data-tip', fmt.replace('{price}', own.text));
+      btn.setAttribute('data-tip', fillPrice(fmt, own));
       btn.setAttribute('data-idle-tip', btn.getAttribute('data-tip'));
+      if (/costs about/.test(btn.getAttribute('aria-label') || '')) {
+        btn.setAttribute('aria-label', 'Rerun with AI \u2014 costs about ' + own.text + onModel(own));
+      }
     });
     if (price && price.text) {
       var face = panel && panel.querySelector('.hrconfirm-price');
-      if (face) face.textContent = 'about ' + price.text + ' on Sonnet';
+      if (face) face.textContent = 'about ' + price.text + onModel(price);
     }
     // Per button, from the probe's own answer for that verb. Inferring the paid one from
     // the free one would draw a $5 control over a server that has no model step beside it.

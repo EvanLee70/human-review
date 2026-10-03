@@ -90,8 +90,10 @@ one-line scope banner; an empty change set is "Nothing to review." and stop.
 ${SKILL}/scripts/preflight.py --base "$BASE"
 ```
 
-It pushes, waits for CI **on the pushed commit**, and only then wipes `assets/`, resets the
-ledger and writes the run's start markers. Exit 1 means the branch is not proven and nothing
+It pushes, waits for CI **on the pushed commit**, and only then wipes `assets/`, clears the
+model state that is not HEAD's (`.model-prev/` and `.model-runs.json`/`.film-runs.json` rows
+from another branch or from before the fork — the last run's branch is kept in `.branch`),
+resets the ledger and writes the run's start markers. Exit 1 means the branch is not proven and nothing
 was destroyed — report which workflow failed and stop. Whatever it prints on its last line
 about the gate goes in the guide verbatim; *"no build proved this"* must never read as a pass.
 Only the **authoritative** workflows count — `"ci": {"workflows": ["ci.yml"]}` in
@@ -219,7 +221,7 @@ So a model reads them. **Always run it, every review, after `run-steps.py` and b
 build** — from the repository root:
 
 ```sh
-${SKILL}/scripts/rerun-model.py           # cheap model (haiku), one call for the whole ticket
+${SKILL}/scripts/rerun-model.py           # Sonnet by default, one call for the whole ticket
 ```
 
 In one call it confirms or rejects every scripted link with a one-line reason, pairs the
@@ -230,12 +232,21 @@ drawn as covering anything — the sentence reads *unconfirmed*. It writes
 `.human-review/test-mapping.json` (schema: `reference/test-mapping.schema.json`; prompt:
 `reference/matrix-prompt.md`), refuses an answer that fails the schema, names a sentence,
 test or decision it was not given, or leaves a scripted link without a verdict; it asks
-nothing only when no sentence makes a claim. The model is `haiku` unless `"mappingModel"`
-in `human-review.json` (or `--model`) says otherwise; its cost is recorded in
-`.model-runs.json` and shows on the cost tab. **Under GitHub Copilot**, pick the cheap
+nothing only when no sentence makes a claim. Two passes then check the answer and can only
+lower it, each recording what it took away in the sentence's `downgrades`: a free script rule
+drops a link whose test shares nothing specific with its sentence, and a second cheap call
+(`reference/matrix-check-prompt.md`) re-reads every kept link against the test body, must
+copy the assertion line that proves the claim (looked up in the real body), and turns
+`covered` into `partial`/`exercised`/`missing` where it cannot (`--no-check`, or
+`"mappingCheck": false`, turns it off; it runs by default only on haiku, which it was built
+for). The model is Sonnet unless `"mappingModel"` in `human-review.json` (or `--model`)
+says otherwise — measured on eval run 8, one Sonnet call beat haiku plus its second read
+on accuracy and time at about the same price; the press's cost — both calls — is one
+row of `.model-runs.json` and shows on the cost tab. **Under GitHub Copilot**, pick the cheap
 model (*Auto*, or `gpt-5-mini`) yourself: `rerun-model.py --prompt-only` prints the prompt
 with its input, you answer it as JSON, and `rerun-model.py --answer reply.json` checks and
-installs the answer. Never write the matrix HTML yourself — the build draws it.
+installs the answer; `--check-prompt` and `--check-answer check.json` do the same for the
+second read. Never write the matrix HTML yourself — the build draws it.
 
 ### The prose that is left
 
@@ -400,7 +411,7 @@ its hover, because that is the one a reader is right to worry about.
 
 Beside it, **Rerun + AI** is the same thing with *this skill's own model step* in front of
 it. It is the button form of the matrix instruction above: `rerun-model.py` asks a cheap
-model (`haiku` by default) to confirm or reject the script's pairings and pair the rest, rewrites
+model (Sonnet by default) to confirm or reject the script's pairings and pair the rest, rewrites
 `test-mapping.json`, and then the static refresh runs with `--allow-model` and redraws the
 matrix from it.
 

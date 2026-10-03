@@ -716,6 +716,29 @@ _GHERKIN_NEXT = re.compile(r"\s*(Scenario|Rule|Feature|Background|Examples|@)")
 BODY_MAX = 60
 
 
+#: How far above a declaration its annotations may reach.
+ANNOTATIONS_MAX = 30
+
+
+def annotations_start(lines: list[str], line: int) -> int:
+    """The first line of the annotations (tags, decorators) right above `line`, a
+    multi-line one included: run 8's `invalidInput_isBadRequest` carries its cases —
+    `"size=7", "size=0", …` — in a `@ValueSource(strings = {` four lines long, and a
+    window that stopped at the first line not starting with `@` read a body with no page
+    size in it, so nothing tied the test to "valid page sizes SHALL be only 5, 10, 20"."""
+    start, k = line, line - 1
+    while k >= 1 and line - k <= ANNOTATIONS_MAX:
+        text = lines[k - 1].strip()
+        if text.startswith("@"):
+            block = "\n".join(lines[k - 1:start - 1])
+            if block.count("(") == block.count(")"):
+                start = k
+        elif not text or text.endswith((";", "{")) or text == "}":
+            break
+        k -= 1
+    return start
+
+
 def test_source(root: Path, file: str, line: int) -> tuple[int, list[str]]:
     """`(first line, lines)` of the test's own body: its annotations, down to the brace
     that closes it (a Gherkin scenario down to the next keyword), at most BODY_MAX lines.
@@ -727,9 +750,7 @@ def test_source(root: Path, file: str, line: int) -> tuple[int, list[str]]:
         return line, []
     if not 1 <= line <= len(lines):
         return line, []
-    start = line
-    while start > 1 and lines[start - 2].strip().startswith("@"):
-        start -= 1
+    start = annotations_start(lines, line)
     if path.suffix == ".feature":
         end = line
         while end < len(lines) and not _GHERKIN_NEXT.match(lines[end]):
@@ -794,6 +815,9 @@ CONCEPTS = {
     "PAGE": "pagin pagination pages",
     "PERSIST": "persist save store record keep",
     "LINK": "attend assign associat",
+    # What a screen or a request starts as: "the initial grid state" against a spec that
+    # `opens on the first page` and asserts `DEFAULT_OWNER_PAGE_QUERY` (run 8).
+    "INITIAL": "initial default open start",
 }
 _CONCEPT_OF: dict[str, set] = {}
 for _c, _ws in CONCEPTS.items():
@@ -1091,7 +1115,12 @@ def match(sentences: list[dict], rows: list[dict], root: Path,
             if sc > 0:
                 scored.append((round(sc, 6), r["id"], strength, ev))
         scored.sort(key=lambda x: (-x[0], x[1]))
-        cands[s["id"]] = [x[1] for x in scored if x[0] >= CANDIDATE_AT][:MAX_CANDIDATES]
+        # Candidates *beyond* the links: the pool used to be the best eight overall, so a
+        # sentence with six links took two others to the model, and run 8's e2e scenario
+        # "Searching with an empty last name shows the first page of every owner" (scoring
+        # 0.48 on "an omitted or empty lastName SHALL match all owners") never reached it.
+        cands[s["id"]] = [x[1] for x in scored
+                          if x[0] >= CANDIDATE_AT][:MAX_CANDIDATES + MAX_LINKS]
         best = scored[0][0] if scored else 0.0
         near = [x for x in scored if x[0] >= LINK_AT and x[0] >= NEAR_BEST * best]
         links = near[:MAX_LINKS]
@@ -1299,6 +1328,217 @@ def salvage(doc, allowed_sentences=None, allowed_tests=None, scripted=None,
     return out, found, dropped
 
 
+# --- downgrade only: a script's sanity rule and a second read ---------------------------
+#
+# Eval run 8's Haiku answer called 25 of 27 sentences `covered` and none `partial`:
+# "authorization … and chatbot/MCP contracts SHALL remain unchanged" stood on a test that
+# lists owners, "Bootstrap styling remains" on two DOM checks, and one `confirm` gave a reason
+# its test does not have. The model stays cheap; what it says is now *checked*, by two
+# passes that can only take away. `sanity` is free: a link whose test shares no specific
+# word, route or identifier with its sentence cannot be evidence for it. `check_input` /
+# `apply_check` are a second cheap call that re-reads every kept link against the test body,
+# must quote the line that asserts the claim (and the quote is looked up in the real body),
+# and whose verdicts are applied only where they lower a link or a sentence.
+
+CHECK_VERSION = "test-mapping-check/1"
+CHECK_INPUT_VERSION = "test-mapping-check-input/1"
+#: Coverage words in the order a downgrade walks them. `narrowed` and `n/a` are not on it:
+#: they are facts about the requirement, and neither pass touches them.
+COV_RANK = {"missing": 0, "exercised": 1, "partial": 2, "covered": 3}
+#: What the second read is asked about: every sentence a link stands behind.
+CHECKED = ("covered", "partial", "exercised")
+#: A word on nearly every test of the card is the PR's own vocabulary — `owner` on 57 of
+#: run 8's 62 — and sharing it says nothing about the sentence's subject. Nearly every, not
+#: most: at half the card, `page` (49 of 62) went too, and with it a true link of a
+#: pagination sentence to a test that sends `page=x` and expects a 400.
+DOMAIN_COMMON = 0.9
+#: The shortest quoted assertion line accepted as one.
+QUOTE_MIN = 6
+
+
+def _downgrade(e: dict, **rec) -> None:
+    e.setdefault("downgrades", []).append({k: v for k, v in rec.items() if v not in (None, "")})
+
+
+def _drop_link(e: dict, tid: str, by: str, why: str) -> None:
+    """Take a link off a sentence, and if it was a scripted link the model confirmed, turn
+    the verdict into a rejection with this reason — a confirmed link must stay in `tests`."""
+    t = next((x for x in e["tests"] if x["id"] == tid), None)
+    if t is None:
+        return
+    e["tests"] = [x for x in e["tests"] if x["id"] != tid]
+    for v in e.get("review") or []:
+        if v["id"] == tid and v["verdict"] == "confirm":
+            v["verdict"], v["why"] = "reject", f"{by}: {why}"
+    _downgrade(e, id=tid, by=by, why=why, **{"from": t["strength"], "to": "dropped"})
+
+
+def _settle(e: dict, by: str, why: str, before: str) -> None:
+    """The coverage word the remaining links can stand behind — never higher than it was."""
+    cov = e["coverage"]
+    if cov not in COV_RANK:
+        return
+    strengths = {t["strength"] for t in e["tests"]}
+    if cov in ("covered", "partial") and "asserted" not in strengths:
+        cov = "exercised" if e["tests"] else "missing"
+    if cov == "exercised" and not e["tests"]:
+        cov = "missing"
+    if COV_RANK[cov] > COV_RANK.get(before, 3):
+        cov = before
+    if cov != e["coverage"]:
+        e["coverage"] = cov
+    if e["coverage"] != before:
+        _downgrade(e, by=by, why=why, **{"from": before, "to": e["coverage"]})
+        if not e.get("gap") or e.get("gapKind") == "requirement":
+            e["gap"] = why
+            e["gapKind"] = "tests"
+
+
+def _specific(text: str, docs: dict) -> tuple[set, set]:
+    """`(stems, literals)` of a sentence that can say what it is about: its stems (no
+    concepts) minus the PR's own vocabulary (`DOMAIN_COMMON`), and its routes and quoted
+    strings verbatim."""
+    n = max(len(docs), 1)
+    df: dict[str, int] = {}
+    for d in docs.values():
+        for t in d["title"] | d["body"] | d["asserts"]:
+            df[t] = df.get(t, 0) + 1
+    stems = {t for g in groups(text) for t in g if not t.isupper()}
+    return {t for t in stems if df.get(t, 0) <= max(1, DOMAIN_COMMON * n)}, _literals(text)
+
+
+def sanity(doc: dict, texts: dict, docs: dict) -> tuple[dict, int]:
+    """`(the answer, links dropped)`: every link of a `covered`/`partial`/`exercised`
+    sentence whose test shares no specific stem, route or quoted string with the sentence
+    is dropped, with the reason, and the sentence settles to what is left. Never adds."""
+    doc = json.loads(json.dumps(doc))
+    dropped = 0
+    for e in doc.get("sentences") or []:
+        before = e.get("coverage")
+        if before not in CHECKED or e["id"] not in texts:
+            continue
+        stems, lits = _specific(texts[e["id"]], docs)
+        for t in list(e["tests"]):
+            d = docs.get(t["id"])
+            if d is None:
+                continue
+            words_ = d["title"] | d["body"] | d["asserts"]
+            if stems & words_ or lits & d["lits"]:
+                continue
+            _drop_link(e, t["id"], "script", "the test shares no word, route or identifier "
+                       "of the sentence's subject with it — only the PR's common vocabulary")
+            dropped += 1
+        _settle(e, "script", "No remaining paired test shares the sentence's subject.", before)
+    return doc, dropped
+
+
+def check_input(doc: dict, asked: dict) -> dict:
+    """What the second read is asked: every `covered`/`partial`/`exercised` sentence of the
+    first answer with the links it kept, the bodies of those tests, and the reply laid out."""
+    by_id = {s["id"]: s for s in asked["sentences"]}
+    bodies = {t["id"]: t for t in asked["tests"]}
+    items, want = [], []
+    for e in doc.get("sentences") or []:
+        if e.get("coverage") not in CHECKED or not e["tests"] or e["id"] not in by_id:
+            continue
+        s = by_id[e["id"]]
+        item = {"id": e["id"], "text": s["text"], "coverage": e["coverage"],
+                "links": [{"id": t["id"], "strength": t["strength"], "why": t.get("why") or ""}
+                          for t in e["tests"]]}
+        if s.get("scenarios"):
+            item["scenarios"] = s["scenarios"]
+        items.append(item)
+        want += [t["id"] for t in e["tests"] if t["id"] in bodies and t["id"] not in want]
+    return {"schema": CHECK_INPUT_VERSION, "sentences": items,
+            "answer": {"schema": CHECK_VERSION, "sentences": [
+                {"id": x["id"], "claim": "", "unproven": "",
+                 "links": [{"id": t["id"], "verdict": "", "line": "", "why": ""}
+                           for t in x["links"]]} for x in items]},
+            "tests": [{k: bodies[t][k] for k in ("id", "title", "kind", "body")} for t in want]}
+
+
+def check_problems(chk) -> list[str]:
+    """Why a second read cannot be used at all. Junk *inside* a usable one — an id it was
+    not asked about, a verdict it made up — is skipped, not refused: the read can only
+    lower things, so ignoring a line of it is always the safe direction."""
+    if not isinstance(chk, dict):
+        return ["the reply holds no JSON object"]
+    if chk.get("schema") != CHECK_VERSION:
+        return [f"`schema` is not {CHECK_VERSION}"]
+    if not isinstance(chk.get("sentences"), list):
+        return ["`sentences` is not a list"]
+    return []
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", "", s or "").rstrip(";")
+
+
+def quoted_in(line: str, body: str) -> bool:
+    """Is `line` really in `body` — whitespace aside, all of it? The second read must copy
+    the assertion that proves a claim; one it paraphrased or invented is not a quote. A
+    fluent chain the body breaks over two lines (`perform(…)` / `.andExpect(…)`) may come
+    back joined on one, which is the same code."""
+    q = _norm(line)
+    return len(q) >= QUOTE_MIN and q in _norm(body)
+
+
+def apply_check(doc: dict, chk: dict, asked: dict) -> tuple[dict, dict]:
+    """`(the answer, {"links": lowered, "sentences": lowered})` — the second read's verdicts
+    applied where, and only where, they lower something: `unrelated` drops a link, `runs`
+    (or an `asserts` whose `line` is not in the test's body) turns `asserted` into
+    `exercised`, `claim: part` turns `covered` into `partial`, `claim: none` leaves no
+    link asserted. Nothing is ever added or raised."""
+    doc = json.loads(json.dumps(doc))
+    bodies = {t["id"]: t.get("body") or "" for t in asked["tests"]}
+    verdicts = {e.get("id"): e for e in chk.get("sentences") or [] if isinstance(e, dict)}
+    lowered = {"links": 0, "sentences": 0}
+    for e in doc.get("sentences") or []:
+        before = e.get("coverage")
+        v = verdicts.get(e["id"])
+        if before not in CHECKED or not isinstance(v, dict):
+            continue
+        links = {x.get("id"): x for x in v.get("links") or [] if isinstance(x, dict)}
+        for t in list(e["tests"]):
+            x = links.get(t["id"])
+            if not x:
+                continue
+            why = str(x.get("why") or "").strip()
+            verdict = x.get("verdict")
+            if verdict == "asserts" and not quoted_in(str(x.get("line") or ""),
+                                                      bodies.get(t["id"], "")):
+                verdict = "runs"
+                why = ("its quoted assertion is not in the test's body"
+                       + (f" ({why})" if why else ""))
+            if verdict == "unrelated":
+                _drop_link(e, t["id"], "second read", why or "does not touch the subject")
+                lowered["links"] += 1
+            elif verdict == "runs" and t["strength"] == "asserted":
+                t["strength"] = "exercised"
+                t["why"] = f"second read: runs it, asserts none of it — {why}".rstrip(" —")
+                _downgrade(e, id=t["id"], by="second read", why=why or "asserts none of it",
+                           **{"from": "asserted", "to": "exercised"})
+                lowered["links"] += 1
+        claim = v.get("claim")
+        unproven = str(v.get("unproven") or "").strip()
+        if claim == "none":
+            for t in e["tests"]:
+                if t["strength"] == "asserted":
+                    t["strength"] = "exercised"
+                    _downgrade(e, id=t["id"], by="second read",
+                               why=unproven or "asserts none of the claim",
+                               **{"from": "asserted", "to": "exercised"})
+                    lowered["links"] += 1
+        if claim == "part" and e["coverage"] == "covered":
+            e["coverage"] = "partial"
+            e["gap"], e["gapKind"] = unproven or "A second read found part of it unasserted.", \
+                "tests"
+        _settle(e, "second read", unproven or "A second read found no listed test asserting "
+                "this sentence's claim.", before)
+        lowered["sentences"] += e["coverage"] != before
+    return doc, lowered
+
+
 def load_model_mapping(review: Path) -> dict | None:
     """`test-mapping.json`, if it is there and valid; a broken one is said and ignored."""
     p = review / MAPPING
@@ -1351,6 +1591,11 @@ def merge(sentences: list[dict], scripted: dict, model: dict | None,
                     t["evidence"] = made[t["id"]]["evidence"]
             rejected = [{"id": v["id"], "why": v.get("why") or ""}
                         for v in verdicts.values() if v["verdict"] == "reject"]
+            # A link a downgrade-only pass took off that was never a scripted one (the
+            # model added it from the candidates): shown with the others it lost, and why.
+            rejected += [{"id": d["id"], "why": f"{d['by']}: {d.get('why') or ''}".rstrip(": ")}
+                         for d in e.get("downgrades") or []
+                         if d.get("to") == "dropped" and d["id"] not in verdicts]
             if rejected:
                 e["rejected"] = rejected
             if e.get("decision") in said:
@@ -1408,6 +1653,10 @@ def _sentence_html(s: dict, entry: dict) -> str:
             f"{inner}</span>")
 
 
+#: The one line that says a model read the tests — instead of a 🤖 after every sentence.
+AI_NOTE = "🤖 coloured where AI read the tests — hover a sentence to see who paired it"
+
+
 def _ticket_html(ticket: dict, blocks: list[dict], entries: dict) -> str:
     def para(sents):
         return " ".join(_sentence_html(s, entries[s["id"]]) for s in sents)
@@ -1439,8 +1688,13 @@ def _ticket_html(ticket: dict, blocks: list[dict], entries: dict) -> str:
     # under the header strip. It used to sit *in* the strip as "Requirement text: GitHub
     # issue #25, named by content.json pr.ticket" — a file and a key a reviewer never needs,
     # squeezing the author and the date into a four-line column beside it.
-    src = (f'<p class="rm-src">{html.escape(ticket["origin"])}</p>'
-           if ticket.get("origin") else "")
+    # Who coloured the sentences, said once: a sentence's own hover says whether AI read
+    # its tests or the script paired it — a robot after every clause (thirty on eval run 8)
+    # made the column unreadable.
+    note = (f'<span class="rm-ainote">{" · " if ticket.get("origin") else ""}{AI_NOTE}</span>'
+            if any(e.get("by") == "model" for e in entries.values()) else "")
+    src = (f'<p class="rm-src">{html.escape(ticket.get("origin") or "")}{note}</p>'
+           if ticket.get("origin") or note else "")
     return ('<div class="rm-ticket"><div class="rm-tkhead">' + head + '</div>' + src
             + '<div class="rm-issue">' + "".join(body) + "</div></div>")
 

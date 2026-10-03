@@ -1051,6 +1051,19 @@ def test_a_finding_that_says_the_reviewer_was_wrong_is_flagged_unless_filed_at_i
     assert not any("Same refutation" in w or "Wrong status code" in w for w in said)
 
 
+def test_is_refuted_reads_an_info_findings_why_and_nothing_else():
+    """The page counts these apart from the open pile (eval run 8: "11 open" over four
+    CONTEXT cards that said "refuted — …"). One reading, here, that the page reuses."""
+    assert rp.is_refuted({"severity": "info",
+                          "why": "refuted — this spec asserts <code>%2B</code>"})
+    assert rp.is_refuted({"severity": "info", "why": "wrong — handleError rethrows"})
+    assert rp.is_refuted({"why": "a false positive: the guard is upstream"})   # info default
+    assert not rp.is_refuted({"severity": "low", "why": "refuted — filed at low"}), \
+        "above info it is still open; the parser warns about the filing instead"
+    assert not rp.is_refuted({"severity": "info", "why": "deliberate — out of scope",
+                              "observation": "the reviewer said this was refuted"})
+
+
 def test_an_assumption_with_no_why_is_told_to_say_what_holds_its_confidence(tmp_path):
     warnings = rp.parse(REFUTED)["warnings"]
     assert any("Empty sort falls back" in w and "no `why:`" in w

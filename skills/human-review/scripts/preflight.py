@@ -54,6 +54,7 @@ import datetime as dt
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -334,6 +335,85 @@ def write_evidence(evidence: dict) -> None:
     print("[preflight] evidence " + json.dumps(evidence, separators=(",", ":")))
 
 
+#: Per-branch model state a run keeps in `.human-review/` between runs: what a 🤖 rerun
+#: replaced, and what each paid run cost. The folder outlives a branch.
+MODEL_PREV = ".model-prev"
+MODEL_LEDGERS = (".model-runs.json", ".film-runs.json")
+BRANCH_MARKER = ".branch"
+
+
+def _fork_time(base: str) -> dt.datetime | None:
+    """When HEAD's branch can have started: the earlier of the review base's commit time
+    and the oldest author date after it. The base is the review's own
+    (`review/state.json`) when HEAD contains it — `origin/main` can be days older."""
+    try:
+        recorded = json.loads((HR / "review" / "state.json").read_text()).get("base")
+    except (OSError, ValueError, AttributeError):
+        recorded = None
+    if recorded and run(f"git merge-base --is-ancestor {shlex.quote(recorded)} HEAD").returncode == 0:
+        fork = recorded
+    else:
+        fork = run(f"git merge-base {shlex.quote(base)} HEAD").stdout.strip()
+    if not fork:
+        return None
+    secs = run(f"git log -1 --format=%ct {shlex.quote(fork)}").stdout.split()
+    secs += run(f"git log --format=%at {shlex.quote(fork + '..HEAD')}").stdout.split()
+    secs = [int(x) for x in secs if x.isdigit()]
+    return dt.datetime.fromtimestamp(min(secs), dt.timezone.utc) if secs else None
+
+
+def clear_foreign_model_state(base: str) -> list[str]:
+    """Drop the model state that does not belong to HEAD, and say what went.
+
+    Eval run 8 reused a `.human-review/` three branches old: `.model-prev/` held
+    `feature-script.hr-claude-5.js` and a matrix from before the branch forked, and the
+    AI-rerun chip priced itself off a run of another branch. Gone: everything kept in
+    `.model-prev/` when the last run was on another branch (`.branch`), or older than the
+    fork; every ledger row of another branch, or from before the fork."""
+    head = run("git rev-parse --abbrev-ref HEAD").stdout.strip()
+    since = _fork_time(base)
+    try:
+        last = (HR / BRANCH_MARKER).read_text(encoding="utf-8").strip()
+    except OSError:
+        last = ""
+    other = bool(last and head and last != head)
+    gone: list[str] = []
+    prev = HR / MODEL_PREV
+    for f in sorted(prev.iterdir()) if prev.is_dir() else []:
+        when = dt.datetime.fromtimestamp(f.stat().st_mtime, dt.timezone.utc)
+        if other or (since and when < since):
+            shutil.rmtree(f) if f.is_dir() else f.unlink()
+            gone.append(f"{MODEL_PREV}/{f.name}")
+    for name in MODEL_LEDGERS:
+        path = HR / name
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        runs = doc.get("runs") if isinstance(doc, dict) else doc
+        if not isinstance(runs, list):
+            continue
+
+        def mine(r) -> bool:
+            if not isinstance(r, dict):
+                return False
+            if r.get("branch") and head:
+                return r["branch"] == head
+            try:
+                when = dt.datetime.fromisoformat(str(r.get("when")).replace("Z", "+00:00"))
+            except ValueError:
+                return not since
+            return not since or when >= since
+        kept = [r for r in runs if mine(r)]
+        if len(kept) != len(runs):
+            gone.append(f"{name}: {len(runs) - len(kept)} run(s) of another branch")
+            out = {**doc, "runs": kept} if isinstance(doc, dict) else kept
+            path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    if head:
+        (HR / BRANCH_MARKER).write_text(head + "\n", encoding="utf-8")
+    return gone
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -373,6 +453,8 @@ def main(argv=None) -> int:
     if assets.exists():
         shutil.rmtree(assets)
     assets.mkdir(parents=True, exist_ok=True)
+    for line in clear_foreign_model_state(args.base):
+        print(f"[preflight] cleared {line}")
 
     ledger = Path(__file__).resolve().parent / "steps-ledger.py"
     subprocess.run([sys.executable, str(ledger), "reset"], check=False)

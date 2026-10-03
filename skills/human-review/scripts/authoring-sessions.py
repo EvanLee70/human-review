@@ -215,6 +215,8 @@ def scan(path: Path, wanted: set[str], repo: Path,
     hits: dict[str, int] = {}
     stamps: list[str] = []
     files: set[str] = set()
+    branches: set[str] = set()
+    branch = ""
 
     def note(kind: str, rel: str, ts: str) -> None:
         when = _when(ts) if since and ts else None
@@ -222,6 +224,8 @@ def scan(path: Path, wanted: set[str], repo: Path,
             return  # already in the base: written before this branch forked
         hits[kind] = hits.get(kind, 0) + 1
         files.add(rel)
+        if branch:
+            branches.add(branch)
         if ts:
             stamps.append(ts)
     try:
@@ -237,6 +241,7 @@ def scan(path: Path, wanted: set[str], repo: Path,
             except json.JSONDecodeError:
                 continue
             ts = rec.get("timestamp", "")
+            branch = str(rec.get("gitBranch") or "")
             content = ((rec.get("message") or {}).get("content")) or []
             if not isinstance(content, list):
                 continue
@@ -258,6 +263,7 @@ def scan(path: Path, wanted: set[str], repo: Path,
                         if w in cmd and shell_writes(cmd, w):
                             note("bash", w, ts)
     hits["files"] = sorted(files)
+    hits["branches"] = sorted(branches)
     return hits, stamps
 
 
@@ -268,22 +274,46 @@ def relative(p: str, repo: Path) -> str:
         return p.lstrip("./")
 
 
+def sibling_branch(name: str, cache: dict) -> bool:
+    """A branch git still knows that HEAD does not contain: work done on it is not this
+    branch's. Eval run 8 forked from the same commit as run 7, an hour later, and run 7's
+    session — 16 edits to the very same files, on `hr-claude-7` — was billed as run 8's
+    implementation ($11.75). A name git cannot resolve (renamed, deleted) is not one: it
+    may well be this branch under its old name."""
+    if name not in cache:
+        tip = git("rev-parse", "--verify", "--quiet", f"refs/heads/{name}^{{commit}}").strip()
+        cache[name] = bool(tip) and subprocess.run(
+            ["git", "merge-base", "--is-ancestor", tip, "HEAD"],
+            capture_output=True).returncode != 0
+    return cache[name]
+
+
 def authors(base: str, repo: Path) -> tuple[list[dict], list[str]]:
     wanted = set(changed_files(base))
     if not wanted:
         return [], []
     since = fork_time(base)
+    head = git("rev-parse", "--abbrev-ref", "HEAD").strip()
+    claimed = set(claimed_sessions(base))
+    siblings: dict = {}
     rows = []
     for sid, jsonl, subs in transcripts(repo):
         edits = bash = 0
         files: set[str] = set()
         stamps: list[str] = []
+        branches: set[str] = set()
         for source in [jsonl, *subs]:
             hits, ts = scan(source, wanted, repo, since)
             edits += hits.get("edits", 0)
             bash += hits.get("bash", 0)
             files.update(hits.get("files", []))
+            branches.update(hits.get("branches", []))
             stamps += ts
+        # Every write it made was on another branch, one this HEAD does not contain, and
+        # no commit here names it: a sibling's author, not this branch's.
+        if (branches and head not in branches and sid not in claimed
+                and all(sibling_branch(b, siblings) for b in branches)):
+            continue
         # One hit is enough, because a hit is no longer a mention: the redirect has to
         # point at the path, or the path has to be the thing being opened. A count-based
         # bar on top of that would only trade this script's own false positives for the

@@ -2325,6 +2325,66 @@ def test_the_content_file_can_add_exclusions_but_never_drop_the_default_ones(tmp
         "an `exclude` list must add to the built-in list, not replace it"
 
 
+def _commit_on_feature(r, files: dict[str, str]):
+    for name, text in files.items():
+        (r / name).parent.mkdir(parents=True, exist_ok=True)
+        (r / name).write_text(text)
+    subprocess.run(["git", "-C", str(r), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(r), "commit", "-qm", "more"], check=True)
+
+
+def test_the_header_and_the_aftermath_band_read_one_generated_list():
+    """Eval run 8: `run-steps.py` called the springdoc-written `openapi.yaml` generated, the
+    header counted its +79/−29 as hand-written lines. Two lists had drifted; now there is
+    one, and run-steps imports it rather than keeping a copy."""
+    chips = importlib.import_module("hrbuild.shared.chips")
+    src = (HERE / "run-steps.py").read_text(encoding="utf-8")
+    assert "from hrbuild.shared.chips import GENERATED_GLOBS as GENERATED_DEFAULT" in src
+    assert re.search(r"^GENERATED_DEFAULT\s*=\s*\(", src, re.M) is None, \
+        "a second literal list in run-steps.py is the drift this test exists to stop"
+    assert "openapi.yaml" in chips.GENERATED_GLOBS
+    assert list(chips.GENERATED_PATHSPECS) == list(chips.GENERATED_GLOBS)
+
+
+def test_a_regenerated_openapi_spec_is_not_counted_as_hand_written(tmp_path):
+    r = _drifting_repo(tmp_path, with_generated=False)
+    _commit_on_feature(r, {"openapi.yaml": "".join(f"p{i}: x\n" for i in range(79)),
+                           "api/openapi.yaml": "a: b\n"})
+    files, lines = build.diffstat_chips(r, build.base_state(r, "main"), None)
+    # Top-level openapi.yaml is the springdoc output; `*` stops at a slash, so a nested
+    # api/openapi.yaml is somebody's hand-written file and is still counted.
+    assert '<span class="added">+2</span>' in files["value"], files["value"]
+    assert '<span class="added">+7</span>' in lines["value"], lines["value"]
+    assert "1 generated left out" in lines["tip"]
+
+
+def test_review_bookkeeping_is_left_out_of_the_code_chips_and_named(tmp_path):
+    """review-points.md and review-cost.json are the review's own record: not generated,
+    not the change either. Out of the count, and said so by name in the hover."""
+    r = _drifting_repo(tmp_path, with_generated=False)
+    _commit_on_feature(r, {"review-points.md": "# Review\n" * 196,
+                           "review-cost.json": "{}\n"})
+    files, lines = build.diffstat_chips(r, build.base_state(r, "main"), None)
+    assert '<span class="added">+1</span>' in files["value"]
+    assert '<span class="added">+6</span>' in lines["value"]
+    assert "review bookkeeping left out" in lines["tip"]
+    assert "review-cost.json, review-points.md" in lines["tip"]
+    assert "No generated files to leave out" in lines["tip"]
+    assert "with them 4 files, +203" in lines["tip"]
+
+
+def test_the_projects_generated_list_is_honoured_by_the_header(tmp_path):
+    """`"generated"` in human-review.json replaces the default for the aftermath band, so
+    it replaces it here too -- the same list in both readers, or none."""
+    r = _drifting_repo(tmp_path)
+    (r / "human-review.json").write_text(json.dumps({"generated": ["src/VetPicker.java"]}))
+    files, _ = build.diffstat_chips(r, build.base_state(r, "main"), None)
+    assert "+1" not in files["value"], "the project's list was not applied"
+    # The project said what it generates: docs/generated/** and the genseq pair are its
+    # own call now, and are counted.
+    assert "1 generated left out" in files["tip"]
+
+
 def test_the_line_count_opens_the_compare_page_the_two_numbers_describe(tmp_path):
     """The size of the change set is the one chip a reader wants to click through: "how
     much is there to read" is followed by "show me". It links to the two *branches*, not
@@ -2496,6 +2556,19 @@ def test_the_commits_before_the_audited_base_are_named_under_the_chips(tmp_path)
     assert note.index("</summary>") < note.index(plan[:8]), "the hashes are in the fold"
     page = build.masthead_html({"pr": {"branch": "feature", "base": "main"}}, "", "", "", st)
     assert '<details class="scopenote">' in page, "the note rides in the masthead"
+
+
+def test_the_earlier_commits_fold_never_lies_over_the_tab_strip():
+    """Eval run 8: opened, the fold dropped over the page as an absolute popover, covered
+    11 of 13 tabs, and closed only on its own summary. It sits in flow now, and Esc or a
+    click outside it closes it."""
+    css = (HERE / "hrbuild" / "assets" / "css" / "masthead.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.scopenote \.sn-list \{([^}]*)\}", css).group(1)
+    assert "position:absolute" not in rule and "position:fixed" not in rule
+    assert "position:static" in rule
+    js = (HERE / "hrbuild" / "assets" / "tabs.js").read_text(encoding="utf-8")
+    assert "details.scopenote[open]" in js and "'Escape'" in js
+    assert "closest('details.scopenote')" in js, "a click inside the fold must not close it"
 
 
 def test_the_drift_mark_says_it_measures_against_another_base_than_the_chips(tmp_path):
@@ -3157,6 +3230,15 @@ def test_a_page_that_declares_no_assumptions_block_is_told_so(tmp_path):
         BARE, findings=[{"title": "f", "body": "<p>b</p>"}],
         tabs=[{"id": "review", "label": "Review", "blocks": [{"type": "findings"}]}]))
     assert "no 'assumptions' block" in err
+
+
+def test_the_assumptions_intro_does_not_deny_the_code_quoted_under_it():
+    """Eval run 8: the intro said "nothing here is in the diff" over ten assumption cards
+    out of eleven that each quoted NEW CODE from the diff. The choice is not in the diff;
+    the code it shaped is, and is quoted."""
+    intro = build.pile_intro("assumptions", None)
+    assert "nothing here is in the diff" not in intro
+    assert "The code an assumption shaped is quoted under it" in intro
 
 
 def test_the_lede_lands_on_the_pile_that_opens_the_list_whichever_it_is(tmp_path):
@@ -4262,6 +4344,95 @@ def test_the_tab_reads_this_runs_copy_of_a_diagram_not_the_restored_file(tmp_pat
     assert ".human-review" in build.SKIP_DIRS, "the copies are never paired a second time"
 
 
+# ── eval run 8: why each picture is there, and which of the branch's tests have none ────
+# The Sequence step now traces the tests a branch wrote, untagged; their pictures exist only
+# in the overlay (the step removes from the work tree what the run created), and the tab
+# has to say of every picture whether it is there by tag or because the branch wrote it.
+
+SEARCH_FEATURE = """Feature: Search owners
+
+  @generate_sequence
+  Scenario: Searching with an empty last name shows the first page
+    When I open the owners page
+
+  Scenario: Sorting by city, then reversing it
+    When I sort the owners by "City"
+"""
+
+
+def _seq_puml(test_rel: str, line: int, title: str) -> str:
+    return ("@startuml\n"
+            f"title [[src://{test_rel}:{line}{{Click to open the test}} {title}]]\n"
+            "participant Browser\nparticipant Backend\n"
+            "Browser -> Backend: GET /api/owners\n@enduml\n")
+
+
+def test_a_picture_says_whether_it_is_there_by_tag_or_because_the_branch_wrote_the_test(
+        tmp_path):
+    feat = "petclinic-test/src/owner-search.feature"
+    tagged = "petclinic-test/generated/owner-search.feature.searching.genseq.puml"
+    picked = "petclinic-test/generated/owner-search.feature.sorting-by-city.genseq.puml"
+    (tmp_path / "petclinic-test/src").mkdir(parents=True)
+    (tmp_path / "petclinic-test/generated").mkdir(parents=True)
+    (tmp_path / feat).write_text(SEARCH_FEATURE)
+    (tmp_path / tagged).write_text(
+        _seq_puml(feat, 4, "Searching with an empty last name shows the first page"))
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "c"],
+                   cwd=tmp_path, check=True)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True,
+                          text=True).stdout.strip()
+    review = tmp_path / ".human-review"
+    overlay = review / "assets/genseq"
+    (overlay / "petclinic-test/generated").mkdir(parents=True)
+    (overlay / picked).write_text(_seq_puml(feat, 7, "Sorting by city, then reversing it"))
+    (overlay / ".head").write_text(head + "\n")
+    sel = {"max": 6, "picked": [
+        {"path": feat, "name": "Sorting by city, then reversing it", "line": 7,
+         "status": "added", "suite": "e2e", "why": "written by this branch"},
+        {"path": feat, "name": "Paging forward", "line": 30, "status": "added",
+         "suite": "e2e", "why": "written by this branch"}],
+        "left": [{"path": "petclinic-backend/src/test/java/OwnerListTest.java",
+                  "name": "getAll", "status": "modified", "suite": "java",
+                  "left": "over the cap of 6 traced tests"},
+                 {"path": "petclinic-frontend/src/app/owner-list.component.spec.ts",
+                  "name": "opens on the first page", "status": "added", "suite": None,
+                  "left": "no traced suite runs this file"}]}
+    (review / "assets/sequence.selection.json").write_text(json.dumps(sel))
+
+    out, weight, _ = build.render_testpairs(
+        {"type": "testpairs", "title": "", "snippets": dict(build.AUTO_SNIPPETS)}, {}, [],
+        tmp_path, review)
+
+    pairs = re.findall(r'<details class="testpair".*?</summary>', out, re.S)
+    assert len(pairs) == 2 and weight == 2, "the overlay-only picture is on the tab too"
+    by_title = {("Sorting" in p): p for p in pairs}
+    assert 'data-why="added"' in by_title[True] and ">new test</span>" in by_title[True]
+    assert 'data-why="tagged"' in by_title[False] and ">tagged</span>" in by_title[False]
+    assert "carries no tracing tag" in by_title[True]
+    # The branch's own scenario is quoted beside its picture, not left "not excerpted here".
+    sorting = out[out.index(f'id="{build.pair_anchor(picked)}"'):]
+    sorting = sorting.split('<details class="testpair"')[0]
+    assert "I sort the owners by" in html.unescape(sorting)
+    assert "not excerpted here" not in sorting
+    note = out[out.index('class="seqsel"'):]
+    note = html.unescape(re.sub(r"<[^>]+>", "", note[:note.index("</p>")]))
+    assert "Also traced: 2 tests this branch wrote or edited" in note
+    assert "1 of them came back with no picture: Paging forward (owner-search.feature)" in note
+    assert "Not traced, over the cap of 6: getAll (OwnerListTest.java)" in note
+    assert "1 more of the branch's tests are in files no traced suite runs " \
+           "(owner-list.component.spec.ts)" in note
+
+
+def test_without_a_selection_the_tab_says_nothing_new(tmp_path):
+    assert build.selection_note_html(None, set()) == ""
+    assert build.selection_note_html({"picked": [], "left": []}, set()) == ""
+    assert build.picked_for("a.java", [(9, "defaultRequest_returnsFirstTen()")], {"picked": [
+        {"path": "a.java", "name": "defaultRequest_returnsFirstTen", "line": 3}]}) is not None, \
+        "a JUnit display name is matched by the method's name, whatever line it was found on"
+
+
 def test_a_struck_tab_says_why_it_is_struck(tmp_path):
     """Eval run 6: Structure was struck over three UNCHANGED cards, and a strike reads as
     'not produced' unless something says otherwise."""
@@ -4523,6 +4694,33 @@ def test_the_scope_chip_says_the_same_thing_as_the_counts_line(tmp_path):
         {"type": "findings"}, {"type": "autofixes"}, {"type": "assumptions", "mode": "A"}]}]))
     assert "6 open LLM review issues" in lede and "3 auto-fixed" in lede
     assert lede.index("open") < lede.index("auto-fixed")
+
+
+def test_refuted_claims_are_counted_apart_from_the_open_pile(tmp_path):
+    """Eval run 8: the header chip, the counts line and the tab pill all said `11 open`,
+    four of them CONTEXT cards whose own `why:` read "refuted — …". A refuted claim is
+    settled, so it is counted apart: `7 open · 4 refuted`, and it does not grade."""
+    live = [{"title": f"f{i}", "severity": "low", "why": "deliberate"} for i in range(7)]
+    refuted = [{"title": f"r{i}", "severity": "info",
+                "why": "refuted — this spec asserts <code>%2B</code>"} for i in range(3)]
+    refuted.append({"title": "r3", "severity": "info", "why": "wrong — handleError rethrows"})
+    # Said at a rank above info it is not a CONTEXT card, and the parser warns about it
+    # instead: still open on the page until somebody files it right.
+    misfiled = {"title": "m", "severity": "medium", "why": "refuted — but filed at medium"}
+    spec = {"findings": live + refuted + [misfiled],
+            "autofixes": [{"title": "a"}], "assumptions": []}
+    assert build.pile_numbers(spec)[0] == 8
+    assert build.refuted_number(spec) == 4
+    badge = build.review_tab_badge(spec)
+    assert badge["count"] == 8 and badge["label"].startswith("8 open review issues · 4 refuted")
+    assert build.scope_chip_face(spec) == \
+        '\U0001f916Review: <b>8 open</b> · 4 refuted, <b>1 fixed</b>'
+    build.reset_list()
+    lede = build.opening_lede(dict(spec, tabs=[{"id": "review", "label": "R", "blocks": [
+        {"type": "findings"}, {"type": "autofixes"}]}]))
+    assert "8 open LLM review issues · 4 refuted" in lede
+    signal = next(s for s in build._pile_signals(spec) if s["key"].startswith("open"))
+    assert signal["short"].startswith("8 open review issues"), signal
 
 
 def test_the_chip_carries_the_coders_assumptions_as_its_own_sentence(tmp_path):
@@ -4855,6 +5053,20 @@ def test_the_grade_reasons_are_computed_from_what_the_page_measured(tmp_path):
     assert '<b>7</b>/10' in panel and 'class="gradewhy-was"' in panel and ">was 8<" in panel
 
 
+def test_ci_green_links_to_the_run_it_rests_on(tmp_path):
+    """Eval run 8: `CI green on 7fe310ab` was plain text, the run URL only in a hover.
+    The run is the evidence, so it is a link a reader can click."""
+    out = _signals_dir(tmp_path, seq=None, api=False)
+    gate = json.loads((out / ".gate.json").read_text())
+    gate["workflows"][0]["url"] = "https://github.com/acme/shop/actions/runs/37"
+    (out / ".gate.json").write_text(json.dumps(gate))
+    spec = {"verdict": {"score": 8}}
+    build.grade_signals(spec, out, root=None)
+    panel = build.grade_reasons_html(spec)
+    assert ('CI green on 0746abc5 — <a href="https://github.com/acme/shop/actions/runs/37" '
+            'target="_blank" rel="noopener">CI run 37 ↗</a>') in panel
+
+
 @pytest.mark.parametrize("gate,cap", [("failure", 4), ("skipped", 6), ("green", None)])
 def test_the_ci_gate_caps_the_grade_and_never_raises_it(tmp_path, gate, cap):
     out = _signals_dir(tmp_path, gate=gate, seq=None, api=False)
@@ -4972,6 +5184,38 @@ def test_a_hunk_beyond_reach_of_every_anchor_is_nobodys(tmp_path):
             "_reviewPoints": {"provenance": {"implementation": impl, "reviewCommit": fix}}}
     build.attribute_fix_hunks(spec, tmp_path, root=tmp_path)
     assert "line 40 fixed" not in card["_fixDiffs"]
+    assert "line 40 fixed" in spec["_reviewPoints"]["fixOther"]
+
+
+def test_a_hunk_two_fixed_cards_share_is_drawn_once_with_both_titles(tmp_path):
+    """Eval run 8: two Fixed cards anchored at lines 179 and 192 of one spec, and the fix
+    commit's single +25 hunk there was drawn in full under both, one after the other. It
+    is drawn once now, under the first card, naming both; the second points at it."""
+    impl, fix = _fix_repo(tmp_path)
+    first = {"title": "first fix", "refs": ["a.py:3"], "snippets": [{"ref": "a.py:3"}]}
+    second = {"title": "second fix", "refs": ["a.py:3-4"], "snippets": [{"ref": "a.py:3-4"}]}
+    spec = {"autofixes": [first, second],
+            "_reviewPoints": {"source": "review-points.md",
+                              "provenance": {"implementation": impl, "reviewCommit": fix}}}
+    build.attribute_fix_hunks(spec, tmp_path, root=tmp_path)
+    both = first["_fixDiffs"] + second["_fixDiffs"]
+    assert both.count("line 3 fixed") == 1, "one hunk, drawn once"
+    assert "line 3 fixed" in first["_fixDiffs"]
+    assert "<b>first fix</b> and <b>second fix</b>" in first["_fixDiffs"]
+    assert "shown once, under that card" in second["_fixDiffs"]
+    assert "<b>first fix</b>" in second["_fixDiffs"]
+    assert second["snippets"] == [], "its lines are on the page already, in the shared hunk"
+
+
+def test_a_fix_hunk_goes_only_to_a_card_whose_line_is_on_it(tmp_path):
+    """Attributed by overlap with the hunk as drawn (its change plus the context it shows),
+    not by being somewhere in the same file: an anchor ten lines off takes nothing."""
+    impl, fix = _fix_repo(tmp_path)
+    near = {"title": "near", "refs": ["a.py:30"]}
+    spec = {"autofixes": [near],
+            "_reviewPoints": {"provenance": {"implementation": impl, "reviewCommit": fix}}}
+    build.attribute_fix_hunks(spec, tmp_path, root=tmp_path)
+    assert "line 40 fixed" not in near["_fixDiffs"]
     assert "line 40 fixed" in spec["_reviewPoints"]["fixOther"]
 
 

@@ -285,6 +285,23 @@ def test_sentences_are_coloured_as_the_mapping_says(tmp_path):
     assert "<ol start=\"1\">" in page and ">ana</span>" in page
 
 
+def test_who_paired_a_sentence_is_said_on_its_hover_and_once_not_after_every_clause(tmp_path):
+    """Eval run 8: a 🤖 after each of 30+ highlighted clauses made the ticket column
+    unreadable. The provenance is on the sentence's hover and in one note under the header."""
+    _, entries, page, _ = _render(tmp_path)
+    css = (S.ASSETS / "reqmap.css").read_text(encoding="utf-8")
+    assert "[data-src=model]::after" not in css
+    assert page.count(S.AI_NOTE) == 1 and 'class="rm-ainote"' in page
+    js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
+    assert "'🤖 checked by AI':'paired by script'" in js
+    # No model answer, no note.
+    root, review = tmp_path / "repo", tmp_path / "repo" / ".human-review"
+    g = S.gather(S._spec(review), review, root)
+    bare = S.render(g["ticket"], g["blocks"], g["rows"],
+                    S.merge(g["sentences"], g["scripted"], None), root)
+    assert S.AI_NOTE not in bare
+
+
 def test_a_sentence_nobody_paired_is_not_called_missing(tmp_path):
     root, review = _repo(tmp_path)
     g = S.gather(S._spec(review), review, root)
@@ -626,16 +643,26 @@ def test_a_deleted_test_on_an_unmeasured_card_links_to_the_base_commit(tmp_path)
 
 # --- the model step, end to end, with `claude` stubbed --------------------------------------
 
-def _fake_claude(tmp_path, answer: dict) -> Path:
-    """A `claude` on PATH that records its stdin and answers with `answer` in the CLI's JSON
-    envelope — no network, no spend."""
+NO_CHANGE = {"schema": "test-mapping-check/1", "sentences": []}
+
+
+def _fake_claude(tmp_path, answer: dict, check: dict | None = None) -> Path:
+    """A `claude` on PATH that records its stdin and answers in the CLI's JSON envelope —
+    no network, no spend. The pairing prompt gets `answer` (stdin in `prompt.txt`); the
+    second read's gets `check` (stdin in `check-prompt.txt`), by default a read that lowers
+    nothing."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     exe = bin_dir / "claude"
     exe.write_text("#!/usr/bin/env python3\nimport json, sys\n"
-                   f"open({str(tmp_path / 'prompt.txt')!r}, 'w').write(sys.stdin.read())\n"
-                   "print(json.dumps({'total_cost_usd': 0.0021, 'result': json.dumps("
-                   + repr(answer) + ")}))\n", encoding="utf-8")
+                   "text = sys.stdin.read()\n"
+                   "second = 'test-mapping-check-input' in text\n"
+                   f"open({str(tmp_path / 'check-prompt.txt')!r} if second else "
+                   f"{str(tmp_path / 'prompt.txt')!r}, 'w').write(text)\n"
+                   "reply = " + repr(check or NO_CHANGE) + " if second else " + repr(answer)
+                   + "\nprint(json.dumps({'total_cost_usd': 0.0021, 'result': json.dumps(reply),"
+                   " 'modelUsage': {'claude-haiku-4-5': {'inputTokens': 100, "
+                   "'outputTokens': 10}}}))\n", encoding="utf-8")
     exe.chmod(0o755)
     return bin_dir
 
@@ -710,6 +737,176 @@ def test_the_model_is_handed_its_reply_already_laid_out(tmp_path):
     assert set(form) == {x["id"] for x in asked["sentences"]}
     book = _sids(g)[0]
     assert form[book]["review"] == [{"id": "test/VisitTest.java:3", "verdict": "", "why": ""}]
+
+
+# --- a cheap model's "covered" is checked by passes that can only lower it ----------------
+#
+# Eval run 8: Haiku called 25 of 27 sentences covered, none partial — "authorization and MCP
+# contracts unchanged" on a test that lists owners, a `confirm` with an invented reason. The
+# model stays cheap; a free script rule and a second cheap read take away what does not hold.
+
+def _check(book, verdict, line="", claim="all", unproven=""):
+    return {"schema": "test-mapping-check/1", "sentences": [
+        {"id": book, "claim": claim, "unproven": unproven,
+         "links": [{"id": "test/VisitTest.java:3", "verdict": verdict, "line": line,
+                    "why": "the second read's reason"}]}]}
+
+
+def _run_model(tmp_path, monkeypatch, check=None, answer=None, argv=()):
+    root, review = _repo(tmp_path)
+    _with_decision(review)
+    g = S.gather(S._spec(review), review, root)
+    import os
+    monkeypatch.setenv("PATH", f"{_fake_claude(tmp_path, answer or _answer(*_sids(g)), check)}"
+                               f"{os.pathsep}" + os.environ["PATH"])
+    monkeypatch.delenv("HUMAN_REVIEW_MAPPING_CHECK", raising=False)
+    # The second read is haiku's; Sonnet (the default since 3 Oct 2026) answers alone.
+    monkeypatch.setenv("HUMAN_REVIEW_MAPPING_MODEL", "haiku")
+    monkeypatch.chdir(root)
+    RM = _load("rerun_model", "rerun-model.py")
+    assert RM.main(["--dir", str(review), *argv]) == 0
+    written = {e["id"]: e for e in json.loads((review / S.MAPPING).read_text())["sentences"]}
+    return root, review, g, written
+
+
+def test_the_second_read_is_asked_about_every_kept_link_and_only_those(tmp_path, monkeypatch):
+    root, review, g, _ = _run_model(tmp_path, monkeypatch)
+    book, edit, pirate = _sids(g)
+    chk = (tmp_path / "check-prompt.txt").read_text()
+    asked = json.loads(chk.split("```json\n")[-1].split("\n```")[0])
+    # The covered sentence, with its link and the body; not the narrowed, not the missing.
+    assert [x["id"] for x in asked["sentences"]] == [book]
+    assert asked["sentences"][0]["links"][0]["strength"] == "asserted"
+    assert [t["id"] for t in asked["tests"]] == ["test/VisitTest.java:3"]
+    assert "isNull()" in asked["tests"][0]["body"]
+    assert asked["answer"]["sentences"][0]["links"][0] == {
+        "id": "test/VisitTest.java:3", "verdict": "", "line": "", "why": ""}
+    # One press, one ledger row, both calls' price on it.
+    runs = json.loads((review / ".model-runs.json").read_text())["runs"]
+    assert len(runs) == 1 and runs[0]["cost"] == pytest.approx(0.0042)
+    assert runs[0]["tokens"] == 220
+
+
+def test_a_quoted_assertion_that_is_not_in_the_body_lowers_the_link(tmp_path, monkeypatch):
+    """The run-8 `confirm` with an invented reason: the second read must copy the line that
+    asserts the claim, and a line that is not in the body is no assertion."""
+    _, _, g, written = _run_model(tmp_path / "probe", monkeypatch)
+    book = _sids(g)[0]
+    assert written[book]["coverage"] == "covered"
+    _, review, g, written = _run_model(
+        tmp_path / "run", monkeypatch, check=_check(book, "asserts",
+                                                    line="assertThat(vet).isAbsent();"))
+    e = written[book]
+    assert e["coverage"] == "exercised" and e["tests"][0]["strength"] == "exercised"
+    assert {"id": "test/VisitTest.java:3", "by": "second read", "from": "asserted",
+            "to": "exercised"}.items() <= e["downgrades"][0].items()
+    assert "not in the test's body" in e["downgrades"][0]["why"]
+    assert "lowered 1 link(s) and 1 sentence(s)" in json.loads(
+        (review / S.MAPPING).read_text())["note"]
+
+
+def test_a_real_quote_keeps_the_link_and_a_part_claim_makes_it_partial(tmp_path, monkeypatch):
+    _, _, g, _ = _run_model(tmp_path / "probe", monkeypatch)
+    book = _sids(g)[0]
+    _, _, g, written = _run_model(
+        tmp_path / "run", monkeypatch,
+        check=_check(book, "asserts", line="  assertThat(saved().getVet()).isNull()  ",
+                     claim="part", unproven="Nothing checks the booking is saved."))
+    e = written[book]
+    assert e["tests"][0]["strength"] == "asserted"
+    assert e["coverage"] == "partial" and e["gap"] == "Nothing checks the booking is saved."
+
+
+def test_an_unrelated_link_is_dropped_and_shown_as_rejected(tmp_path, monkeypatch):
+    _, _, g, _ = _run_model(tmp_path / "probe", monkeypatch)
+    book = _sids(g)[0]
+    root, review, g, written = _run_model(tmp_path / "run", monkeypatch,
+                                          check=_check(book, "unrelated"))
+    e = written[book]
+    assert e["coverage"] == "missing" and e["tests"] == []
+    # The model's confirm is turned into a rejection, so the answer still passes the checks.
+    assert e["review"][0]["verdict"] == "reject" and "second read" in e["review"][0]["why"]
+    S.write_fragment(S._spec(review), review, root)
+    page = (review / S.FRAGMENT).read_text()
+    assert f'data-s="{book}" data-cov="missing"' in page
+    data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
+    assert data["sentences"][book]["rejected"][0]["id"] == "test/VisitTest.java:3"
+
+
+def test_the_second_read_never_raises_anything(tmp_path):
+    """Downgrade-only: `claim: all` on a partial sentence, `asserts` on an exercised link,
+    a verdict on a test the sentence never had — none of it moves anything up."""
+    asked = {"sentences": [{"id": "s000001", "text": "x"}],
+             "tests": [{"id": "a.java:1", "title": "t", "kind": "unit", "body": "assertX(1);"},
+                       {"id": "b.java:2", "title": "u", "kind": "unit", "body": "assertY(2);"}]}
+    doc = {"schema": "test-mapping/1", "sentences": [
+        {"id": "s000001", "coverage": "partial", "gap": "half of it",
+         "tests": [{"id": "a.java:1", "strength": "asserted", "why": "w"},
+                   {"id": "b.java:2", "strength": "exercised", "why": "w"}]}]}
+    chk = {"schema": "test-mapping-check/1", "sentences": [
+        {"id": "s000001", "claim": "all", "links": [
+            {"id": "a.java:1", "verdict": "asserts", "line": "assertX(1);", "why": "w"},
+            {"id": "b.java:2", "verdict": "asserts", "line": "assertY(2);", "why": "w"},
+            {"id": "c.java:3", "verdict": "asserts", "line": "x", "why": "w"}]}]}
+    out, lowered = S.apply_check(doc, chk, asked)
+    assert out == doc and lowered == {"links": 0, "sentences": 0}
+    assert S.check_problems({"schema": "test-mapping/1", "sentences": []})
+    assert S.check_problems(None) == ["the reply holds no JSON object"]
+
+
+def test_a_link_that_shares_nothing_specific_with_its_sentence_is_dropped_by_the_script(
+        tmp_path):
+    root, review = _repo(tmp_path)
+    g = S.gather(S._spec(review), review, root)
+    book, edit, pirate = _sids(g)
+    texts = {s["id"]: s["text"] for s in g["sentences"]}
+    # The pirate sentence "covered" by the edit test: not one word, route or literal shared.
+    doc = {"schema": "test-mapping/1", "sentences": [
+        {"id": pirate, "coverage": "covered",
+         "tests": [{"id": "test/VisitTest.java:8", "strength": "asserted", "why": "w"}]},
+        {"id": book, "coverage": "covered",
+         "tests": [{"id": "test/VisitTest.java:3", "strength": "asserted", "why": "w"}]}]}
+    out, dropped = S.sanity(doc, texts, g["docs"])
+    assert dropped == 1
+    by = {e["id"]: e for e in out["sentences"]}
+    assert by[pirate]["coverage"] == "missing" and by[pirate]["tests"] == []
+    assert by[pirate]["downgrades"][0]["by"] == "script"
+    assert by[book] == doc["sentences"][1], "a link on the sentence's own words stays"
+    assert S.problems(out) == []
+
+
+def test_a_quote_is_looked_up_in_the_body_whitespace_aside():
+    body = ('    mockMvc.perform(get("/api/owners?" + query))\n'
+            '            .andExpect(status().isBadRequest());\n')
+    # Run 8's second read joined the chain on one line: the same code, accepted.
+    assert S.quoted_in('mockMvc.perform(get("/api/owners?" + query)).andExpect(status()'
+                       '.isBadRequest());', body)
+    assert not S.quoted_in(".andExpect(status().isOk())", body)
+    assert not S.quoted_in("", body) and not S.quoted_in(");", body)
+
+
+def test_a_multi_line_annotation_is_part_of_the_body_the_model_reads():
+    """Run 8's `invalidInput_isBadRequest` keeps its cases (`"size=7"`, …) in a four-line
+    `@ValueSource`; the body the model and the script read must include them."""
+    lines = ['    }', '', '    @ParameterizedTest', '    @ValueSource(strings = {',
+             '            "size=7", "size=0",', '            "page=-1"})',
+             '    void invalidInput_isBadRequest(String query) throws Exception {']
+    assert S.annotations_start(lines, 7) == 3
+    assert S.annotations_start(['  void x() {', '  }', '  @Test', '  void y() {'], 4) == 3
+
+
+def test_the_second_read_is_a_setting_on_by_default(tmp_path, monkeypatch):
+    RM = _load("rerun_model", "rerun-model.py")
+    monkeypatch.delenv("HUMAN_REVIEW_MAPPING_CHECK", raising=False)
+    cfg = tmp_path / "human-review.json"
+    assert RM.mapping_check(None, cfg) is True
+    cfg.write_text('{"mappingCheck": false}', encoding="utf-8")
+    assert RM.mapping_check(None, cfg) is False
+    monkeypatch.setenv("HUMAN_REVIEW_MAPPING_CHECK", "1")
+    assert RM.mapping_check(None, cfg) is True
+    assert RM.mapping_check(False, cfg) is False
+    _run_model(tmp_path / "off", monkeypatch, argv=("--no-check",))
+    assert not (tmp_path / "off" / "check-prompt.txt").exists()
 
 
 # --- where the requirement text comes from ----------------------------------------------

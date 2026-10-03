@@ -451,6 +451,12 @@ def finish(args) -> int:
         state["sessions"].append(sid)
     cost, cost_line = record_cost(repo, {**state, "implementation": implementation},
                                   args.harness or state.get("harness") or "")
+    # Kept where the page looks: a record refused here (eval run 8 — a key the schema did
+    # not know) left the cost tab blaming the branch for predating the record.
+    if cost is None:
+        state["costError"] = cost_line
+    else:
+        state.pop("costError", None)
     # The Copilot sessions the measurement found, by id, on the commit: the CLI exports no
     # session id, so the match by cwd, branch and time is made once, here, while it is
     # fresh, and kept where a rebase keeps it.

@@ -160,6 +160,101 @@ def _cat_chip(cat: str | None, test_rel: str = "") -> str:
             + f' data-tip="{html.escape(tip, quote=True)}">{html.escape(face)}</span>')
 
 
+#: What `run-steps.py` `_sequence` writes about the tests it traced beyond the tagged ones —
+#: the tests this branch wrote or edited, picked from the test manifest (`steps.sequence.
+#: select`), and the ones it left out and why.
+SEQ_SELECTION = "assets/sequence.selection.json"
+
+#: Why a picture exists, said on its row: `kind` -> (chip face, hover). Eval run 8: the page
+#: showed three pictures and never said they were there because somebody had once tagged
+#: those tests, nor that the branch's own paging and sorting scenarios carried no tag —
+#: which was the whole reason they had none.
+SEQ_WHY = {
+    "tagged": ("tagged", "Traced because the test carries the tracing tag "
+                         "(@generate_sequence / @GenerateSequence)"),
+    "added": ("new test", "Traced because this branch wrote this test. It carries no "
+                          "tracing tag: the Sequence step traces the branch's own tests too"),
+    "modified": ("edited test", "Traced because this branch edited this test. It carries no "
+                                "tracing tag: the Sequence step traces the branch's own tests "
+                                "too"),
+}
+
+
+def sequence_selection(out_dir: Path) -> dict | None:
+    try:
+        doc = json.loads((Path(out_dir) / SEQ_SELECTION).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")
+
+
+def picked_for(test_rel: str, scenarios, selection: dict | None) -> dict | None:
+    """The selection entry this pair's picture was traced for, if it was one.
+
+    By line, or by name: a JVM picture is titled with JUnit's display name
+    (`defaultRequest_returnsFirstTen…()`), which begins with the slug of the method the
+    manifest names."""
+    for t in (selection or {}).get("picked") or []:
+        if not isinstance(t, dict) or t.get("path") != test_rel:
+            continue
+        name = _slug(t.get("name", ""))
+        for line, title in scenarios:
+            if (t.get("line") and line == t["line"]) or (name and _slug(title).startswith(name)):
+                return t
+    return None
+
+
+def _why_chip(kind: str | None) -> str:
+    if kind not in SEQ_WHY:
+        return ""
+    face, tip = SEQ_WHY[kind]
+    return (f'<span class="seqwhy" data-why="{kind}" data-tip="{html.escape(tip, quote=True)}">'
+            f'{html.escape(face)}</span>')
+
+
+def _names(tests, limit: int = 4) -> str:
+    said = [f"<i>{html.escape(str(t.get('name', '')))}</i> "
+            f"({html.escape(Path(str(t.get('path', ''))).name)})" for t in tests[:limit]]
+    more = len(tests) - limit
+    return ", ".join(said) + (f" and {more} more" if more > 0 else "")
+
+
+def selection_note_html(selection: dict | None, drew: set[int]) -> str:
+    """One paragraph at the top of the tab: which of the branch's own tests were traced, which
+    drew nothing, and which were left out — over the cap, or in files no traced suite runs.
+
+    `drew` holds the indexes into `picked` that a pair on this tab matched."""
+    if not selection:
+        return ""
+    picked = [t for t in selection.get("picked") or [] if isinstance(t, dict)]
+    left = [t for t in selection.get("left") or [] if isinstance(t, dict)]
+    capped = [t for t in left if t.get("suite")]
+    nosuite = [t for t in left if not t.get("suite")]
+    if not picked and not left:
+        return ""
+    parts = []
+    if picked:
+        parts.append(f"<b>Also traced: {len(picked)} test{'s' if len(picked) != 1 else ''} "
+                     "this branch wrote or edited</b>, untagged — the rows marked "
+                     "<i>new test</i> or <i>edited test</i>.")
+        missed = [t for i, t in enumerate(picked) if i not in drew]
+        if missed:
+            parts.append(f"{len(missed)} of them came back with no picture: {_names(missed)}.")
+    if capped:
+        parts.append(f"Not traced, over the cap of {int(selection.get('max') or 0)}: "
+                     f"{_names(capped)}.")
+    if nosuite:
+        files = list(dict.fromkeys(Path(str(t.get("path", ""))).name for t in nosuite))
+        parts.append(f"{len(nosuite)} more of the branch's tests are in files no traced suite "
+                     "runs (" + ", ".join(html.escape(f) for f in files[:4])
+                     + (f" and {len(files) - 4} more" if len(files) > 4 else "") + ").")
+    return '<p class="seqsel">' + " ".join(parts) + "</p>"
+
+
 def _scenarios_drawn(puml_rel: str, test_rel: str, root: Path) -> list[tuple[int, str]]:
     """Which scenarios this diagram actually drew, as (line, title).
 
@@ -266,7 +361,7 @@ def _fold_over(quoted: list[str]) -> tuple[str, list[str]]:
 def _folded_pair(puml_rel: str, test_rel: str, pieces: list[str],
                  quoted: list[str] = (),
                  scenarios: list[tuple[int, str]] = (),
-                 cat: str | None = None) -> str:
+                 cat: str | None = None, why: str | None = None) -> str:
     """The test and the sequence its run recorded, foldable together — with the quoted
     test folded closed inside it, and the whole pair folded closed too.
 
@@ -308,7 +403,7 @@ def _folded_pair(puml_rel: str, test_rel: str, pieces: list[str],
     return (f'<details class="testpair" open id="{pair_anchor(puml_rel)}"'
             f' data-test="{html.escape(test_rel)}">'
             f'<summary data-tip="{html.escape(test_rel)}">'
-            f'{_cat_chip(cat, test_rel)}{name}</summary>'
+            f'{_cat_chip(cat, test_rel)}{_why_chip(why)}{name}</summary>'
             + src
             + "\n".join(x.strip("\n") for x in pieces)
             + "</details>")
@@ -800,6 +895,10 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
     authored_cat = {x["ref"].rpartition(":")[0]: x.get("cat")
                     for x in snippets if x.get("cat")}
     lost_by_rel = {x["diagram"]: x for x in _lost(sequence_verdict(out_dir))}
+    selection = sequence_selection(out_dir)
+    picked = (selection or {}).get("picked") or []
+    drew: set[int] = set()
+    tagged = None
 
     for test_rel, entries in plan.items():
         quoted_by_pair = _share_excerpts(test_rel, entries, snippets, used, root)
@@ -820,9 +919,18 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
                 else render_diagrams(merged, root, out_dir, [row], bare=test_rel)
                 if row is not None
                 else _unchanged_sequence(puml_rel, test_rel, root, out_dir))
+            hit = picked_for(test_rel, scenarios, selection)
+            if hit is not None:
+                drew.add(picked.index(hit))
+                why = hit.get("status")
+            else:
+                if tagged is None:
+                    tagged = tagged_scenarios(root)
+                why = ("tagged" if any(ln in tagged.get(test_rel, ()) for ln, _ in scenarios)
+                       else None)
             parts.append(_folded_pair(puml_rel, test_rel, pieces, quoted, scenarios,
                                       _pair_cat(puml_rel, root,
-                                                authored_cat.get(test_rel))))
+                                                authored_cat.get(test_rel)), why))
             register(puml_rel, scenarios)
 
     orphaned = [x for x in snippets if id(x) not in used] + undrawn
@@ -852,6 +960,7 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
     head = ((f'<h3 id="{html.escape(block.get("id", "sequences"))}">'
              f'{html.escape(title)}</h3>') if title else "")
     head += f'<p>{block["body"]}</p>' if block.get("body") else ""
+    head += selection_note_html(selection, drew)
     # Invisible, and last: nothing to look at, only the map's way back in. `</` cannot
     # appear inside a script element, whatever its type.
     if index:

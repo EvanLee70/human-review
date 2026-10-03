@@ -814,6 +814,60 @@ def test_the_view_is_projected_from_this_runs_drawings_not_the_restored_files(tm
     assert "Payments" not in model["new"]["nodes"]
 
 
+# Eval run 8: `HTTP [4 ops]`, UNCHANGED, where the reference read `6 ops (was 5)` off the
+# same base — the count is of what the traced tests called, so it moved with WHICH tests
+# were traced (4 here, 5 on main), not with the code.
+
+def _fields(root: Path) -> dict:
+    header, row = (root / ".human-review/assets/c2/MANIFEST.tsv").read_text().splitlines()
+    return dict(zip(header.split("\t"), row.split("\t")))
+
+
+def test_a_count_moved_only_by_which_tests_were_traced_is_no_change(tmp_path):
+    root = _repo(tmp_path)
+    # A test traced on this branch alone — one it wrote, traced untagged — reaches a second
+    # endpoint over the same line.
+    (root / "test" / "b.feature.paging.genseq.puml").write_text(
+        "@startuml\nBrowser -> Backend: GET /api/owners/{id}\n@enduml\n")
+    assert c2.main(["--root", str(root), "--base", "main"]) == 0
+    fields = _fields(root)
+    assert fields["status"] == "unchanged"
+    diff = (root / ".human-review/assets/c2/C2-Containers.diff.puml").read_text()
+    assert '"2 ops"' in diff and "was" not in diff, "two ops drawn, none compared as moved"
+    assert fields["note"] == ("Op counts are of the calls in 2 traced tests here and 1 on the "
+                              "base. A count is compared only over the 1 traced on both "
+                              "sides, so a test traced on one side alone moves no number.")
+    model = json.loads((root / ".human-review/assets/c2/C2-Containers.json").read_text())
+    assert model["diff"]["compared"] == {
+        "both": ["test/a.spec.ts.flow.genseq.puml"],
+        "onlyNew": ["test/b.feature.paging.genseq.puml"], "onlyOld": []}
+
+
+def test_a_count_moved_by_a_test_traced_on_both_sides_is_a_change(tmp_path):
+    root = _repo(tmp_path)
+    (root / "test" / "a.spec.ts.flow.genseq.puml").write_text(
+        "@startuml\nBrowser -> Backend: GET /api/owners\nBrowser -> Backend: GET /api/pets\n"
+        "Backend -> DB: select owners\n@enduml\n")
+    assert c2.main(["--root", str(root), "--base", "main"]) == 0
+    fields = _fields(root)
+    assert fields["status"] == "modified"
+    assert '"2 ops (was 1)"' in (root / ".human-review/assets/c2/C2-Containers.diff.puml") \
+        .read_text()
+    assert fields["note"] == "", "the same tests on both sides need no caveat"
+
+
+def test_with_no_test_traced_on_both_sides_no_count_is_compared(tmp_path):
+    root = _repo(tmp_path)
+    (root / "test" / "a.spec.ts.flow.genseq.puml").unlink()       # renamed on the branch
+    (root / "test" / "a.spec.ts.flow-renamed.genseq.puml").write_text(
+        "@startuml\nBrowser -> Backend: GET /api/owners\nBrowser -> Backend: GET /api/vets\n"
+        "Backend -> DB: select owners\n@enduml\n")
+    assert c2.main(["--root", str(root), "--base", "main"]) == 0
+    fields = _fields(root)
+    assert fields["status"] == "unchanged"
+    assert "No test was traced on both sides, so no count is compared" in fields["note"]
+
+
 if __name__ == "__main__":
     sys.exit(subprocess.call([sys.executable, "-m", "pytest", "-q", __file__]))
 

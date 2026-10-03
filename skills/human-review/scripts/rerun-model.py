@@ -17,7 +17,7 @@ is shown as covering anything.
 The Demo film's script, the other model-written artifact, has a sibling of this program:
 `rerun-film.py`, which borrows its plumbing (`claude_argv`, `_priced`, `record_run`).
 
-Four properties are the whole point:
+Five properties are the whole point:
 
 - **A cheap model, named here.** `haiku` by default: choosing among eight tests for a
   sentence is not work that needs more. `--model`, `"mappingModel"` in the repository's
@@ -26,6 +26,12 @@ Four properties are the whole point:
 - **Every scripted link is a candidate, and the model confirms or rejects each one** — with
   the open sentences, in the same single call. Only a ticket with no claim in it at all gets
   an empty answer written and no model run.
+- **What it claims is checked by passes that can only lower it.** Eval run 8's Haiku answer
+  called 25 of 27 sentences covered and none partial. A free script rule drops a link whose
+  test shares nothing specific with its sentence (`semcov.sanity`); a second cheap call
+  re-reads every kept link against the test body and must quote the assertion line, looked
+  up in the real body (`matrix-check-prompt.md`, `semcov.apply_check`). Neither ever adds a
+  link or raises a coverage word. `--no-check` / `"mappingCheck": false` skips the second.
 - **The previous answer is kept**, under `.human-review/.model-prev/`. Dot-prefixed,
   because `publish-demo.sh` publishes what does not start with a dot.
 - **It refuses rather than half-writes.** An answer that is not JSON, fails the schema,
@@ -65,15 +71,28 @@ HERE = Path(__file__).resolve().parent
 #: links the script made for each, their candidate tests and the recorded scope decisions
 #: are appended to it as JSON.
 PROMPT = HERE.parent / "reference" / "matrix-prompt.md"
+#: The second read: every link the first answer kept, re-read against the test bodies by
+#: another cheap call whose verdicts can only lower what the first claimed (`semcov.
+#: apply_check`). Eval run 8's Haiku answer called 25 of 27 sentences covered and none
+#: partial; this is what makes a cheap model's "covered" worth reading.
+CHECK_PROMPT = HERE.parent / "reference" / "matrix-check-prompt.md"
+#: Where a repository turns the second read off, in `human-review.json` (`false`).
+MAPPING_CHECK_KEY = "mappingCheck"
 
 #: What the model owns, in `refresh-report.MODEL_OWNED`'s own spelling minus `content.json`
 #: — the layout and the ledes are a human's answer to "what is this page for", and no
 #: button regenerates those.
 WRITES = ("test-mapping.json",)
 
-#: The cheap model the pairing asks by default. A Copilot session picks its own (*Auto* or
-#: `gpt-5-mini`) and comes back through `--answer`.
-MAPPING_MODEL_DEFAULT = "haiku"
+#: The model the pairing asks by default. Sonnet, chosen by Victor on 3 Oct 2026 from a
+#: measurement on eval run 8: one Sonnet call got 5 of the 6 sentences the judges flagged
+#: right in ~100 s for $0.42; haiku with its downgrade-only second read got 3 of 6 in
+#: ~340 s for $0.35. Haiku stays one setting away (`"mappingModel": "haiku"`). A Copilot
+#: session picks its own (*Auto* or `gpt-5-mini`) and comes back through `--answer`.
+MAPPING_MODEL_DEFAULT = "sonnet"
+#: The models the downgrade-only second read is for: it was built to catch haiku's
+#: over-claiming, and on Sonnet it would only double the price.
+CHECKED_MODELS = ("haiku",)
 #: Where a repository says which model pairs its sentences, in `human-review.json`.
 MAPPING_MODEL_KEY = "mappingModel"
 
@@ -98,7 +117,7 @@ MODEL = os.environ.get("HUMAN_REVIEW_MODEL") or "sonnet"
 
 def mapping_model(flag: str | None = None, config: Path = Path("human-review.json")) -> str:
     """Which model pairs the open sentences: the flag, then `$HUMAN_REVIEW_MAPPING_MODEL`,
-    then the repository's `human-review.json` (`"mappingModel"`), then haiku."""
+    then the repository's `human-review.json` (`"mappingModel"`), then sonnet."""
     if flag:
         return flag
     if os.environ.get("HUMAN_REVIEW_MAPPING_MODEL"):
@@ -120,6 +139,91 @@ def mapping_argv(model: str) -> list[str]:
     extra = (os.environ.get("HUMAN_REVIEW_MODEL_ARGS") or "").split()
     return ["claude", "-p", "--model", model, "--output-format", "json", "--tools", "",
             "--strict-mcp-config", *extra]
+
+
+def mapping_check(flag: bool | None = None, config: Path = Path("human-review.json"),
+                  model: str | None = None) -> bool:
+    """Whether the second, downgrade-only read runs: `--no-check`, then
+    `$HUMAN_REVIEW_MAPPING_CHECK` (`0`/`false`/`off`), then `"mappingCheck"` in the
+    repository's `human-review.json`, then on for the models in CHECKED_MODELS only."""
+    if flag is False:
+        return False
+    env = os.environ.get("HUMAN_REVIEW_MAPPING_CHECK")
+    if env is not None and env.strip():
+        return env.strip().lower() not in ("0", "false", "off", "no")
+    try:
+        got = json.loads(config.read_text(encoding="utf-8")).get(MAPPING_CHECK_KEY)
+        if isinstance(got, bool):
+            return got
+    except (OSError, ValueError, AttributeError):
+        pass
+    if model is None:
+        return True
+    return any(m in model.lower() for m in CHECKED_MODELS)
+
+
+def build_check_prompt(chk_input: dict) -> str:
+    """The second read's prompt file, then the links to re-read, as JSON."""
+    return (CHECK_PROMPT.read_text(encoding="utf-8").rstrip() + "\n\n## Input\n\n```json\n"
+            + json.dumps(chk_input, indent=1, ensure_ascii=False) + "\n```\n")
+
+
+def _ask(argvec: list[str], prompt: str, root: Path) -> tuple:
+    """`(proc, cost, said, seconds)` of one headless call."""
+    started = time.time()
+    proc = subprocess.run(argvec, cwd=str(root), input=prompt, text=True, capture_output=True)
+    cost, said = _priced(proc.stdout)
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+    return proc, cost, said, time.time() - started
+
+
+def _combined(outs: list[str]) -> str:
+    """One CLI-shaped reply out of several, for the ledger: the costs added and the token
+    counts summed per model — a press of the button is one row, however many calls it took
+    (`review-cost.py` bills the ledger's last row as *the* run)."""
+    cost, usage = None, {}
+    for out in outs:
+        c, _ = _priced(out)
+        if isinstance(c, (int, float)):
+            cost = (cost or 0.0) + c
+        try:
+            doc = json.loads(out)
+        except (TypeError, ValueError):
+            continue
+        for name, u in ((doc.get("modelUsage") or {}) if isinstance(doc, dict) else {}).items():
+            if isinstance(u, dict):
+                acc = usage.setdefault(name, {})
+                for k in _MODEL_USAGE_KEYS:
+                    acc[k] = acc.get(k, 0) + int(u.get(k) or 0)
+    return json.dumps({"total_cost_usd": cost, "modelUsage": usage})
+
+
+def downgrade(sc, doc: dict, g: dict) -> tuple[dict, str]:
+    """`(answer, what was lowered)` after the script's free sanity rule."""
+    texts = {s["id"]: s["text"] for s in g["sentences"]}
+    doc, dropped = sc.sanity(doc, texts, g["docs"])
+    return doc, (f"the script dropped {dropped} link(s) sharing nothing specific with their "
+                 "sentence" if dropped else "")
+
+
+def checked(sc, doc: dict, chk, asked: dict) -> tuple[dict, str]:
+    """`(answer, what the second read lowered)` — or the answer untouched, saying why, when
+    the read is unusable or would leave an answer the checks refuse."""
+    bad = sc.check_problems(chk)
+    if bad:
+        return doc, "the second read was unusable (" + "; ".join(bad) + ") — nothing lowered"
+    out, lowered = sc.apply_check(doc, chk, asked)
+    if sc.problems(out, *_facts(asked)):
+        return doc, "the second read's result failed the checks — nothing lowered"
+    return out, (f"a second read lowered {lowered['links']} link(s) and "
+                 f"{lowered['sentences']} sentence(s)"
+                 if lowered["links"] or lowered["sentences"] else "")
+
+
+def _noted(doc: dict, *said: str) -> dict:
+    parts = [x for x in (doc.get("note"), *said) if x]
+    return {**doc, "note": "; ".join(parts)} if parts else doc
 
 
 #: What makes a directory a review directory. Checked before anything is bought, because
@@ -372,6 +476,13 @@ def main(argv=None) -> int:
     ap.add_argument("--prompt-only", action="store_true",
                     help="print the whole prompt for another harness to answer, spend nothing")
     ap.add_argument("--answer", help="validate and install an answer made elsewhere")
+    ap.add_argument("--no-check", dest="check", action="store_false", default=None,
+                    help="skip the second, downgrade-only read (default: "
+                         f"{MAPPING_CHECK_KEY} in human-review.json, else on)")
+    ap.add_argument("--check-prompt", action="store_true",
+                    help="print the second read's prompt for the installed answer, spend nothing")
+    ap.add_argument("--check-answer",
+                    help="apply a second read made elsewhere to the installed answer")
     args = ap.parse_args(argv)
 
     review = Path(args.dir)
@@ -407,6 +518,24 @@ def main(argv=None) -> int:
           f"{len(g['scripted']['open'])} open; {len(asked['sentences'])} sentences to ask "
           f"about, {len(asked['decisions'])} recorded decisions.")
 
+    if args.check_prompt or args.check_answer:
+        # The second read, for a harness that is not Claude Code: its prompt over the
+        # answer installed, and its reply applied to it — downgrade-only, as in a full run.
+        current = sc.load_model_mapping(review)
+        if current is None:
+            print(f"[model] no valid {WRITES[0]} to check — install an answer first "
+                  "(--answer).", file=sys.stderr)
+            return 2
+        if args.check_prompt:
+            print(build_check_prompt(sc.check_input(current, asked)))
+            return 0
+        doc, said = checked(sc, current, parse_answer(
+            Path(args.check_answer).read_text(encoding="utf-8")), asked)
+        keep_previous(review)
+        install(review, _noted(doc, said))
+        print(f"[model] {args.check_answer} applied: {said or 'nothing lowered'}.")
+        return 0
+
     if args.answer:
         doc, bad, dropped = judged(parse_answer(Path(args.answer).read_text(encoding="utf-8")),
                                    asked)
@@ -422,8 +551,11 @@ def main(argv=None) -> int:
                 print(f"  - {b}", file=sys.stderr)
             doc = {**doc, "note": f"{len(dropped)} sentence(s) dropped for failing the "
                                   f"checks: {', '.join(dropped)}"}
+        doc, said = downgrade(sc, doc, g)
         keep_previous(review)
-        print(f"[model] {install(review, doc)} written from {args.answer}.")
+        print(f"[model] {install(review, _noted(doc, said))} written from {args.answer}"
+              + (f" — {said}" if said else "") + ". Its second read: --check-prompt, then "
+              "--check-answer.")
         return 0
 
     prompt = build_prompt(asked)
@@ -448,11 +580,16 @@ def main(argv=None) -> int:
 
     model = mapping_model(args.model)
     argvec = mapping_argv(model)
+    check = mapping_check(args.check, model=model)
     # Printed with the prompt named rather than quoted, always: a log line carrying all of
     # it is a log line nobody reads — including a reader checking what the button buys.
     print("[model] $ " + " ".join(a if a else '""' for a in argvec)
           + f"  < {PROMPT.name} + {len(asked['sentences'])} sentences, "
           f"{len(asked['tests'])} candidate tests ({len(prompt)} chars)")
+    print("[model] then " + (f"$ {' '.join(a if a else chr(34) * 2 for a in argvec)}  < "
+                             f"{CHECK_PROMPT.name} + the links it kept — a second read that "
+                             "can only lower them" if check else
+                             f"no second read ({MAPPING_CHECK_KEY} is off)"))
     if args.dry_run:
         print(f"[model] dry run — nothing was asked of {model} and nothing was paid for.")
         return 0
@@ -463,20 +600,27 @@ def main(argv=None) -> int:
         return 2
 
     kept = keep_previous(review)
-    started = time.time()
-    proc = subprocess.run(argvec, cwd=str(root), input=prompt, text=True,
-                          capture_output=True)
-    cost, said = _priced(proc.stdout)
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
-    record_run(review, cost, time.time() - started, model=model, out=proc.stdout)
+    proc, cost, said, seconds = _ask(argvec, prompt, root)
+    outs, spent = [proc.stdout], [seconds]
+
+    def billed():
+        """The press's reply for the ledger: the one call's own, or all of them added."""
+        return outs[0] if len(outs) == 1 else _combined(outs)
+
+    def ledger():
+        # One row per press, however many calls it took — written once the last call is
+        # back, so the second read's price is on it, and on every way out, refusals too.
+        record_run(review, _priced(billed())[0], sum(spent), model=model, out=billed())
+
     if proc.returncode != 0:
+        ledger()
         print(f"[model] {model} exited {proc.returncode}; {WRITES[0]} is left as it was.",
               file=sys.stderr)
         return 1
     doc = parse_answer(said or proc.stdout)
     good, bad, dropped = judged(doc, asked)
     if good is None:
+        ledger()
         where = keep_refused(review, said or proc.stdout)
         print(f"[model] {model}'s answer is refused, and {WRITES[0]} is left as it was "
               f"(the previous one is also in {kept}/"
@@ -494,14 +638,41 @@ def main(argv=None) -> int:
             print(f"  - {b}", file=sys.stderr)
         good = {**good, "note": f"{len(dropped)} sentence(s) dropped for failing the "
                                 f"checks: {', '.join(dropped)}"}
-    doc = good
-    install(review, doc)
-    price = f"${cost:.4f}" if isinstance(cost, (int, float)) else "an unpriced run"
-    verdicts = [v for e in doc["sentences"] for v in e.get("review") or []]
+    first = {e["id"]: e["coverage"] for e in good["sentences"]}
+    verdicts = [v for e in good["sentences"] for v in e.get("review") or []]
     rejected = sum(1 for v in verdicts if v["verdict"] == "reject")
+    doc, said_script = downgrade(sc, good, g)
+    said_check = ""
+    if check:
+        chk_input = sc.check_input(doc, asked)
+        if chk_input["sentences"]:
+            cproc, _, csaid, csec = _ask(argvec, build_check_prompt(chk_input), root)
+            outs.append(cproc.stdout)
+            spent.append(csec)
+            if cproc.returncode != 0:
+                said_check = f"the second read failed ({model} exited {cproc.returncode}) — " \
+                             "nothing lowered"
+            else:
+                doc, said_check = checked(sc, doc, parse_answer(csaid or cproc.stdout), asked)
+    ledger()
+    doc = _noted(doc, said_script, said_check)
+    install(review, doc)
+    total = _priced(billed())[0]
+    price = f"${total:.4f}" if isinstance(total, (int, float)) else "an unpriced run"
+
+    def counts(by_sid: dict) -> str:
+        tally: dict = {}
+        for c in by_sid.values():
+            tally[c] = tally.get(c, 0) + 1
+        return ", ".join(f"{n} {c}" for c, n in sorted(tally.items()))
+
     print(f"[model] {model} answered {len(doc['sentences'])} of {len(asked['sentences'])} "
           f"sentences, confirmed {len(verdicts) - rejected} and rejected {rejected} scripted "
-          f"links, for {price}; {WRITES[0]} written.")
+          f"links, for {price} ({len(outs)} call{'s' if len(outs) != 1 else ''}); "
+          f"{WRITES[0]} written.")
+    print(f"[model] coverage as answered: {counts(first)}; after the downgrade-only "
+          f"passes: {counts({e['id']: e['coverage'] for e in doc['sentences']})}"
+          + "".join(f"; {x}" for x in (said_script, said_check) if x) + ".")
     return 0
 
 

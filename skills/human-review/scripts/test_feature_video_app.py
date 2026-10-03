@@ -849,6 +849,149 @@ def test_a_skipped_run_drops_the_previous_runs_drawings(tmp_path, monkeypatch):
     assert not (tmp_path / ".human-review/assets/genseq/generated/Old.genseq.puml").exists()
 
 
+# ── eval run 8: the branch's own tests are traced too, untagged ─────────────────────
+# Only tests carrying @generate_sequence / @GenerateSequence were traced, so none of the
+# paging and sorting scenarios the branch added got a picture; two of the three diagrams
+# were visit flows that touched the changed GET /api/owners only in their setup.
+
+SELECT = {"max": 4, "suites": {
+    "e2e": {"files": ["petclinic-test/src/**/*.feature"], "item": "{file}::{name}",
+            "join": "\n", "max": 3},
+    "java": {"files": ["petclinic-backend/src/test/java/**/*.java"],
+             "exclude": ["**/genseq/**"], "item": "{class}#{name}", "join": ","}}}
+
+OWNER_SEARCH = """Feature: Search owners
+  @generate_sequence
+  Scenario: Searching with an empty last name shows the first page
+    When I open the owners page
+
+  Scenario: Paging forward reaches every owner
+    When I page forward
+
+  Scenario: Sorting by city, then reversing it
+    When I sort by "City"
+"""
+
+
+def _manifest_tests():
+    feat = "petclinic-test/src/owner-search.feature"
+    lst = "petclinic-backend/src/test/java/x/rest/OwnerListTest.java"
+    return {"tests": [
+        {"path": feat, "name": "Searching with an empty last name shows the first page",
+         "line": 3, "status": "modified"},
+        {"path": feat, "name": "Paging forward reaches every owner", "line": 6,
+         "status": "added"},
+        {"path": feat, "name": "Sorting by city, then reversing it", "line": 9,
+         "status": "added"},
+        {"path": "petclinic-backend/src/test/java/x/repo/MigrationTest.java",
+         "name": "freshDatabase_hasTheIndexes", "line": 30, "status": "added"},
+        {"path": lst, "name": "defaultRequest_returnsFirstTen", "line": 40, "status": "added"},
+        {"path": lst, "name": "requestedPage_isTheSlice", "line": 50, "status": "added"},
+        {"path": lst, "name": "getAll", "line": 60, "status": "modified"},
+        {"path": "petclinic-frontend/src/app/owner-list.component.spec.ts",
+         "name": "opens on the first page", "line": 52, "status": "added"},
+        {"path": "petclinic-backend/src/test/java/x/genseq/Rest.java", "name": "helper",
+         "line": 5, "status": "added"},
+        {"path": feat, "name": "an old one", "line": 1, "status": "unchanged"},
+    ]}
+
+
+def test_the_branchs_new_tests_are_picked_untagged_and_the_suites_take_turns(
+        tmp_path, monkeypatch):
+    (tmp_path / "petclinic-test/src").mkdir(parents=True)
+    (tmp_path / "petclinic-test/src/owner-search.feature").write_text(OWNER_SEARCH)
+    monkeypatch.chdir(tmp_path)
+
+    sel = steps.select_traced(_manifest_tests(), SELECT)
+
+    picked = [(t["suite"], t["name"]) for t in sel["picked"]]
+    # The tagged scenario is traced by its tag and takes no slot; the suites alternate; the
+    # file the branch wrote the most tests in (OwnerListTest) goes before the lone migration
+    # test, and an added test before an edited one.
+    assert picked == [("e2e", "Paging forward reaches every owner"),
+                      ("java", "defaultRequest_returnsFirstTen"),
+                      ("e2e", "Sorting by city, then reversing it"),
+                      ("java", "requestedPage_isTheSlice")]
+    assert {t["why"] for t in sel["picked"]} == {"written by this branch"}
+    left = {t["name"]: t["left"] for t in sel["left"]}
+    assert left["getAll"] == left["freshDatabase_hasTheIndexes"] == \
+        "over the cap of 4 traced tests"
+    assert left["opens on the first page"] == "no traced suite runs this file"
+    assert left["helper"] == "no traced suite runs this file", "excluded by the suite"
+    assert "an old one" not in left, "an unchanged test is no candidate"
+    values = steps.selection_values(sel, SELECT)
+    assert values == {
+        "e2e": "owner-search.feature::Paging forward reaches every owner\n"
+               "owner-search.feature::Sorting by city, then reversing it",
+        "java": "OwnerListTest#defaultRequest_returnsFirstTen,OwnerListTest#requestedPage_isTheSlice"}
+
+
+def test_a_suites_own_cap_and_an_empty_selection(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    sel = steps.select_traced(_manifest_tests(), {**SELECT, "max": 6, "suites": {
+        **SELECT["suites"], "java": {**SELECT["suites"]["java"], "max": 1}}})
+    assert [t["suite"] for t in sel["picked"]].count("java") == 1
+    none = steps.select_traced({"tests": []}, SELECT)
+    assert none["picked"] == [] and steps.selection_values(none, SELECT) == {"e2e": "", "java": ""}
+
+
+def test_the_selection_reaches_the_commands_as_one_shell_word_and_when_gates_a_run(
+        tmp_path, monkeypatch):
+    ctx, sh = _steps_ctx(tmp_path, monkeypatch, {"sequence": {"select": SELECT, "commands": [
+        "cd petclinic-test && GENSEQ_SELECT={tests.e2e} ./run-tests-with-tracing.sh",
+        {"run": "cd petclinic-backend && mvn -Pgenseq test -Dtest={tests.java}", "when": "java"},
+        {"run": "echo never {tests.nope}", "when": "nope"},
+    ]}})
+    manifest = _manifest_tests()
+    manifest["tests"] = [t for t in manifest["tests"] if "java" not in t["path"]
+                         or "OwnerListTest" in t["path"]]
+    monkeypatch.setattr(steps, "_test_manifest", lambda ctx: manifest)
+
+    steps._sequence(ctx)
+
+    traced = sh.first("run-tests-with-tracing.sh")
+    assert ("GENSEQ_SELECT='owner-search.feature::Paging forward reaches every owner\n"
+            "owner-search.feature::Sorting by city, then reversing it' ") in traced
+    # No feature file on disk here, so its tag is not seen: the edited scenario is a
+    # candidate too, and an added test goes first, so it is the one over the cap.
+    assert sh.first("-Dtest=").endswith(
+        "-Dtest='OwnerListTest#defaultRequest_returnsFirstTen,OwnerListTest#requestedPage_isTheSlice'")
+    assert not sh.has("echo never"), "a `when` suite with nothing picked boots nothing"
+    doc = json.loads(Path(".human-review/assets/sequence.selection.json").read_text())
+    assert [t["name"] for t in doc["picked"]][:2] == [
+        "Paging forward reaches every owner", "defaultRequest_returnsFirstTen"]
+    assert "Searching with an empty last name shows the first page" in \
+        [t["name"] for t in doc["left"]]
+    assert any("also traced 4 test(s) this branch wrote or edited" in n for n in ctx.notes)
+    assert [r["command"] for r in doc["runs"]] == [
+        "cd petclinic-test && GENSEQ_SELECT={tests.e2e} ./run-tests-with-tracing.sh",
+        "cd petclinic-backend && mvn -Pgenseq test -Dtest={tests.java}"]
+    assert all(r["seconds"] >= 0 for r in doc["runs"])
+
+
+def test_without_select_the_placeholders_are_empty_and_no_selection_is_left_behind(
+        tmp_path, monkeypatch):
+    ctx, sh = _steps_ctx(tmp_path, monkeypatch, {"sequence": {"commands": [
+        "cd petclinic-test && GENSEQ_SELECT={tests.e2e} ./run-tests-with-tracing.sh"]}})
+    stale = Path(".human-review/assets/sequence.selection.json")
+    stale.write_text("{}")
+    monkeypatch.setattr(steps, "_test_manifest", lambda ctx: pytest.fail("not asked"))
+
+    steps._sequence(ctx)
+
+    assert sh.first("run-tests-with-tracing.sh") == \
+        "cd petclinic-test && GENSEQ_SELECT='' ./run-tests-with-tracing.sh"
+    assert not stale.exists()
+
+
+def test_each_traced_command_records_how_long_it_took(tmp_path, monkeypatch):
+    """The cost of tracing more tests has to be measurable from the verdict, per command."""
+    ctx, sh = _steps_ctx(tmp_path, monkeypatch, {"sequence": {"commands": ["mvn x"]}})
+    runs: list = []
+    steps._run_traced(ctx, {}, ["mvn x"], runs, {})
+    assert runs[0]["seconds"] >= 0 and runs[0]["command"] == "mvn x"
+
+
 # ── a missing environment is a skip with a reason, never a red step ────────────────
 # hr-try-4 (2 Oct 2026): the tracing script found no collector and aborted before running
 # anything, Maven went red only because a Cucumber suite class matched no `genseq` tag, and

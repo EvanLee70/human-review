@@ -310,6 +310,187 @@ def test_the_tab_leads_with_four_rows_and_says_it_adds_two_kinds_of_price():
     assert cost.components_html({"rows": [hc.component("guide", [], "x")]}) == ""
 
 
+# --------------------------------------------------------------------------- Claude, headless
+
+def _turn(f: Path, ts: str, mid: str, model: str = "claude-opus-5-5", read: int = 1_000_000,
+          out: int = 0, branch: str = "feat", edit: Path | None = None) -> None:
+    content = ([{"type": "tool_use", "name": "Edit", "input": {"file_path": str(edit)}}]
+               if edit else [{"type": "text", "text": "ok"}])
+    rec = {"type": "assistant", "timestamp": ts, "gitBranch": branch,
+           "message": {"id": mid, "model": model, "content": content,
+                       "usage": {"input_tokens": 0, "output_tokens": out,
+                                 "cache_read_input_tokens": read}}}
+    with f.open("a") as fh:
+        fh.write(json.dumps(rec) + "\n")
+
+
+def _prompt(f: Path, ts: str, text: str, branch: str = "feat") -> None:
+    with f.open("a") as fh:
+        fh.write(json.dumps({"type": "user", "timestamp": ts, "gitBranch": branch,
+                             "message": {"role": "user", "content": text}}) + "\n")
+
+
+@pytest.fixture
+def claude_world(tmp_path, monkeypatch):
+    """Eval run 8's shape, headless: `claude -p /openspec-apply-change`, then
+    `claude -p --resume … /record-review` in the same session — four Sonnet reviewers, a
+    fix, `ci --push` waiting on CI in the background — and no review-cost.json, because
+    finish refused it. Beside it, the previous eval run's session: the same files edited
+    on a sibling branch forked from the same base. Opus 5.5 reads cache at $0.20/M, so
+    every 1M-token turn below is $0.20."""
+    home = tmp_path / "home"
+    projects = home / ".claude" / "projects"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.setattr(hc.rc(), "PROJECTS", projects)
+    monkeypatch.setenv("HUMAN_REVIEW_COPILOT_DB", str(tmp_path / "none.db"))
+    monkeypatch.setenv("HUMAN_REVIEW_VSCODE_USER", str(tmp_path / "no-vscode"))
+    repo = (tmp_path / "repo").resolve()
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    (repo / ".gitignore").write_text(".human-review/\n")
+    (repo / "README").write_text("x\n")
+    base = commit(repo, "base", "2026-10-02T09:00:00Z")
+    git(repo, "checkout", "-qb", "other")                     # the previous eval run
+    (repo / "app.py").write_text("def f():\n    return 0\n")
+    commit(repo, "impl, run 7", "2026-10-02T09:40:00Z")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "checkout", "-qb", "feat")
+    sid, old = "s-impl", "s-run7"
+    (repo / "app.py").write_text("def f():\n    return 1\n")
+    impl = commit(repo, f"impl\n\nClaude-Session: {sid}", "2026-10-02T10:30:00Z")
+    (repo / "review-points.md").write_text(
+        f"---\nimplementation: {impl}\nharness: claude-code\nsession: {sid}\n---\n## Fixed\n")
+    review = commit(repo, f"[auto-fix] x\n\nClaude-Session: {sid}", "2026-10-02T10:53:00Z")
+
+    slug = projects / str(repo).replace("/", "-")
+    slug.mkdir(parents=True)
+    f = slug / f"{sid}.jsonl"
+    _prompt(f, "2026-10-02T10:00:00Z", "/openspec-apply-change owners")
+    _turn(f, "2026-10-02T10:00:10Z", "a1")                    # reading, before any edit
+    _turn(f, "2026-10-02T10:05:00Z", "a2", edit=repo / "app.py")
+    _turn(f, "2026-10-02T10:20:00Z", "a3")                    # the tests, after the edit
+    _prompt(f, "2026-10-02T10:40:00Z", "/record-review")
+    _turn(f, "2026-10-02T10:41:00Z", "a4")                    # before prepare: writing
+    _turn(f, "2026-10-02T10:46:00Z", "a5")                    # briefing the reviewers
+    _turn(f, "2026-10-02T10:49:59Z", "a6", read=1_000_000, out=500)
+    _turn(f, "2026-10-02T10:50:05Z", "a6", read=1_000_000, out=1000)   # same turn, streamed
+    _turn(f, "2026-10-02T10:52:00Z", "a7")                    # fixing
+    _turn(f, "2026-10-02T10:55:30Z", "a8")                    # `ci --push`, waits in background
+    _prompt(f, "2026-10-02T11:05:00Z", "<task-notification>\nCI green</task-notification>")
+    _turn(f, "2026-10-02T11:05:10Z", "a9")                    # reading the verdict
+    _prompt(f, "2026-10-02T11:30:00Z", "now something else")
+    _turn(f, "2026-10-02T11:30:10Z", "a10")
+    agents = slug / sid / "subagents"
+    agents.mkdir(parents=True)
+    _turn(agents / "agent-r1.jsonl", "2026-10-02T10:47:00Z", "r1",
+          model="claude-sonnet-5-5", read=0, out=10_000)      # $0.10
+    o = slug / f"{old}.jsonl"
+    _prompt(o, "2026-10-02T09:30:00Z", "/openspec-apply-change owners", branch="other")
+    _turn(o, "2026-10-02T09:35:00Z", "o1", branch="other", edit=repo / "app.py")
+    _turn(o, "2026-10-02T10:10:00Z", "o2", branch="other", edit=repo / "app.py")
+
+    hr = repo / ".human-review" / "review"
+    hr.mkdir(parents=True)
+    state = {"base": base, "implementation": impl, "session": sid, "sessions": [sid],
+             "harness": "claude-code", "reviewStartedAt": "2026-10-02T10:45:00+00:00",
+             "reviewersDoneAt": "2026-10-02T10:50:00+00:00",
+             "lastCiAt": "2026-10-02T10:55:00+00:00", "reviewCommit": review,
+             "finishes": ["2026-10-02T10:53:00+00:00"]}
+    (hr / "state.json").write_text(json.dumps(state))
+    return {"repo": repo, "base": base, "impl": impl, "review": review, "sid": sid,
+            "state": state}
+
+
+def test_a_headless_claude_run_without_a_record_is_measured_from_its_transcripts(claude_world):
+    """Eval run 8: `review-cost.json` missing, no `phases.json`, `.session` pinning the
+    /human-review run — and implementation, review and auto-fixes all read "session-cost.py
+    did not date it" while every stamp and the transcript were on disk."""
+    w = claude_world
+    doc = hc.derive(w["repo"], "main", {"measured": False, "rows": [],
+                                        "reason": "no phases.json"},
+                    {"implementation": w["impl"], "review": w["review"], "session": w["sid"]})
+    rows = {c["key"]: c for c in doc["components"]}
+    assert all(rows[k]["measured"] for k in ("implementation", "review", "autofix"))
+    impl = rows["implementation"]
+    # Fork → prepare, the whole session: the turn before the first edit and the two after
+    # the last are writing the code. The sibling branch's session (same files) is not.
+    assert impl["usd"] == pytest.approx(0.80)
+    assert [e["session"] for e in impl["entries"]] == [w["sid"]]
+    # Prepare → reviewers done, the Sonnet reviewer inside; the turn that streamed across
+    # the stamp is billed once, where it started.
+    assert rows["review"]["usd"] == pytest.approx(0.20 + 0.22 + 0.10)
+    assert rows["review"]["entries"][0]["subagents"] == 1
+    # To the end of the turn that ran `ci` — past the background task's notification, not
+    # past the next real prompt.
+    assert rows["autofix"]["usd"] == pytest.approx(0.60)
+    assert rows["autofix"]["window"][1] == "2026-10-02T11:05:10+00:00"
+    assert all(c["derivedBecause"].startswith("record-review.py finish did not write")
+               for c in doc["components"])
+
+
+def test_what_finish_would_have_committed_passes_its_schema_with_the_reviewer_count(claude_world):
+    """Run 8's finish printed `review-cost.json: not written — unknown key subagents`: the
+    count the review chip needs was added to the entry and never to the schema."""
+    w = claude_world
+    rec = hc.record(w["repo"], w["base"], w["state"], hc.CLAUDE, at="2026-10-02T10:53:00Z")
+    assert schema.cost_problems(rec) == []
+    review = next(c for c in rec["components"] if c["key"] == "review")
+    assert review["entries"][0]["subagents"] == 1
+
+
+def test_a_turn_runs_to_the_next_real_prompt_not_to_a_harness_notification(claude_world):
+    w = claude_world
+    a, b = hc.claude_turn_bounds(w["sid"], "2026-10-02T10:55:00Z")
+    assert hc.iso(a) == "2026-10-02T10:40:00+00:00"
+    assert hc.iso(b) == "2026-10-02T11:05:10+00:00"
+
+
+def test_an_unmeasured_claude_window_names_what_was_missing(claude_world):
+    w = claude_world
+    review, fixes = hc.measure_review_fixes(w["repo"], hc.CLAUDE, ["gone-session"],
+                                            "2026-10-02T10:45:00Z", "2026-10-02T10:50:00Z",
+                                            "2026-10-02T10:53:00Z")
+    assert not review["measured"] and "gone-ses" in review["reason"]
+    assert "not under" in review["reason"], "the transcript is what is missing"
+    review, _ = hc.measure_review_fixes(w["repo"], hc.CLAUDE, [], "2026-10-02T10:45:00Z",
+                                        "2026-10-02T10:50:00Z", "2026-10-02T10:53:00Z")
+    assert "state.json" in review["reason"] and "record-review.py finish" in review["reason"]
+
+
+def test_without_a_prepare_stamp_the_rows_say_which_file_to_produce(claude_world):
+    """No reviewStartedAt and no phases.json: not "session-cost.py did not date it", but
+    which record is missing and what to run."""
+    w = claude_world
+    st = w["repo"] / ".human-review" / "review" / "state.json"
+    st.write_text(json.dumps({k: v for k, v in w["state"].items()
+                              if k != "reviewStartedAt"}))
+    doc = hc.derive(w["repo"], "main", {"measured": False, "rows": [], "reason":
+                                        "no .human-review/phases.json — run session-cost.py "
+                                        "to date the phases"}, {})
+    for c in doc["components"]:
+        assert not c["measured"]
+        assert "review-cost.json" in c["reason"] and "reviewStartedAt" in c["reason"]
+        assert "run session-cost.py" in c["reason"]
+
+
+def test_a_partial_bill_says_which_share_is_missing_and_a_whole_one_has_no_question_mark():
+    sys.path.insert(0, str(HERE))
+    from hrbuild.tabs import cost
+    whole = {"rows": [hc.component(k, [hc.entry(hc.CLAUDE, "s", "x", usd=1.0)])
+                      for k, _ in hc.COMPONENTS],
+             "usd": 4.0, "aic": 0.0, "usdEquivalent": 4.0, "aicUsd": 0.01, "unmeasured": []}
+    assert cost.cost_pill_label({"components": whole}) == "$4"
+    assert "costpartial" not in cost.components_html(whole)
+    part = {**whole, "rows": [hc.component("implementation", [], "no transcript"),
+                              *whole["rows"][1:]], "usdEquivalent": 3.0,
+            "unmeasured": ["implementation"]}
+    title = cost.cost_pill_title({"components": part})
+    assert "3 of 4 parts" in title and "1 of 4 missing" in title and "no transcript" in title
+    assert "Partial bill: 1 of 4 parts not measured — implementation" in \
+        cost.components_html(part)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
 

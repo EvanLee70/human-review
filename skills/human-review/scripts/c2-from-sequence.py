@@ -498,14 +498,22 @@ def classify(graph: Graph, containers: dict) -> None:
 # --------------------------------------------------------------------------- the delta
 
 
-def diff(old: Graph, new: Graph) -> dict:
+def diff(old: Graph, new: Graph, compared: tuple[Graph, Graph] | None = None) -> dict:
     """The two graphs merged, every node and edge stamped added / removed / same.
 
     Set semantics, which is the right model for boxes and lines and the wrong one for a
     sequence (where order is the content — hence the separate `seq_puml_diff.py`). The
     operation *counts* behind a surviving edge are carried through as a signed delta rather
     than as a colour: a call that got chattier is news, but it is not a change of shape, and
-    painting it green would say the branch introduced an integration it did not."""
+    painting it green would say the branch introduced an integration it did not.
+
+    `compared` is `(old, new)` projected from only the diagrams BOTH sides traced, and when
+    it is given the count delta is taken there. Eval run 8: `HTTP [4 ops]` against a base
+    the reference read as 5 — the count is of whatever the traced tests happened to call,
+    so it moved with which tests were traced, not with the code. A test traced on one side
+    alone (a scenario the branch added, renamed, or had the Sequence step trace untagged)
+    still draws its boxes and lines, and still adds to the count printed; it just cannot
+    make that count read as changed."""
     nodes: dict[str, dict] = {}
     for name in sorted(set(old.nodes) | set(new.nodes)):
         side = new.nodes.get(name) or old.nodes[name]
@@ -516,8 +524,13 @@ def diff(old: Graph, new: Graph) -> dict:
     for key in sorted(set(old.edges) | set(new.edges)):
         o, n = old.edges.get(key), new.edges.get(key)
         side = n or o
-        ops_new = len(n["ops"]) if n else 0
-        ops_old = len(o["ops"]) if o else 0
+        if compared is not None:
+            co, cn = compared[0].edges.get(key), compared[1].edges.get(key)
+            ops_new = len(cn["ops"]) if cn else 0
+            ops_old = len(co["ops"]) if co else 0
+        else:
+            ops_new = len(n["ops"]) if n else 0
+            ops_old = len(o["ops"]) if o else 0
         edges.append({
             "from": key[0], "to": key[1],
             "status": "same" if o and n else "added" if n else "removed",
@@ -579,6 +592,27 @@ def stale_note(verdict_path: Path) -> str:
             f"diagram{'s' if n != 1 else ''} show{'' if n != 1 else 's'} ({what}) — see the "
             "Sequence tab. A container or line missing here may be a gap in the trace, not "
             "in the code.")
+
+
+def coverage_note(new_rels: list[str], old_rels: list[str]) -> str:
+    """The line under the card when the two sides were not traced from the same tests.
+
+    The op counts on the lines are counts of what the traced tests called, so the sentence
+    says how many tests that is on each side, and that only the ones traced on both are
+    compared — which is what keeps a branch that traced more (or other) tests than its base
+    from reading as a branch that changed the system's surface."""
+    both = set(new_rels) & set(old_rels)
+    if set(new_rels) == set(old_rels) or not old_rels:
+        return ""
+    n, o, b = len(set(new_rels)), len(set(old_rels)), len(both)
+    head = (f"Op counts are of the calls in {n} traced test{'s' if n != 1 else ''} here and "
+            f"{o} on the base.")
+    if not b:
+        return head + (" No test was traced on both sides, so no count is compared — a "
+                       "number that differs from the base's says which tests were traced, "
+                       "not what the code calls.")
+    return head + (f" A count is compared only over the {b} traced on both sides, so a test "
+                   "traced on one side alone moves no number.")
 
 
 def is_datastore_edge(e: dict) -> bool:
@@ -973,7 +1007,15 @@ def main(argv=None) -> int:
     old = build(root, old_rels,
                 lambda r: sh(["git", "show", f"{mb}:{r}"], root).stdout, containers)
 
-    delta = diff(old, new)
+    # The same tests on both sides, for the counts: a diagram is one test's scenario, filed
+    # under the same path on both sides when it is the same test.
+    both = sorted(set(rels) & set(old_rels))
+    compared = (build(root, both, lambda r: sh(["git", "show", f"{mb}:{r}"], root).stdout,
+                      containers),
+                build(root, both, traced, containers))
+    delta = diff(old, new, compared)
+    delta["compared"] = {"both": both, "onlyNew": sorted(set(rels) - set(both)),
+                         "onlyOld": sorted(set(old_rels) - set(both))}
     if a.dump:
         json.dump({"new": new.as_dict(), "old": old.as_dict(), "diff": delta},
                   sys.stdout, indent=2)
@@ -990,9 +1032,9 @@ def main(argv=None) -> int:
     # own site and explains the four levels in a paragraph, so a reader meeting "C2" here
     # has one click to the thing that defines it rather than a guess at what the boxes
     # mean. The caption is left with the one fact it is for: where the picture's contents
-    # came from — and no count. A reviewer does not act differently on 4 traces than on 5,
-    # and the number moves on every unrelated test added or renamed on either side of the
-    # branch, which is not news this caption is trying to report.
+    # came from — and no count. How many tests each side was traced from goes in the line
+    # under the card instead (`coverage_note`), and only when the two differ: that is when
+    # the ops counts on the lines mean something other than they appear to.
     title = (f"[[{C4_URL}{{What a container diagram is, on Simon Brown's own site}} "
              f"{title}]]")
     caption = "Diagram generated from sequence diagrams of the test traces"
@@ -1048,8 +1090,10 @@ def main(argv=None) -> int:
     src_rel = (new_puml.relative_to(root) if new_puml.is_relative_to(root)
                else new_puml).as_posix()
     manifest = out / "MANIFEST.tsv"
-    note = stale_note(Path(a.sequence_verdict) if a.sequence_verdict
-                      else out.parent / "sequence.verdict.json")
+    note = " ".join(x for x in (
+        stale_note(Path(a.sequence_verdict) if a.sequence_verdict
+                   else out.parent / "sequence.verdict.json"),
+        coverage_note(rels, old_rels) if old.edges else "") if x)
     manifest.write_text(
         "name\tsource\tkind\tstatus\tdiff_puml\tsvg\tfocus\tnew_svg\told_svg\t"
         "old_details\tnew_details\tnote\n"

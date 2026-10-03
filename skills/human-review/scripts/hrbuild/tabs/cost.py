@@ -817,9 +817,12 @@ def components_html(comp: dict | None) -> str:
                              + (f"; plus {_minutes(extra)} of refreshes, no model"
                                 if extra else ""))
         if r.get("source") == "derived":
-            lines.append("derived from the session stores — this branch predates the "
-                         "record" if r.get("key") != "guide" else
-                         "derived — the run recorded no report-cost.json")
+            lines.append("derived — the run recorded no report-cost.json"
+                         if r.get("key") == "guide" else
+                         f"derived from the session stores — {r['derivedBecause']}"
+                         if r.get("derivedBecause") else
+                         "derived from the session stores — this branch predates the "
+                         "record")
         sub = "".join(f'<span class="costsub">{l}</span>' for l in [html.escape(hint)] + lines
                       if l)
         models: dict = {}
@@ -860,11 +863,41 @@ def components_html(comp: dict | None) -> str:
     caption = ("What this change cost, in four parts"
                + (", whichever harness ran each" if has_claude and has_copilot else "")
                + ". " + "; ".join(units) + ("." if units else ""))
-    return ('<table class="costtab costledger costfour">'
+    # A partial bill says so before its first row, in the words the pill's name uses:
+    # which parts are missing and that the total is only the rest.
+    missing = [r for r in rows if not r.get("measured")]
+    warn = (f'<p class="costpartial">Partial bill: {len(missing)} of {len(rows)} parts '
+            f'not measured — {html.escape(", ".join(str(r.get("label") or r.get("key")) for r in missing))}. '
+            f'The {_cost_money(total)} is the other {len(rows) - len(missing)} only; the '
+            'real bill is larger by what nothing on this disk recorded (why, on each row '
+            'below).</p>' if missing else "")
+    return (warn + '<table class="costtab costledger costfour">'
             f'<caption>{caption}</caption>'
             '<thead><tr><th scope="col">component</th><th scope="col">tokens</th>'
             '<th scope="col">cost</th></tr></thead>'
             f'<tbody>{"".join(out)}</tbody><tfoot>{foot}</tfoot></table>')
+
+
+def cost_pill_title(led: dict) -> str:
+    """The pill's hover: what its number covers, and — when part of the bill is not on
+    this disk — which part, and how much of the four the number leaves out. Eval run 8's
+    pill read `$2?` over a total that was one component of four; the `?` said nothing a
+    reader could act on."""
+    comp = led.get("components") or {}
+    rows = [r for r in comp.get("rows") or [] if isinstance(r, dict)]
+    if not components_html(comp):
+        return "what this change cost to write and review"
+    total = f'${comp.get("usdEquivalent") or 0.0:,.2f}'
+    missing = [r for r in rows if not r.get("measured")]
+    if not missing:
+        return (f"{total} — all four parts measured: "
+                + ", ".join(str(r.get("label") or r.get("key")) for r in rows))
+    names = ", ".join(str(r.get("label") or r.get("key")) for r in missing)
+    return (f"{total} covers {len(rows) - len(missing)} of {len(rows)} parts — not counted: "
+            f"{names} ({len(missing)} of {len(rows)} missing, so the real bill is larger by "
+            f"an amount nothing on this disk recorded). Why: "
+            + "; ".join(f"{r.get('label') or r.get('key')}: {r.get('reason') or 'not measured'}"
+                        for r in missing))
 
 
 def cost_pill_label(led: dict) -> str:

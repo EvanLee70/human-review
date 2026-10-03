@@ -19,7 +19,17 @@ a.srcref.diffref { display:inline-block; margin:-.35rem 0 1.15rem 1rem; padding:
 a.srcref.diffref:hover { border-color:var(--link); background:var(--accent-soft); }
 pre.code { margin:0; background:var(--code-bg); border-radius:6px; padding:.6rem .2rem .6rem 0;
             overflow-x:auto; font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; }
-pre.code code { white-space:pre; }
+/* Long lines wrap, with a hanging indent under the code column, rather than run off the
+   right edge. Eval run 8: a Markdown paragraph in a NEW CODE snippet made its <pre> 9205px
+   wide, and the change was off-screen unless the reader found the sideways scrollbar. Each
+   row is an inline-block the width of the block (the newline after it still ends the line,
+   so no blank rows), indented by the gutter (.dm + .ln) so a wrapped tail never sits under
+   the line numbers. `anywhere` breaks a URL or a minified token too; the horizontal
+   scroll stays as the fallback for anything that still cannot fit. */
+pre.code code { white-space:pre-wrap; overflow-wrap:anywhere; }
+pre.code .ln-row { display:inline-block; width:100%; box-sizing:border-box; vertical-align:top;
+                   padding-left:calc(5.5em + 3px); text-indent:calc(-5.5em - 3px); }
+pre.code .ln-row .ln, pre.code .ln-row .dm { text-indent:0; }
 .ln { display:inline-block; width:3.4em; padding-right:.9em; text-align:right; color:var(--muted);
       user-select:none; opacity:.65; }
 #genseq-panel .genseq-handler .srcref { margin-bottom:0; }
@@ -37,6 +47,11 @@ pre.code code { white-space:pre; }
 table.ghdiff-body { border-collapse:collapse; width:100%;
                     font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; }
 table.ghdiff-body td { padding:0 .5rem; vertical-align:top; white-space:pre; }
+/* The code column wraps (eval run 8: a long changed line in owner-list.component.html ran
+   146px past the card, and the change itself, `{{ query` → `{{ shownLastName`, was the part
+   cut off). `anywhere` also lowers the cell's min-content, so the table can shrink to the
+   card instead of pushing the scroll box wider. The gutters keep `pre`. */
+table.ghdiff-body td.code { white-space:pre-wrap; overflow-wrap:anywhere; }
 table.ghdiff-body td.gln { width:1%; min-width:2.6rem; text-align:right; user-select:none;
                           color:var(--muted); opacity:.7; border-right:1px solid var(--line); }
 table.ghdiff-body td.code { width:100%; }

@@ -22,14 +22,20 @@
     "The band is RED when a file outside this list moved and GREY when they all match it:",
     "a regenerated diagram, a spec rewritten by a pre-commit hook or a redrawn .drawio is",
     "not somebody editing the change under review, and a band that is red for those is a",
-    "band nobody reads by the third branch.",
+    "band nobody reads by the third branch. The header's files/lines chips leave the same",
+    "list out, so the two can never disagree about what a human wrote.",
     "Leave it out and the defaults below apply. Writing it REPLACES them: a project that",
     "says what it generates has said it. `*` stops at a slash, `**` crosses them, and a",
     "leading `**/` is optional, so `**/generated/**` covers a top-level generated/ too."
   ],
   "generated": [
     "**/generated/**", "docs/generated/**", "openapi.yaml",
-    "**/*.genseq.*", "**/api-types.ts", "**/*.drawio*"
+    "**/*.genseq.*", "**/api-types.ts", "**/*.drawio*",
+    "**/*.min.js", "**/*.min.css", "**/*.snap",
+    "**/*.png", "**/*.jpg", "**/*.jpeg", "**/*.gif", "**/*.webp", "**/*.ico", "**/*.pdf",
+    "**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml",
+    "**/go.sum", "**/Cargo.lock", "**/poetry.lock",
+    ".human-review/**"
   ],
 
   "steps": {
@@ -75,9 +81,34 @@
         {"url": "http://127.0.0.1:8080/api/pettypes", "what": "backend"},
         {"url": "http://127.0.0.1:4200/", "what": "frontend"}
       ],
+      "//23": "`select` traces the tests this branch ADDED or EDITED too, untagged — a",
+      "//24": "branch's new scenarios are what its review is about, and nobody has tagged",
+      "//25": "them. The step reads the test manifest (test-changes.py), keeps the tests a",
+      "//26": "suite below runs (`files` minus `exclude`) and that carry no tag already,",
+      "//27": "ranks them (the file with the most new tests first, added before edited) and",
+      "//28": "lets the suites take turns up to `max` (default 6, and a suite's own `max`).",
+      "//29": "In a command, `{tests.<suite>}` becomes that suite's picks as ONE shell word,",
+      "//30": "each spelled by `item` — {name} {file} {path} {line} {class} — and joined by",
+      "//31": "`join`; empty when nothing was picked. A command written as",
+      "//32": "{\"run\": …, \"when\": \"<suite>\"} runs only when that suite picked something.",
+      "//33": "What was picked, and what was left (over the cap, or in a file no traced",
+      "//34": "suite runs), goes to assets/sequence.selection.json; the Sequence tab marks",
+      "//35": "each picture `tagged` / `new test` / `edited test` and lists the rest.",
+      "select": {
+        "max": 6,
+        "suites": {
+          "e2e": {"files": ["petclinic-test/src/**/*.feature", "petclinic-test/src/**/*.spec.ts"],
+                  "exclude": ["petclinic-test/src/genseq/**"],
+                  "item": "{file}::{name}", "join": "\n", "max": 4},
+          "java": {"files": ["petclinic-backend/src/test/java/**/*.java"],
+                   "item": "{class}#{name}", "join": ",", "max": 2}
+        }
+      },
       "commands": [
-        "cd petclinic-test && ./run-tests-with-tracing.sh",
+        "cd petclinic-test && GENSEQ_SELECT={tests.e2e} ./run-tests-with-tracing.sh",
         "cd petclinic-backend && mvn -o -Pgenseq test -Dgroups=genseq",
+        {"run": "cd petclinic-backend && GENSEQ_SELECT={tests.java} mvn -o -Pgenseq test -Dtest={tests.java} -Dsurefire.failIfNoSpecifiedTests=false",
+         "when": "java"},
         "cd petclinic-test && GENSEQ_REFRESH=1 npm run trace:diagram"
       ]
     },

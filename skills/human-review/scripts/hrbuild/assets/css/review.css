@@ -170,6 +170,10 @@ a.f-src:hover, a.f-src:focus-visible { color:var(--link); border-color:var(--lin
             border-radius:8px; }
 .fixother-h { margin:0 0 .2rem; color:var(--muted); font-size:.88rem; }
 .fixother-h b { color:var(--fg); }
+/* A fix-commit hunk two Fixed cards share: drawn once, under the first, captioned with both
+   titles; the other card carries only the pointer. */
+.fixshared { margin:.45rem 0 .2rem; color:var(--muted); font-size:.86rem; }
+.fixshared b { color:var(--fg); font-weight:600; }
 @media (max-width:560px) {
   .gradewhy { grid-template-columns:1fr; }
   .gradewhy-score { border-left:0; border-top:1px solid var(--line); margin-top:.45rem;
