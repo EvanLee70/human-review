@@ -213,6 +213,13 @@ def test_ci_exits_red_so_the_review_loop_knows_it_is_not_done(tmp_path, conclusi
     (repo / "a.txt").write_text("a\n")
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True, env=ENV)
     subprocess.run(["git", "commit", "-qm", "a"], cwd=repo, check=True, env=ENV)
+    # On origin, so `ci` has a run to wait for (a commit that never reached origin exits 2).
+    subprocess.run(["git", "init", "-q", "--bare", str(tmp_path / "origin.git")], check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(tmp_path / "origin.git")],
+                   cwd=repo, check=True)
+    subprocess.run(["git", "push", "-q", "origin", "HEAD:refs/heads/main"], cwd=repo,
+                   check=True, env=ENV)
+    subprocess.run(["git", "fetch", "-q", "origin"], cwd=repo, check=True, env=ENV)
     bin_ = tmp_path / "bin"
     bin_.mkdir()
     gh = bin_ / "gh"
@@ -320,3 +327,17 @@ def test_the_prompt_asks_a_fixed_item_to_anchor_every_place_the_fix_changed():
     listed apart, so a fix that names one of its three places loses the other two."""
     flat = " ".join(PROMPT.split())
     assert "(Fixed: one per place the fix changed, tests too)" in flat
+
+
+def test_ci_does_not_wait_for_a_commit_that_never_reached_origin(tmp_path):
+    """Eval run 7: prepare's push gate refused the commit, `RR ci` waited out its full
+    window for a CI run that could not exist, and the headless session ended first."""
+    repo = tmp_path / "r"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True, env=ENV)
+    (repo / "a.txt").write_text("a\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, env=ENV)
+    subprocess.run(["git", "commit", "-qm", "a"], cwd=repo, check=True, env=ENV)
+    r = subprocess.run([sys.executable, str(RR), "ci", "--wait-minutes", "5"],
+                       cwd=repo, capture_output=True, text=True, env=ENV, timeout=60)
+    assert r.returncode == 2 and "not on origin" in r.stdout

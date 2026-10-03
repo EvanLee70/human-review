@@ -581,6 +581,15 @@ def ci(args) -> int:
                 print("    " + l.strip()[:200])
             return 1
         print(f"pushed          {sha[:8]} — waiting for its CI")
+    # Nothing to wait for when the commit never reached origin (prepare's push gate
+    # refused it): eval run 7 sat out the full wait for a CI run that could not exist,
+    # backgrounded it, and the headless session ended before `finish` ever ran.
+    on_remote = subprocess.run(["git", "branch", "-r", "--contains", sha],
+                               capture_output=True, text=True).stdout.strip()
+    if not on_remote:
+        print(f"CI              {sha[:8]} is not on origin — nothing to wait for. Push it "
+              "(`RR ci --push`), or fix what the push gate refused first.")
+        return 2
     deadline = time.time() + args.wait_minutes * 60
     runs: list = []
     while time.time() < deadline:
