@@ -601,6 +601,9 @@ def test_the_sequence_step_can_start_the_stack_its_suites_are_traced_against(
     assert sh.first("start-docker.sh up").endswith(f"up --ref {SHA} --ttl 1800")
     traced = sh.first("run-tests-with-tracing.sh")
     assert traced.startswith("export BASE_URL=http://localhost:63241 ")
+    # Its Playwright report goes to a folder of its own, never the one `traces` harvests
+    # from city's run (eval run 17: overwritten 6 s before the harvest).
+    assert "export PLAYWRIGHT_HTML_OUTPUT_DIR=" in traced and "hr-sequence-report-" in traced
     assert "API_URL=http://localhost:63241" in traced
     assert sh.has(f"start-docker.sh down petclinic-{SHORT}")
 
@@ -640,7 +643,8 @@ def test_without_an_app_block_nothing_is_started_and_the_commands_run_as_they_al
     steps._sequence(ctx)
 
     assert not sh.has("start-docker.sh")
-    assert sh.first("run-tests-with-tracing.sh") == "cd petclinic-test && ./run-tests-with-tracing.sh"
+    assert sh.first("run-tests-with-tracing.sh").endswith(
+        "; cd petclinic-test && ./run-tests-with-tracing.sh")
 
 
 def test_a_suite_that_could_not_run_says_what_has_to_be_listening(tmp_path, monkeypatch):
@@ -979,8 +983,8 @@ def test_without_select_the_placeholders_are_empty_and_no_selection_is_left_behi
 
     steps._sequence(ctx)
 
-    assert sh.first("run-tests-with-tracing.sh") == \
-        "cd petclinic-test && GENSEQ_SELECT='' ./run-tests-with-tracing.sh"
+    assert sh.first("run-tests-with-tracing.sh").endswith(
+        "; cd petclinic-test && GENSEQ_SELECT='' ./run-tests-with-tracing.sh")
     assert not stale.exists()
 
 
@@ -1145,7 +1149,7 @@ def test_the_traced_suites_get_every_address_the_instance_published(
     for cmd in HR_TRY_4:          # the Java suite exports to it as much as the browser does
         ran = sh.first(cmd)
         assert ran.endswith(f"; {cmd}"), "exported for the whole command, not only its `cd`"
-        exported = ran[:-len(cmd) - 2] + " "
+        exported = ran.split("; ", 1)[0] + " "   # the instance's export, before any of the step's own
         assert f"GRAFANA_URL={app_saying} " in exported
         assert f"OTEL_EXPORTER_OTLP_ENDPOINT={app_saying} " in exported
         # The scraped `{url}` is the LAST one `up` printed, never the Grafana line above

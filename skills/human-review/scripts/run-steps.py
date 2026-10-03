@@ -41,6 +41,7 @@ import hashlib
 import json
 import os
 import shutil
+import tempfile
 import re
 import shlex
 import socket
@@ -816,9 +817,19 @@ def _run_traced(ctx: Ctx, cfg: dict, commands, runs: list[dict],
                           "--only sequence")
                 write_seq_verdict("skipped", reason, missing=down)
                 raise LookupError(reason)
+        # A Playwright suite in these commands writes its html report to a folder of its
+        # own. The default is the one `city`'s traced browser run just wrote and `traces`
+        # is about to harvest: eval run 17's one-test sequence run overwrote it 6 s before
+        # the harvest, and every Playwright UI row lost its 📺 replay. The env var beats
+        # the config's outputFolder; a suite that is not Playwright ignores it.
+        # Outside .human-review/, which is published whole.
+        scratch = Path(tempfile.gettempdir()) / ("hr-sequence-report-" + hashlib.sha1(
+            str(Path.cwd()).encode()).hexdigest()[:10])
+        own_report = (f"export PLAYWRIGHT_HTML_OUTPUT_DIR={shlex.quote(str(scratch))} "
+                      "PLAYWRIGHT_HTML_OPEN=never; ")
         for cmd, expanded in traced_commands(commands, values or {}):
             t0 = time.monotonic()
-            r = sh(app.command(expanded), ctx, check=False, capture=True)
+            r = sh(app.command(own_report + expanded), ctx, check=False, capture=True)
             out = (r.stdout or "") + (r.stderr or "")
             print(out, end="", flush=True)
             outcome, detail = suite_outcome(r.returncode, out)
