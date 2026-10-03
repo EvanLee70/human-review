@@ -344,6 +344,20 @@
   svg.setAttribute('class','rm-wires');svg.setAttribute('aria-hidden','true');
   wrap.appendChild(svg);
 
+  // Each column scrolls on its own (tests.py REQMAP_CSS). A click on one side brings the
+  // other side's matches into view: as many of them as fit, the first at the top. Nothing
+  // moves when they are all on screen already, or when the column does not scroll
+  // (stacked, under 900px, the page scrolls both).
+  var textCol=root.querySelector('.rm-text');
+  function bringIn(pane,els){
+    els=els.filter(function(e){return e&&e.getClientRects().length;});
+    if(!pane||!els.length||pane.scrollHeight<=pane.clientHeight)return;
+    var p=pane.getBoundingClientRect(),top=Infinity,inView=true;
+    els.forEach(function(e){var r=e.getBoundingClientRect();
+      top=Math.min(top,r.top);if(r.top<p.top||r.bottom>p.bottom)inView=false;});
+    if(!inView)pane.scrollBy({top:top-p.top-8,behavior:'smooth'});
+  }
+
   function draw(){
     var row=wired&&list.querySelector('.rm-t[data-link=yes]');
     if(!row){svg.textContent='';wrap.dataset.wired='no';return;}
@@ -361,7 +375,8 @@
         // The card scrolls inside itself, so the row can be above or below what it shows.
         // The wire then lands on the card's edge at the point the row left it, which is
         // the direction the reader has to scroll.
-        ay=Math.min(Math.max((r.top+r.bottom)/2,c.top+8),c.bottom-8)-base.top,d='';
+        ay=Math.min(Math.max((r.top+r.bottom)/2,Math.max(c.top,sd.top)+8),
+                    Math.min(c.bottom,sd.bottom)-8)-base.top,d='';
     (COVERS[wired]||[]).forEach(function(sid){
       var f=root.querySelector('.rm-f[data-s="'+sid+'"]');if(!f)return;
       // A sentence that wraps is several rectangles, and the wire leaves from the middle
@@ -372,7 +387,11 @@
         top=Math.min(top,k.top);bot=Math.max(bot,k.bottom);});
       // The wire lands on the ticket's own border, on the line the sentence sits on, and
       // the dot is what makes that a landing rather than a line running out of page.
-      var mid=(top+bot)/2-base.top,dx=Math.max(12,Math.abs(ay-mid)*0.16);
+      // The ticket scrolls inside its column too: a sentence above or below what it shows
+      // gets its wire on the column's edge, the way the card's rows do.
+      var tc=textCol?textCol.getBoundingClientRect():t,
+          mid=Math.min(Math.max((top+bot)/2,tc.top+8),tc.bottom-8)-base.top,
+          dx=Math.max(12,Math.abs(ay-mid)*0.16);
       d+='<path class="rm-wire" d="M'+x0+' '+mid+'C'+(x0+dx)+' '+mid+' '
         +(ax-dx)+' '+ay+' '+ax+' '+ay+'"/>'
         +'<circle class="rm-dot" cx="'+x0+'" cy="'+mid+'" r="3"/>';
@@ -425,6 +444,8 @@
     row.dataset.link='yes';
     row.querySelector('.rm-link').setAttribute('aria-pressed','true');
     outline(row.dataset.id);
+    bringIn(textCol,(COVERS[row.dataset.id]||[]).map(function(sid){
+      return root.querySelector('.rm-f[data-s="'+sid+'"]');}));
   }
 
   // Everything the sentence -> tests direction put on the page, taken back off it.
@@ -502,6 +523,8 @@
       +(s.decision?'<p class="rm-dec">'+recorded(s)+'</p>':''):'')
       +(rej?'<h4>Matched on words, rejected by AI <sup class="rm-ai">🤖</sup></h4><ul class="rm-rej">'+rej+'</ul>':'');
     gap.hidden=!(s.gap||rej);
+    bringIn(sideCol,Array.prototype.filter.call(list.querySelectorAll('.rm-t[data-hit=yes]'),
+      function(r){return r.dataset.catoff!=='yes';}));
   }
   root.addEventListener('click',function(e){
     var f=e.target.closest('.rm-f');if(f&&root.contains(f))open(f.dataset.s);});

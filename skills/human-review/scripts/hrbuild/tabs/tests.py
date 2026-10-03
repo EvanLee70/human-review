@@ -652,8 +652,8 @@ def card_head(side: str) -> str:
 COVERAGE_JSON = "assets/test-coverage.json"
 #: Said of a change set with no pull request — eval run 10 said "in this PR" over a branch
 #: that had none. "PR" only when there is one (`covcard_who`).
-COVCARD_WHO = "Tests that cover files modified in this change"
-COVCARD_WHO_PR = "Tests that cover files modified in this PR"
+COVCARD_WHO = "Covering tests"
+COVCARD_WHO_PR = "Covering tests"
 COVCARD_TIP = ("Every test was run with a per-test coverage probe; a row is a test that "
                "executed at least one line this branch changed")
 #: A changed line counts as "passed through" when more than this share of a suite's
@@ -1219,6 +1219,23 @@ REQMAP_CSS = """
 .reqmap .rm-cats .rm-catf+.rm-catf{margin-left:14px}
 .reqmap .rm-cats .rm-catf:has(input:not(:checked)){opacity:.5}
 .reqmap .rm-t[data-catoff=yes]{display:none}
+/* Two columns, two scrollbars (Victor, 4 Oct 2026): the ticket and the test list each
+   scroll on their own, pinned under the masthead, so a sentence and the tests that cover
+   it can be read side by side however far apart they are. Clicking either brings the
+   other side's matches into view (reqmap.js `bringIn`). Wide screens only; stacked, the
+   page scrolls both. An open test no longer unpins its column: it scrolls inside it. */
+@media (min-width:901px){
+  .reqmap .rm-text,.reqmap .rm-side,.reqmap .rm-side:has(.rm-t[data-open=yes]){
+    position:sticky;top:calc(var(--strip-h, 7rem) + 8px);
+    max-height:calc(100vh - var(--strip-h, 7rem) - 16px);overflow-y:auto;
+    overscroll-behavior:contain}
+}
+/* The changed-tests summary (`+54 new · −9 gone · ✍️7 edited`) sits on the card's title
+   row, at its right end; opened, its body takes the card's full width under the row. */
+.reqmap .rm-code > .rm-tkhead{flex-wrap:wrap}
+.reqmap .rm-code > .rm-tkhead > .tledger{margin:0 0 0 auto;font-weight:400}
+.reqmap .rm-code > .rm-tkhead > .tledger[open]{flex:1 0 100%;margin:0}
+.reqmap .rm-code > .rm-tkhead > .tledger[open] > summary{float:right}
 /* Stacked, the grid is one column: title, ticket, card. The gutter the two columns shared
    becomes the gap between them, which `row-gap:0` above gave up for the title's sake. */
 @media (max-width:900px){
@@ -1321,6 +1338,17 @@ REQMAP_CATS_JS = """
   });
 })();</script>"""
 
+#: The changed-tests summary, moved onto the covering card's title row (Victor, 4 Oct
+#: 2026): rendered as its own block after the matrix, it floated at the bottom of the left
+#: column, far from the list it summarises.
+REQMAP_LEDGER_JS = """
+<script>document.addEventListener('DOMContentLoaded', function () {
+  // On DOMContentLoaded: the ledger block is rendered after the matrix, below this script.
+  var led = document.getElementById('test-ledger');
+  var head = document.querySelector('.reqmap .rm-code > .rm-tkhead');
+  if (led && head) head.appendChild(led);
+});</script>"""
+
 REQMAP_TIP_JS = """
 <script>(function () {
   function measure(ev) {
@@ -1408,7 +1436,7 @@ def reqmap_layout(frag: str, spec: dict, out_dir: Path, root: Path | None = None
     if doc is not None:
         out = coverage_tests(out, doc, _load_test_changes(spec, out_dir),
                              root if root is not None else out_dir.resolve().parent)
-    return out + REQMAP_CSS + REQMAP_TIP_JS + REQMAP_SEMCOV_JS + REQMAP_CATS_JS
+    return out + REQMAP_CSS + REQMAP_TIP_JS + REQMAP_SEMCOV_JS + REQMAP_CATS_JS + REQMAP_LEDGER_JS
 
 
 # --- the third run mode: run the tests, then re-derive ---------------------------------

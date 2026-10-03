@@ -77,7 +77,8 @@ CAT_KEY = ('<p class="rm-cats"><span><span class="rm-cat" data-cat="e2e">UI</spa
            '</span></p>')
 # Copy pass (3 Oct 2026): only `executed` keeps a hover — "fully covered", "partially",
 # "missing" and "N/A" say themselves.
-LEGEND = ('<div class="rm-legend"><span class="rm-lgt">Legend:</span>'
+# No "Legend:" word (Victor, 4 Oct 2026): framed coloured words under the ticket say it.
+LEGEND = ('<div class="rm-legend">'
           '<span class="rm-lg" data-cov="covered">fully covered</span>'
           '<span class="rm-lg" data-cov="partly">partially</span>'
           '<span class="rm-lg" data-cov="exercised" data-tip="Run by a test, never '

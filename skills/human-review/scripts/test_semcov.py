@@ -519,7 +519,8 @@ def test_the_card_says_pr_only_when_there_is_a_pull_request(tmp_path):
     S.write_fragment(spec, review, root)
     frag = (review / S.FRAGMENT).read_text()
     assert T.COVCARD_WHO in frag and "in this PR" not in frag
-    assert T.COVCARD_WHO.endswith("in this change")
+    # Victor, 4 Oct 2026: "Covering tests", which names no PR either way.
+    assert T.COVCARD_WHO == T.COVCARD_WHO_PR == "Covering tests"
     spec["pr"]["number"] = 12
     S.write_fragment(spec, review, root)
     assert T.COVCARD_WHO_PR in (review / S.FRAGMENT).read_text()
