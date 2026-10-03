@@ -1,0 +1,23 @@
+@startuml
+' ⚠️  GENERATED FILE — DO NOT EDIT. Every edit is lost on the next run.
+hide footbox
+skinparam hyperlinkUnderline false
+skinparam hyperlinkColor #1A4FA0
+title [[src://petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java:58{Click to open the test} OwnerListTest: contentCarriesNestedPetsTypesAndVisits()]]
+footer traced because this branch wrote it in petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java — generated from real traces of end-to-end test runs, do not edit ❗
+participant Test
+participant Backend
+participant DB
+Test -> Backend: List one page of owners, optionally filtered by last name\nGET /api/owners
+activate Backend
+Backend -> Backend: [[src://petclinic-backend/src/main/java/victor/training/petclinic/repository/OwnerRepository.java:15{Click to open OwnerRepository.findByLastNameStartingWith} OwnerRepository.findByLastNameStartingWith ↗]]
+activate Backend
+Backend -> DB: [[genseq://1eq2662{Click for the statement behind this call} OwnerRepository.findByLastNameStartingWith ⊕]]
+deactivate Backend
+Backend -> Backend: [[src://petclinic-backend/src/main/java/victor/training/petclinic/repository/OwnerRepository.java:24{Click to open OwnerRepository.findAllByIdFetchingPetsAndVisits} OwnerRepository.findAllByIdFetchingPetsAndVisits ↗]]
+activate Backend
+Backend -> DB: [[genseq://0qb96t9{Click for the statement behind this call} SELECT DISTINCT o FROM Owner o LEFT JOIN FETCH o.pets p LEFT JOIN FETCH … ⊕]]
+deactivate Backend
+Backend --> Test: 200
+deactivate Backend
+@enduml

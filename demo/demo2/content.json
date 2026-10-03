@@ -1,10 +1,10 @@
 {
   "title": "Owners grid: paged and sorted by Name or City",
-  "subtitle": "hr-claude-15 — issue #25",
+  "subtitle": "hr-claude-18 — issue #25",
   "pr": {
     "title": "Paginate and sort the owners grid by Name or City",
     "repo": "https://github.com/victorrentea/petclinic",
-    "branch": "hr-claude-15",
+    "branch": "hr-claude-18",
     "base": "main",
     "ticket": {
       "number": 25,
@@ -28,7 +28,8 @@
   "verdict": {
     "score": 7,
     "bullets": [
-      "The new <code>MethodArgumentTypeMismatchException</code> handler is global: a malformed path id on endpoints this ticket never touched (<code>/api/owners/abc</code>) turns from 500 into 400."
+      "Nothing measured the paged query against the 100k owners projected for Sep 2027; the index tests prove the indexes exist, not that the plan uses them (design.md:60).",
+      "Issue #25 was never told the scope narrowed to Name/City and the response became an envelope (task 4.4 left open)."
     ]
   },
   "findings": {
@@ -220,5 +221,5 @@
     }
   ],
   "sections": [],
-  "footer": "Built by /human-review from hr-claude-15 on 3 Oct 2026."
+  "footer": "Built by /human-review from hr-claude-18 on 3 Oct 2026."
 }

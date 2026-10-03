@@ -5,7 +5,7 @@
   "path": "/api/owners",
   "handler": "OwnerRestController.listOwners(String, int, int, String)",
   "metric": "cognitive",
-  "flowCc": 19,
+  "flowCc": 17,
   "methods": 36,
   "flow": [
    {
@@ -14,15 +14,15 @@
     "cognitive": 0,
     "cyclomatic": 1,
     "calls": [
-     "victor.training.petclinic.rest.OwnerRestController#fetchPetsAndVisits",
-     "victor.training.petclinic.rest.OwnerListPaging#toPageable",
+     "victor.training.petclinic.rest.OwnerRestController#fetchPetsAndVisitsInPageOrder",
+     "victor.training.petclinic.rest.OwnerPageRequest#of",
      "victor.training.petclinic.mapper.OwnerMapper#toOwnerDtoCollection"
     ],
     "hits": []
    },
    {
-    "method": "victor.training.petclinic.rest.OwnerRestController#fetchPetsAndVisits",
-    "display": "OwnerRestController.fetchPetsAndVisits(List)",
+    "method": "victor.training.petclinic.rest.OwnerRestController#fetchPetsAndVisitsInPageOrder",
+    "display": "OwnerRestController.fetchPetsAndVisitsInPageOrder(List)",
     "cognitive": 1,
     "cyclomatic": 2,
     "calls": [
@@ -31,7 +31,7 @@
     "hits": [
      {
       "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
-      "line": 130,
+      "line": 127,
       "code": "if (pageOwners.isEmpty()) {",
       "inc": 1,
       "why": "if"
@@ -39,30 +39,30 @@
     ]
    },
    {
-    "method": "victor.training.petclinic.rest.OwnerListPaging#toPageable",
-    "display": "OwnerListPaging.toPageable(int, int, String)",
+    "method": "victor.training.petclinic.rest.OwnerPageRequest#of",
+    "display": "OwnerPageRequest.of(int, int, String)",
     "cognitive": 3,
     "cyclomatic": 4,
     "calls": [
-     "victor.training.petclinic.rest.OwnerListPaging#toSort"
+     "victor.training.petclinic.rest.OwnerPageRequest#toSort"
     ],
     "hits": [
      {
-      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java",
+      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerPageRequest.java",
       "line": 29,
       "code": "if (!PAGE_SIZES.contains(size)) {",
       "inc": 1,
       "why": "if"
      },
      {
-      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java",
+      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerPageRequest.java",
       "line": 32,
       "code": "if (page < 0 || (long) page * size > Integer.MAX_VALUE) {",
       "inc": 1,
       "why": "if"
      },
      {
-      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java",
+      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerPageRequest.java",
       "line": 32,
       "code": "if (page < 0 || (long) page * size > Integer.MAX_VALUE) {",
       "inc": 1,
@@ -104,37 +104,23 @@
     "hits": []
    },
    {
-    "method": "victor.training.petclinic.rest.OwnerListPaging#toSort",
-    "display": "OwnerListPaging.toSort(String)",
-    "cognitive": 4,
-    "cyclomatic": 5,
+    "method": "victor.training.petclinic.rest.OwnerPageRequest#toSort",
+    "display": "OwnerPageRequest.toSort(String)",
+    "cognitive": 2,
+    "cyclomatic": 4,
     "calls": [],
     "hits": [
      {
-      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java",
+      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerPageRequest.java",
       "line": 40,
-      "code": "String[] chain = keyAndDirection.length == 2 ? SORT_CHAINS.get(keyAndDirection[0]) : null;",
-      "inc": 1,
-      "why": "?:"
-     },
-     {
-      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java",
-      "line": 41,
-      "code": "Direction direction = keyAndDirection.length == 2 ? DIRECTIONS.get(keyAndDirection[1]) : null;",
-      "inc": 1,
-      "why": "?:"
-     },
-     {
-      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java",
-      "line": 42,
-      "code": "if (chain == null || direction == null) {",
+      "code": "if (keyAndDirection.length != 2",
       "inc": 1,
       "why": "if"
      },
      {
-      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java",
-      "line": 42,
-      "code": "if (chain == null || direction == null) {",
+      "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerPageRequest.java",
+      "line": 41,
+      "code": "|| !SORT_CHAINS.containsKey(keyAndDirection[0])",
       "inc": 1,
       "why": "||"
      }

@@ -3,5 +3,332 @@
     $ git rev-parse eb6a0d1f58053105682bba4325dcc66f808b29f5
     $ git rev-parse --short eb6a0d1f58053105682bba4325dcc66f808b29f5
     $ ./start-docker.sh up --ref eb6a0d1f58053105682bba4325dcc66f808b29f5 --ttl 1800
-↻ petclinic-eb6a0d1f is already up
-http://localhost:62022
+🐳 building petclinic-eb6a0d1f from eb6a0d1f  (this takes a few minutes the first time)
+#1 [internal] load local bake definitions
+#1 reading from stdin 2.79kB done
+#1 DONE 0.0s
+
+#2 [notification internal] load build definition from Dockerfile
+#2 transferring dockerfile:
+#2 transferring dockerfile: 1.22kB 0.0s done
+#2 DONE 0.3s
+
+#3 [backend internal] load build definition from Dockerfile
+#3 transferring dockerfile: 1.22kB 0.0s done
+#3 DONE 0.4s
+
+#4 [reset internal] load build definition from Dockerfile
+#4 transferring dockerfile: 1.31kB 0.0s done
+#4 DONE 0.4s
+
+#5 [reset internal] load metadata for docker.io/library/alpine:3.20
+#5 DONE 0.0s
+
+#6 [backend internal] load metadata for docker.io/library/maven:3.9-eclipse-temurin-21
+#6 DONE 0.0s
+
+#7 [backend internal] load metadata for docker.io/library/eclipse-temurin:21-jre
+#7 DONE 0.0s
+
+#8 [backend context commons] load .dockerignore
+#8 ...
+
+#9 [frontend internal] load build definition from Dockerfile
+#9 transferring dockerfile: 1.67kB done
+#9 DONE 0.6s
+
+#8 [backend context commons] load .dockerignore
+#8 transferring commons: 2B 0.0s done
+#8 ...
+
+#10 [frontend internal] load metadata for docker.io/library/nginx:1.27-alpine
+#10 DONE 0.0s
+
+#11 [frontend internal] load metadata for docker.io/library/node:18-bookworm-slim
+#11 DONE 0.0s
+
+#8 [notification context commons] load .dockerignore
+#8 DONE 0.3s
+
+#12 [reset context fixtures] load .dockerignore
+#12 transferring fixtures: 2B 0.0s done
+#12 DONE 0.3s
+
+#13 [backend internal] load .dockerignore
+#13 DONE 0.0s
+
+#14 [notification internal] load .dockerignore
+#14 transferring context: 60B 0.0s done
+#14 DONE 0.1s
+
+#15 [reset internal] load .dockerignore
+#15 ...
+
+#16 [notification build 1/8] FROM docker.io/library/maven:3.9-eclipse-temurin-21
+#16 DONE 0.0s
+
+#17 [notification stage-1 1/4] FROM docker.io/library/eclipse-temurin:21-jre
+#17 DONE 0.0s
+
+#18 [notification stage-1 2/4] RUN apt-get update     && apt-get install -y --no-install-recommends curl     && rm -rf /var/lib/apt/lists/*
+#18 CACHED
+
+#19 [frontend internal] load .dockerignore
+#19 transferring context: 67B 0.0s done
+#19 DONE 0.5s
+
+#13 [backend internal] load .dockerignore
+#13 transferring context: 230B done
+#13 DONE 0.3s
+
+#20 [notification stage-1 3/4] WORKDIR /app
+#20 CACHED
+
+#15 [reset internal] load .dockerignore
+#15 transferring context: 2B done
+#15 DONE 0.3s
+
+#21 [notification internal] load build context
+#21 transferring context: 9.37kB done
+#21 DONE 0.2s
+
+#22 [frontend build 1/7] FROM docker.io/library/node:18-bookworm-slim
+#22 DONE 0.0s
+
+#23 [frontend runtime 1/4] FROM docker.io/library/nginx:1.27-alpine
+#23 DONE 0.0s
+
+#16 [backend build 1/8] FROM docker.io/library/maven:3.9-eclipse-temurin-21
+#16 DONE 0.0s
+
+#17 [backend stage-1 1/4] FROM docker.io/library/eclipse-temurin:21-jre
+#17 DONE 0.0s
+
+#24 [reset stage-0 1/5] FROM docker.io/library/alpine:3.20
+#24 DONE 0.0s
+
+#18 [backend stage-1 2/4] RUN apt-get update     && apt-get install -y --no-install-recommends curl     && rm -rf /var/lib/apt/lists/*
+#18 CACHED
+
+#20 [backend stage-1 3/4] WORKDIR /app
+#20 CACHED
+
+#25 [backend context commons] load from client
+#25 transferring commons: 791B 0.0s done
+#25 DONE 0.2s
+
+#26 [backend context commons] load from client
+#26 transferring commons: 847B 0.0s done
+#26 DONE 0.2s
+
+#27 [reset internal] load build context
+#27 DONE 0.0s
+
+#28 [reset context fixtures] load from client
+#28 DONE 0.0s
+
+#29 [notification build 2/8] COPY --from=commons pom.xml /commons/pom.xml
+#29 CACHED
+
+#30 [notification build 4/8] RUN --mount=type=cache,target=/root/.m2,sharing=locked mvn -q -B -f /commons/pom.xml install
+#30 CACHED
+
+#31 [notification build 8/8] RUN --mount=type=cache,target=/root/.m2,sharing=locked mvn -q -B clean package -DskipTests
+#31 CACHED
+
+#32 [notification build 3/8] COPY --from=commons src /commons/src
+#32 CACHED
+
+#33 [notification build 5/8] WORKDIR /app
+#33 CACHED
+
+#34 [notification build 6/8] COPY pom.xml .
+#34 CACHED
+
+#35 [notification build 7/8] COPY src ./src
+#35 CACHED
+
+#36 [frontend internal] load build context
+#36 DONE 0.0s
+
+#37 [notification stage-1 4/4] COPY --from=build /app/target/*.jar app.jar
+#37 CACHED
+
+#38 [notification] exporting to image
+#38 exporting layers done
+#38 writing image sha256:a25a42a29857af7e3ba90a285ea3a702b044af8670ca3ec044e32416e5384181 done
+#38 naming to docker.io/library/petclinic-env-notification:eb6a0d1f done
+#38 DONE 0.0s
+
+#27 [reset internal] load build context
+#27 transferring context: 5.93kB 0.0s done
+#27 DONE 0.0s
+
+#39 [reset stage-0 5/5] RUN adduser -D reset && mkdir -p /seed && chown reset:reset /seed
+#39 CACHED
+
+#28 [reset context fixtures] load from client
+#28 transferring fixtures: 31B done
+#28 DONE 0.1s
+
+#40 [reset] exporting to image
+#40 exporting layers done
+#40 writing image sha256:bdc097c0ba9f925ecad87c89e00deab5456acf7849a7d8da641f0f2db26b91ef done
+#40 naming to docker.io/library/petclinic-env-reset:eb6a0d1f done
+#40 DONE 0.0s
+
+#41 [notification] resolving provenance for metadata file
+#41 DONE 0.0s
+
+#36 [frontend internal] load build context
+#36 transferring context: 2.88MB 0.3s done
+#36 DONE 0.4s
+
+#42 [backend build 6/8] COPY pom.xml .
+#42 CACHED
+
+#43 [backend internal] load build context
+#43 transferring context: 457.51kB 0.1s done
+#43 DONE 0.3s
+
+#44 [reset] resolving provenance for metadata file
+#44 DONE 0.0s
+
+#45 [frontend build 5/7] RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci
+#45 CACHED
+
+#29 [backend build 2/8] COPY --from=commons pom.xml /commons/pom.xml
+#29 CACHED
+
+#30 [backend build 4/8] RUN --mount=type=cache,target=/root/.m2,sharing=locked mvn -q -B -f /commons/pom.xml install
+#30 CACHED
+
+#46 [backend build 6/8] COPY pom.xml .
+#46 CACHED
+
+#32 [backend build 3/8] COPY --from=commons src /commons/src
+#32 CACHED
+
+#47 [backend build 7/8] COPY src ./src
+#47 CACHED
+
+#48 [backend build 8/8] RUN --mount=type=cache,target=/root/.m2,sharing=locked mvn -q -B clean package -DskipTests
+#48 CACHED
+
+#33 [backend build 5/8] WORKDIR /app
+#33 CACHED
+
+#49 [frontend build 7/7] RUN npx ng build --configuration docker
+#49 CACHED
+
+#50 [frontend build 4/7] COPY package.json package-lock.json ./
+#50 CACHED
+
+#51 [frontend build 5/7] RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci
+#51 CACHED
+
+#52 [frontend build 3/7] WORKDIR /app
+#52 CACHED
+
+#53 [frontend build 6/7] COPY . .
+#53 CACHED
+
+#54 [frontend runtime 3/4] COPY nginx.conf /etc/nginx/conf.d/default.conf
+#54 CACHED
+
+#55 [frontend build 2/7] RUN apt-get update     && apt-get install -y --no-install-recommends python3 make g++     && rm -rf /var/lib/apt/lists/*
+#55 CACHED
+
+#56 [frontend runtime 2/4] COPY --from=build /app/dist/ /usr/share/nginx/html/
+#56 CACHED
+
+#57 [frontend runtime 4/4] COPY proxy-backend.conf /etc/nginx/proxy-backend.conf
+#57 CACHED
+
+#58 [backend stage-1 4/4] COPY --from=build /app/target/*.jar app.jar
+#58 CACHED
+
+#59 [backend] exporting to image
+#59 exporting layers done
+#59 writing image sha256:d3ec5f4c42ed64cfd9cb2a4f9c7e1f9ddf905da520b2bb5fac6f68a3482faf6e 0.0s done
+#59 naming to docker.io/library/petclinic-env-backend:eb6a0d1f 0.0s done
+#59 DONE 0.1s
+
+#60 [frontend] exporting to image
+#60 exporting layers done
+#60 writing image sha256:f752bef1c8dfad81a1f74914c30aae478e725fc1e652826ecd886cda2885747d done
+#60 naming to docker.io/library/petclinic-env-frontend:eb6a0d1f 0.0s done
+#60 DONE 0.1s
+
+#61 [backend] resolving provenance for metadata file
+#61 ...
+
+#62 [frontend] resolving provenance for metadata file
+#62 DONE 0.1s
+
+#61 [backend] resolving provenance for metadata file
+#61 DONE 0.2s
+
+✅ petclinic-eb6a0d1f ready — reaps itself after 30 idle minutes
+   http://localhost:64252
+   (copied to the clipboard)
+ Image petclinic-env-frontend:eb6a0d1f Building 
+ Image petclinic-env-reset:eb6a0d1f Building 
+ Image petclinic-env-backend:eb6a0d1f Building 
+ Image petclinic-env-notification:eb6a0d1f Building 
+ Image petclinic-env-backend:eb6a0d1f Built 
+ Image petclinic-env-reset:eb6a0d1f Built 
+ Image petclinic-env-frontend:eb6a0d1f Built 
+ Image petclinic-env-notification:eb6a0d1f Built 
+ Network petclinic-eb6a0d1f_default Creating 
+ Network petclinic-eb6a0d1f_default Created 
+ Volume petclinic-eb6a0d1f_activity Creating 
+ Volume petclinic-eb6a0d1f_activity Created 
+ Volume petclinic-eb6a0d1f_seed Creating 
+ Volume petclinic-eb6a0d1f_seed Created 
+ Volume petclinic-eb6a0d1f_pgdata Creating 
+ Volume petclinic-eb6a0d1f_pgdata Created 
+ Container petclinic-eb6a0d1f-notification-1 Creating 
+ Container petclinic-eb6a0d1f-reaper-1 Creating 
+ Container petclinic-eb6a0d1f-db-1 Creating 
+ Container petclinic-eb6a0d1f-db-1 Created 
+ Container petclinic-eb6a0d1f-notification-1 Created 
+ Container petclinic-eb6a0d1f-backend-1 Creating 
+ Container petclinic-eb6a0d1f-reaper-1 Created 
+ Container petclinic-eb6a0d1f-backend-1 Created 
+ Container petclinic-eb6a0d1f-reset-1 Creating 
+ Container petclinic-eb6a0d1f-frontend-1 Creating 
+ Container petclinic-eb6a0d1f-reset-1 Created 
+ Container petclinic-eb6a0d1f-frontend-1 Created 
+ Container petclinic-eb6a0d1f-notification-1 Starting 
+ Container petclinic-eb6a0d1f-reaper-1 Starting 
+ Container petclinic-eb6a0d1f-db-1 Starting 
+ Container petclinic-eb6a0d1f-db-1 Started 
+ Container petclinic-eb6a0d1f-notification-1 Started 
+ Container petclinic-eb6a0d1f-db-1 Waiting 
+ Container petclinic-eb6a0d1f-notification-1 Waiting 
+ Container petclinic-eb6a0d1f-reaper-1 Started 
+ Container petclinic-eb6a0d1f-notification-1 Healthy 
+ Container petclinic-eb6a0d1f-db-1 Healthy 
+ Container petclinic-eb6a0d1f-backend-1 Starting 
+ Container petclinic-eb6a0d1f-backend-1 Started 
+ Container petclinic-eb6a0d1f-backend-1 Waiting 
+ Container petclinic-eb6a0d1f-backend-1 Waiting 
+ Container petclinic-eb6a0d1f-backend-1 Healthy 
+ Container petclinic-eb6a0d1f-reset-1 Starting 
+ Container petclinic-eb6a0d1f-backend-1 Healthy 
+ Container petclinic-eb6a0d1f-frontend-1 Starting 
+ Container petclinic-eb6a0d1f-reset-1 Started 
+ Container petclinic-eb6a0d1f-frontend-1 Started 
+ Container petclinic-eb6a0d1f-frontend-1 Waiting 
+ Container petclinic-eb6a0d1f-reset-1 Waiting 
+ Container petclinic-eb6a0d1f-reaper-1 Waiting 
+ Container petclinic-eb6a0d1f-db-1 Waiting 
+ Container petclinic-eb6a0d1f-backend-1 Waiting 
+ Container petclinic-eb6a0d1f-notification-1 Waiting 
+ Container petclinic-eb6a0d1f-db-1 Healthy 
+ Container petclinic-eb6a0d1f-backend-1 Healthy 
+ Container petclinic-eb6a0d1f-notification-1 Healthy 
+ Container petclinic-eb6a0d1f-reaper-1 Healthy 
+ Container petclinic-eb6a0d1f-reset-1 Healthy 
+ Container petclinic-eb6a0d1f-frontend-1 Healthy 

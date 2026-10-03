@@ -1,3 +1,3 @@
   * tests -> requirements
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/test-changes.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --out .human-review/assets/test-changes.json
-[test-changes] 92 test cases in changed test files -> .human-review/assets/test-changes.json (50 added, 7 modified, 3 viaHelper, 9 deleted); the run goes from 42 to 83 (+50 / -9)
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/2846de95968e/skills/human-review/scripts/test-changes.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --out .human-review/assets/test-changes.json
+[test-changes] 96 test cases in changed test files -> .human-review/assets/test-changes.json (54 added, 7 modified, 4 viaHelper, 9 deleted); the run goes from 42 to 87 (+54 / -9)

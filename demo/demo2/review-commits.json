@@ -3,23 +3,23 @@
  "head": "HEAD",
  "points_file": "review-points.md",
  "commits": 2,
- "implementation": "5904ae081a46ac1f15c144d33846cbf6fe5635a6",
- "review": "de10408f602bbc32fd88c14951cbd83500d54036",
- "session": "ca22c4c3-183a-49e8-b215-28211e9e12b7",
+ "implementation": "fdd38d681e0bc9d8e6b97461705e40dd0d8676ca",
+ "review": "7b11e1c401612b9d9fa3835b6055ee45b001357a",
+ "session": "33e81a92-5167-4f48-a157-691425b82012",
  "fallback": false,
  "after": [],
  "after_detail": [],
- "review_when": "2026-10-03T19:33:03+03:00",
+ "review_when": "2026-10-03T23:29:20+03:00",
  "takeover": null,
  "auto_fixes": [
   {
-   "sha": "de10408f602bbc32fd88c14951cbd83500d54036",
-   "when": "2026-10-03T19:33:03+03:00",
-   "subject": "[auto-fix] Keep the sort header in step after a rebuild, stop echoing caller input into logs, tighten list tests"
+   "sha": "7b11e1c401612b9d9fa3835b6055ee45b001357a",
+   "when": "2026-10-03T23:29:20+03:00",
+   "subject": "[auto-fix] Owners grid review: consistent controls after a failed load, no echoed input in 400s, firmer tests"
   }
  ],
  "review_commits": [
-  "de10408f602bbc32fd88c14951cbd83500d54036"
+  "7b11e1c401612b9d9fa3835b6055ee45b001357a"
  ],
  "warnings": []
 }

@@ -2,42 +2,44 @@
     $ git merge-base eb6a0d1f58053105682bba4325dcc66f808b29f5 HEAD
   > city: started at +0 s (log: .human-review/logs/city.log)
   > sequence: started at +0 s (log: .human-review/logs/sequence.log)
+  > basestack: started at +0 s (log: .human-review/logs/basestack.log)
   > tests: started at +0 s (log: .human-review/logs/tests.log)
-  > complexity: started at +0 s (log: .human-review/logs/complexity.log)
   > api: started at +0 s (log: .human-review/logs/api.log)
   > diagrams: started at +0 s (log: .human-review/logs/diagrams.log)
-  < tests: ran in 0.9 s, at +1 s
-  > basestack: started at +1 s (log: .human-review/logs/basestack.log)
-  < basestack: ran in 1.0 s, at +2 s
-  > logging: started at +2 s (log: .human-review/logs/logging.log)
-  < complexity: ran in 2.4 s, at +2 s
-  > reviewpoints: started at +2 s (log: .human-review/logs/reviewpoints.log)
-  < logging: ran in 0.6 s, at +3 s
-  > specchanges: started at +3 s (log: .human-review/logs/specchanges.log)
-/Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/review-commits.py:2: SyntaxWarning: invalid escape sequence '\['
+  < tests: ran in 1.5 s, at +2 s
+  > complexity: started at +2 s (log: .human-review/logs/complexity.log)
+  < api: ran in 3.9 s, at +4 s
+  > reviewpoints: started at +4 s (log: .human-review/logs/reviewpoints.log)
+  < complexity: ran in 2.4 s, at +4 s
+  > owners: started at +4 s (log: .human-review/logs/owners.log)
+  < owners: ran in 0.5 s, at +5 s
+  > logging: started at +5 s (log: .human-review/logs/logging.log)
+/Users/victorrentea/.claude/plugins/cache/human-review/human-review/2846de95968e/skills/human-review/scripts/review-commits.py:2: SyntaxWarning: invalid escape sequence '\['
   """Which commit is the implementation, which one is the review, and what came after.
-  < api: ran in 2.7 s, at +3 s
-  > owners: started at +3 s (log: .human-review/logs/owners.log)
-  < reviewpoints: ran in 0.4 s, at +3 s
-  > aftermath: started at +3 s (log: .human-review/logs/aftermath.log)
-  < aftermath: ran in 0.1 s, at +3 s
-  < specchanges: ran in 0.4 s, at +3 s
-  < owners: ran in 0.3 s, at +3 s
-  < diagrams: ran in 15.2 s, at +15 s
-  < city: ran in 32.2 s, at +32 s
-  > traces: started at +32 s (log: .human-review/logs/traces.log)
-  < traces: ran in 23.8 s, at +56 s
-  > video: started at +56 s (log: .human-review/logs/video.log)
-  < sequence: ran in 163.4 s, at +163 s
-  > c2: started at +163 s (log: .human-review/logs/c2.log)
-  > testcov: started at +163 s (log: .human-review/logs/testcov.log)
-  < c2: ran in 4.7 s, at +168 s
-  < testcov: ran in 121.9 s, at +285 s
-  < video: ran in 527.3 s, at +583 s
-  > dsaudit: started at +583 s (log: .human-review/logs/dsaudit.log)
-  < dsaudit: ran in 40.9 s, at +624 s
+  < reviewpoints: ran in 0.7 s, at +5 s
+  > specchanges: started at +5 s (log: .human-review/logs/specchanges.log)
+  < specchanges: ran in 0.5 s, at +5 s
+  > aftermath: started at +5 s (log: .human-review/logs/aftermath.log)
+  < logging: ran in 0.8 s, at +5 s
+  < aftermath: ran in 0.2 s, at +5 s
+  < diagrams: ran in 15.4 s, at +16 s
+  < basestack: ran in 27.7 s, at +28 s
+  < city: ran in 45.9 s, at +46 s
+  > traces: started at +46 s (log: .human-review/logs/traces.log)
+  < traces: ran in 1.1 s, at +47 s
+  > video: started at +47 s (log: .human-review/logs/video.log)
+    FAILED: the app would not start: ./start-docker.sh up --ref 7b11e1c401612b9d9fa3835b6055ee45b001357a --ttl 1800
+  < video: failed in 0.9 s, at +48 s — the app would not start: ./start-docker.sh up --ref 7b11e1c401612b9d9fa3835b6055ee45b001357a --ttl 1800
+  > dsaudit: started at +48 s (log: .human-review/logs/dsaudit.log)
+    FAILED: the app would not start: ./start-docker.sh up --ref 7b11e1c401612b9d9fa3835b6055ee45b001357a --ttl 1800
+  < dsaudit: failed in 0.9 s, at +49 s — the app would not start: ./start-docker.sh up --ref 7b11e1c401612b9d9fa3835b6055ee45b001357a --ttl 1800
+  < sequence: ran in 214.7 s, at +215 s
+  > c2: started at +215 s (log: .human-review/logs/c2.log)
+  > testcov: started at +215 s (log: .human-review/logs/testcov.log)
+  < c2: ran in 5.3 s, at +220 s
+  < testcov: ran in 48.6 s, at +263 s
 
-[run-steps] 17 step(s) in 624 s wall clock, 6 at a time; each step's output is in .human-review/logs/
+[run-steps] 17 step(s) in 263 s wall clock, 6 at a time; each step's output is in .human-review/logs/
 
   step         status   why / what to say
   basestack    ran      
@@ -46,19 +48,22 @@
   aftermath    ran      
   diagrams     ran      
   sequence     ran      
-               note     also traced 6 test(s) this branch wrote or edited, untagged: owner-search.feature: Paging through every owner, 5 at a time; OwnerListTest.java: defaultRequest_returnsTheFirstTenByNameWithTheTotal; owner-search.feature: Sorting by city, then reversing it; OwnerListTest.java: envelope_hasExactlyContentAndTotalElements; owner-search.feature: Changing the page size returns to the first page; owner-search.feature: Searching from a later page returns to the first page of the matches — 25 more over the cap of 6
-               note     the traced suites ran against http://localhost:64095, started by this run from the commit under review — not whatever was already listening
+               note     also traced 6 test(s) this branch wrote or edited, untagged: owner-search.feature: Paging forward reaches every owner exactly once; OwnerListTest.java: defaultRequest_firstTenByNameAscending_withTotal; owner-search.feature: Sorting by city, descending; OwnerListTest.java: contentCarriesNestedPetsTypesAndVisits; owner-search.feature: Changing the page size returns to the first page; owner-search.feature: A new search returns to the first page and keeps the sort — 26 more over the cap of 6
+               note     the traced suites ran against http://localhost:64425, started by this run from the commit under review — not whatever was already listening
   c2           ran      
   city         ran      
+               note     a suite behind the city's coverage colours did not pass (cd petclinic-test && PW_TRACE=on COVERAGE_DIR=../.human-review/coverage ./test-on-own-stack.sh npm test); say so next to the CRAP reading
                note     codecity lit: 6 changed (put this measured number under the image; never type one)
-  video        ran      
-               note     filmed against http://localhost:62217, started by this run from the commit under review — not whatever was already listening on :4200
+  video        failed   the app would not start: ./start-docker.sh up --ref 7b11e1c401612b9d9fa3835b6055ee45b001357a --ttl 1800
   complexity   ran      
   api          ran      
   specchanges  ran      
   logging      ran      
-  dsaudit      ran      
+  dsaudit      failed   the app would not start: ./start-docker.sh up --ref 7b11e1c401612b9d9fa3835b6055ee45b001357a --ttl 1800
   owners       ran      
   tests        ran      
   traces       ran      
+               note     the traced suite did not pass (cd petclinic-test && PW_TRACE=on COVERAGE_DIR=../.human-review/coverage ./test-on-own-stack.sh npm run test:cucumber); the recordings below are of that run, which is exactly when they are worth most
   testcov      ran      
+
+  tabs with no content, to be named under the strip: behaviour, dsaudit

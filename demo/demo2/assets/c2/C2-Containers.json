@@ -2,14 +2,14 @@
   "new": {
     "sources": [
       "petclinic-test/generated/AddVisitApiTest.java.adds-a-visit-to-an-existing-pet.genseq.puml",
-      "petclinic-test/generated/OwnerListTest.java.defaultrequest-returnsthefirsttenbynamewiththetotal.genseq.puml",
-      "petclinic-test/generated/OwnerListTest.java.envelope-hasexactlycontentandtotalelements.genseq.puml",
+      "petclinic-test/generated/OwnerListTest.java.contentcarriesnestedpetstypesandvisits.genseq.puml",
+      "petclinic-test/generated/OwnerListTest.java.defaultrequest-firsttenbynameascending-withtotal.genseq.puml",
       "petclinic-test/generated/add-visit.spec.ts.add-a-visit-to-an-existing-pet-from-the-owner-detail-page.genseq.puml",
+      "petclinic-test/generated/owner-search.feature.a-new-search-returns-to-the-first-page-and-keeps-the-sort.genseq.puml",
       "petclinic-test/generated/owner-search.feature.changing-the-page-size-returns-to-the-first-page.genseq.puml",
-      "petclinic-test/generated/owner-search.feature.paging-through-every-owner-5-at-a-time.genseq.puml",
-      "petclinic-test/generated/owner-search.feature.searching-from-a-later-page-returns-to-the-first-page-of-the-matches.genseq.puml",
-      "petclinic-test/generated/owner-search.feature.searching-with-an-empty-last-name-shows-the-first-page-of-every-owner.genseq.puml",
-      "petclinic-test/generated/owner-search.feature.sorting-by-city-then-reversing-it.genseq.puml"
+      "petclinic-test/generated/owner-search.feature.paging-forward-reaches-every-owner-exactly-once.genseq.puml",
+      "petclinic-test/generated/owner-search.feature.searching-with-an-empty-last-name-lists-the-first-page-of-every-owner.genseq.puml",
+      "petclinic-test/generated/owner-search.feature.sorting-by-city-descending.genseq.puml"
     ],
     "nodes": {
       "Backend": {
@@ -54,34 +54,24 @@
         "to": "DB",
         "status": "same",
         "protocol": "SQL",
-        "operations": 8,
+        "operations": 6,
         "operationsDelta": 0,
-        "calls": 97,
+        "calls": 72,
         "detail": [
           {
             "name": "OwnerRepository.findByLastNameStartingWith",
             "path": "",
-            "calls": 40
+            "calls": 33
           },
           {
-            "name": "SELECT o FROM Owner o LEFT JOIN FETCH o.pets p LEFT JOIN FETCH p.type \u2026",
+            "name": "SELECT DISTINCT o FROM Owner o LEFT JOIN FETCH o.pets p LEFT JOIN FETCH \u2026",
             "path": "",
-            "calls": 21
-          },
-          {
-            "name": "insert for victor.training.petclinic.domain.Owner",
-            "path": "",
-            "calls": 14
+            "calls": 18
           },
           {
             "name": "insert for victor.training.petclinic.domain.Visit",
             "path": "",
             "calls": 2
-          },
-          {
-            "name": "select count(*) from Owner x",
-            "path": "",
-            "calls": 1
           },
           {
             "name": "select owners",
@@ -125,7 +115,7 @@
         "protocol": "HTTP",
         "operations": 4,
         "operationsDelta": 0,
-        "calls": 23,
+        "calls": 20,
         "detail": [
           {
             "name": "Add a visit for an owner's pet",
@@ -138,9 +128,9 @@
             "calls": 3
           },
           {
-            "name": "List owners, one page at a time",
+            "name": "List one page of owners, optionally filtered by last name",
             "path": "GET /api/owners",
-            "calls": 18
+            "calls": 15
           },
           {
             "name": "getPet",
@@ -367,34 +357,24 @@
         "to": "DB",
         "status": "same",
         "protocol": "SQL",
-        "operations": 8,
+        "operations": 6,
         "operationsDelta": 1,
-        "calls": 97,
+        "calls": 72,
         "detail": [
           {
             "name": "OwnerRepository.findByLastNameStartingWith",
             "path": "",
-            "calls": 40
+            "calls": 33
           },
           {
-            "name": "SELECT o FROM Owner o LEFT JOIN FETCH o.pets p LEFT JOIN FETCH p.type \u2026",
+            "name": "SELECT DISTINCT o FROM Owner o LEFT JOIN FETCH o.pets p LEFT JOIN FETCH \u2026",
             "path": "",
-            "calls": 21
-          },
-          {
-            "name": "insert for victor.training.petclinic.domain.Owner",
-            "path": "",
-            "calls": 14
+            "calls": 18
           },
           {
             "name": "insert for victor.training.petclinic.domain.Visit",
             "path": "",
             "calls": 2
-          },
-          {
-            "name": "select count(*) from Owner x",
-            "path": "",
-            "calls": 1
           },
           {
             "name": "select owners",
@@ -438,7 +418,7 @@
         "protocol": "HTTP",
         "operations": 4,
         "operationsDelta": 0,
-        "calls": 23,
+        "calls": 20,
         "detail": [
           {
             "name": "Add a visit for an owner's pet",
@@ -451,9 +431,9 @@
             "calls": 3
           },
           {
-            "name": "List owners, one page at a time",
+            "name": "List one page of owners, optionally filtered by last name",
             "path": "GET /api/owners",
-            "calls": 18
+            "calls": 15
           },
           {
             "name": "getPet",
@@ -487,13 +467,13 @@
         "petclinic-test/generated/add-visit.spec.ts.add-a-visit-to-an-existing-pet-from-the-owner-detail-page.genseq.puml"
       ],
       "onlyNew": [
-        "petclinic-test/generated/OwnerListTest.java.defaultrequest-returnsthefirsttenbynamewiththetotal.genseq.puml",
-        "petclinic-test/generated/OwnerListTest.java.envelope-hasexactlycontentandtotalelements.genseq.puml",
+        "petclinic-test/generated/OwnerListTest.java.contentcarriesnestedpetstypesandvisits.genseq.puml",
+        "petclinic-test/generated/OwnerListTest.java.defaultrequest-firsttenbynameascending-withtotal.genseq.puml",
+        "petclinic-test/generated/owner-search.feature.a-new-search-returns-to-the-first-page-and-keeps-the-sort.genseq.puml",
         "petclinic-test/generated/owner-search.feature.changing-the-page-size-returns-to-the-first-page.genseq.puml",
-        "petclinic-test/generated/owner-search.feature.paging-through-every-owner-5-at-a-time.genseq.puml",
-        "petclinic-test/generated/owner-search.feature.searching-from-a-later-page-returns-to-the-first-page-of-the-matches.genseq.puml",
-        "petclinic-test/generated/owner-search.feature.searching-with-an-empty-last-name-shows-the-first-page-of-every-owner.genseq.puml",
-        "petclinic-test/generated/owner-search.feature.sorting-by-city-then-reversing-it.genseq.puml"
+        "petclinic-test/generated/owner-search.feature.paging-forward-reaches-every-owner-exactly-once.genseq.puml",
+        "petclinic-test/generated/owner-search.feature.searching-with-an-empty-last-name-lists-the-first-page-of-every-owner.genseq.puml",
+        "petclinic-test/generated/owner-search.feature.sorting-by-city-descending.genseq.puml"
       ],
       "onlyOld": [
         "petclinic-test/generated/owner-search.feature.searching-with-an-empty-last-name-lists-every-owner.genseq.puml"

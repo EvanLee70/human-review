@@ -1,0 +1,23 @@
+[run-steps] base eb6a0d1f5805: the base the review audited (review-points.md), inside origin/main
+    $ git merge-base eb6a0d1f58053105682bba4325dcc66f808b29f5 HEAD
+  > city: started at +0 s (log: .human-review/logs/city.log)
+  < city: ran in 44.3 s, at +44 s
+  > traces: started at +44 s (log: .human-review/logs/traces.log)
+  < traces: ran in 36.5 s, at +81 s
+  > video: started at +81 s (log: .human-review/logs/video.log)
+  > testcov: started at +81 s (log: .human-review/logs/testcov.log)
+  < testcov: ran in 48.5 s, at +129 s
+  < video: ran in 233.0 s, at +314 s
+  > dsaudit: started at +314 s (log: .human-review/logs/dsaudit.log)
+  < dsaudit: ran in 40.2 s, at +354 s
+
+[run-steps] 5 step(s) in 354 s wall clock, 6 at a time; each step's output is in .human-review/logs/
+
+  step         status   why / what to say
+  city         ran      
+               note     codecity lit: 6 changed (put this measured number under the image; never type one)
+  video        ran      
+               note     filmed against http://localhost:64312, started by this run from the commit under review — not whatever was already listening on :4200
+  dsaudit      ran      
+  traces       ran      
+  testcov      ran      

@@ -1,5 +1,5 @@
 diff --git a/petclinic-backend/src/test/java/victor/training/petclinic/functional/OwnerSteps.java b/petclinic-backend/src/test/java/victor/training/petclinic/functional/OwnerSteps.java
-index cbd92050..8b2bfdc8 100644
+index cbd92050..74030af5 100644
 --- a/petclinic-backend/src/test/java/victor/training/petclinic/functional/OwnerSteps.java
 +++ b/petclinic-backend/src/test/java/victor/training/petclinic/functional/OwnerSteps.java
 @@ -51,7 +51,7 @@ public class OwnerSteps {
@@ -18,11 +18,11 @@ index cbd92050..8b2bfdc8 100644
 -    @Then("the response JSON array has size {int}")
 -    public void theResponseJsonArrayHasSize(int expected) {
 -        assertThat(http.getLastResponse().jsonPath().getList("$").size()).isEqualTo(expected);
-+    @Then("the response page has {int} owner(s) out of {int} matching")
-+    public void theResponsePageHas(int pageSize, long totalElements) {
-+        var jsonPath = http.getLastResponse().jsonPath();
-+        assertThat(jsonPath.getList("content")).hasSize(pageSize);
-+        assertThat(jsonPath.getLong("totalElements")).isEqualTo(totalElements);
++    @Then("the page lists {int} owner(s) out of {int}")
++    public void thePageListsOwnersOutOf(int pageSize, int total) {
++        var page = http.getLastResponse().jsonPath();
++        assertThat(page.getList("content")).hasSize(pageSize);
++        assertThat(page.getLong("totalElements")).isEqualTo(total);
      }
  
 -    @Then("every item in the response has {string} equal to {string}")
@@ -49,106 +49,83 @@ index 668b0fe2..1d561b35 100644
  }
 diff --git a/petclinic-backend/src/test/java/victor/training/petclinic/repository/OwnerListIndexesMigrationTest.java b/petclinic-backend/src/test/java/victor/training/petclinic/repository/OwnerListIndexesMigrationTest.java
 new file mode 100644
-index 00000000..3126ec83
+index 00000000..e5a5e6fd
 --- /dev/null
 +++ b/petclinic-backend/src/test/java/victor/training/petclinic/repository/OwnerListIndexesMigrationTest.java
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,67 @@
 +package victor.training.petclinic.repository;
 +
 +import static org.assertj.core.api.Assertions.assertThat;
-+import static org.assertj.core.api.Assertions.assertThatCode;
 +
-+import java.nio.file.Files;
-+import java.nio.file.Path;
 +import java.util.List;
 +
 +import javax.sql.DataSource;
 +
 +import org.flywaydb.core.Flyway;
-+import org.flywaydb.core.api.MigrationVersion;
++import org.junit.jupiter.api.AfterEach;
 +import org.junit.jupiter.api.Test;
-+import org.junit.jupiter.api.io.TempDir;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.test.context.SpringBootTest;
 +import org.springframework.jdbc.core.JdbcTemplate;
 +
-+import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
++import io.zonky.test.db.AutoConfigureEmbeddedDatabase;
 +
++@SpringBootTest
++@AutoConfigureEmbeddedDatabase(provider = AutoConfigureEmbeddedDatabase.DatabaseProvider.ZONKY)
 +class OwnerListIndexesMigrationTest {
-+    private static final List<String> OWNER_LIST_INDEXES = List.of(
-+            "CREATE INDEX owners_city_order_idx ON public.owners USING btree (city, last_name, first_name, id)",
-+            "CREATE INDEX owners_last_name_pattern_idx ON public.owners USING btree (last_name text_pattern_ops)",
-+            "CREATE INDEX owners_name_order_idx ON public.owners USING btree (last_name, first_name, id)");
++    private static final String UPGRADED_SCHEMA = "upgraded_from_v3";
 +
-+    @Test
-+    void freshDatabase_getsTheOwnerListIndexes() throws Exception {
-+        try (EmbeddedPostgres pg = EmbeddedPostgres.builder().start()) {
-+            DataSource db = pg.getPostgresDatabase();
++    @Autowired
++    DataSource dataSource;
++    @Autowired
++    JdbcTemplate jdbc;
 +
-+            flyway(db, MigrationVersion.LATEST).migrate();
-+
-+            assertThat(ownerIndexes(db)).containsAll(OWNER_LIST_INDEXES);
-+        }
++    // Shared with every other test of this Spring context, e.g. the pg_dump of DbSchemaExtractorTest
++    @AfterEach
++    void dropUpgradedSchema() {
++        jdbc.execute("DROP SCHEMA IF EXISTS " + UPGRADED_SCHEMA + " CASCADE");
 +    }
 +
 +    @Test
-+    void databaseAtV3_migratesKeepingItsOwners() throws Exception {
-+        try (EmbeddedPostgres pg = EmbeddedPostgres.builder().start()) {
-+            DataSource db = pg.getPostgresDatabase();
-+            flyway(db, MigrationVersion.fromVersion("3")).migrate();
-+            new JdbcTemplate(db).update("INSERT INTO owners (first_name, last_name) VALUES ('Kept', 'Owner')");
-+
-+            flyway(db, MigrationVersion.LATEST).migrate();
-+
-+            assertThat(ownerIndexes(db)).containsAll(OWNER_LIST_INDEXES);
-+            assertThat(new JdbcTemplate(db).queryForObject("SELECT count(*) FROM owners", Long.class)).isOne();
-+        }
++    void freshDatabase_hasTheOwnerListIndexes() {
++        assertOwnerListIndexesIn("public");
 +    }
 +
-+    // Rolling the application back must not need a schema rollback: the previous release only
-+    // knows V1-V3, and Flyway ignores an applied migration newer than its own by default
 +    @Test
-+    void previousRelease_stillValidatesADatabaseAtV4(@TempDir Path previousRelease) throws Exception {
-+        for (String v : List.of("V1__core_owners_pets.sql", "V2__add_vets_and_security.sql",
-+                "V3__visit_and_specialty_details.sql")) {
-+            Files.copy(Path.of("src/main/resources/db/migration", v), previousRelease.resolve(v));
-+        }
-+        try (EmbeddedPostgres pg = EmbeddedPostgres.builder().start()) {
-+            DataSource db = pg.getPostgresDatabase();
-+            flyway(db, MigrationVersion.LATEST).migrate();
++    void databaseAlreadyAtV3_upgradesToTheOwnerListIndexes() {
++        Flyway atV3 = Flyway.configure().dataSource(dataSource).schemas(UPGRADED_SCHEMA)
++                .locations("classpath:db/migration").target("3").load();
++        atV3.migrate();
++        assertThat(ownerIndexDefinitions(UPGRADED_SCHEMA)).noneMatch(index -> index.contains("last_name"));
 +
-+            Flyway previous = Flyway.configure().dataSource(db)
-+                    .locations("filesystem:" + previousRelease).load();
++        Flyway.configure().dataSource(dataSource).schemas(UPGRADED_SCHEMA)
++                .locations("classpath:db/migration").load().migrate();
 +
-+            assertThatCode(previous::validate).doesNotThrowAnyException();
-+            assertThat(previous.migrate().migrationsExecuted).isZero();
-+        }
++        assertOwnerListIndexesIn(UPGRADED_SCHEMA);
 +    }
 +
-+    private static Flyway flyway(DataSource db, MigrationVersion target) {
-+        return Flyway.configure().dataSource(db).locations("classpath:db/migration").target(target).load();
++    private void assertOwnerListIndexesIn(String schema) {
++        assertThat(ownerIndexDefinitions(schema))
++                .anyMatch(index -> index.contains("owners_last_name_pattern_idx")
++                        && index.contains("(last_name text_pattern_ops)"))
++                .anyMatch(index -> index.contains("owners_name_order_idx")
++                        && index.contains("(last_name, first_name, id)"))
++                .anyMatch(index -> index.contains("owners_city_order_idx")
++                        && index.contains("(city, last_name, first_name, id)"));
 +    }
 +
-+    private static List<String> ownerIndexes(DataSource db) {
-+        return new JdbcTemplate(db).queryForList(
-+                "SELECT indexdef FROM pg_indexes WHERE tablename = 'owners' ORDER BY indexname", String.class);
++    private List<String> ownerIndexDefinitions(String schema) {
++        return jdbc.queryForList(
++                "SELECT indexdef FROM pg_indexes WHERE schemaname = ? AND tablename = 'owners'",
++                String.class, schema);
 +    }
 +}
 diff --git a/petclinic-backend/src/test/java/victor/training/petclinic/rest/AddVisitApiTest.java b/petclinic-backend/src/test/java/victor/training/petclinic/rest/AddVisitApiTest.java
-index d26fab24..93012703 100644
+index d26fab24..d50e7565 100644
 --- a/petclinic-backend/src/test/java/victor/training/petclinic/rest/AddVisitApiTest.java
 +++ b/petclinic-backend/src/test/java/victor/training/petclinic/rest/AddVisitApiTest.java
-@@ -11,6 +11,7 @@ import static victor.training.petclinic.genseq.Steps.then;
- import static victor.training.petclinic.genseq.Steps.when;
- 
- import java.util.Map;
-+import java.util.Optional;
- import java.util.stream.StreamSupport;
- 
- import io.zonky.test.db.AutoConfigureEmbeddedDatabase;
-@@ -100,14 +101,22 @@ class AddVisitApiTest {
-      * The Java twin of the spec's `an_owner_with_at_least_one_pet_exists`, over MockMvc instead of axios.
-      * {@link victor.training.petclinic.genseq.Rest#call} rather than a bare `mockMvc.perform`: it
+@@ -102,12 +102,19 @@ class AddVisitApiTest {
       * wraps the call in the span that carries the JSON payloads onto the diagram.
-+     * Pages through the list rather than trusting the first page to hold such an owner.
       */
      private JsonNode anOwnerWithAPet() throws Exception {
 -        JsonNode owners = json(call(mockMvc, get("/api/owners")).andExpect(status().isOk()));
@@ -158,60 +135,66 @@ index d26fab24..93012703 100644
 -                .orElseThrow(() -> new AssertionError(
 -                        "No owner with a pet in the seeded data — did db/seed/R__seed.sql change?"));
 +        for (int page = 0;; page++) {
-+            JsonNode owners = json(call(mockMvc, get("/api/owners").param("page", String.valueOf(page)))
-+                    .andExpect(status().isOk())).path("content");
-+            if (owners.isEmpty()) {
++            JsonNode ownerPage = json(call(mockMvc, get("/api/owners").param("page", "" + page))
++                    .andExpect(status().isOk()));
++            if (ownerPage.path("content").isEmpty()) {
 +                throw new AssertionError("No owner with a pet in the seeded data — did db/seed/R__seed.sql change?");
 +            }
-+            Optional<JsonNode> withPet = StreamSupport.stream(owners.spliterator(), false)
++            var withAPet = StreamSupport.stream(ownerPage.path("content").spliterator(), false)
 +                    .filter(o -> !o.path("pets").isEmpty())
 +                    .findFirst();
-+            if (withPet.isPresent()) {
-+                return withPet.get();
++            if (withAPet.isPresent()) {
++                return withAPet.get();
 +            }
 +        }
      }
  
      /** The one visit this scenario booked — never `visits[0]`, whose position the seed data owns. */
 diff --git a/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerCreateTest.java b/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerCreateTest.java
-index 662cc5e2..a9f96aa2 100644
+index 662cc5e2..7e2eb662 100644
 --- a/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerCreateTest.java
 +++ b/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerCreateTest.java
-@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
+@@ -11,6 +11,7 @@ import java.time.LocalDate;
+ import io.zonky.test.db.AutoConfigureEmbeddedDatabase;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Test;
++import org.springframework.data.domain.Pageable;
  import org.springframework.beans.factory.annotation.Autowired;
  import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
  import org.springframework.boot.test.context.SpringBootTest;
-+import org.springframework.data.domain.Pageable;
- import org.springframework.http.MediaType;
- import org.springframework.security.test.context.support.WithMockUser;
- import org.springframework.test.web.servlet.MockMvc;
 @@ -100,7 +101,7 @@ class OwnerCreateTest {
                  .andExpect(status().isCreated())
                  .andExpect(header().exists("Location"));
  
 -        assertThat(ownerRepository.findByLastNameStartingWith("Tesla")).isNotEmpty();
-+        assertThat(ownerRepository.findByLastNameStartingWith("Tesla", Pageable.ofSize(1))).isNotEmpty();
++        assertThat(ownerRepository.findByLastNameStartingWith("Tesla", Pageable.unpaged())).isNotEmpty();
      }
  
      @Test
-diff --git a/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListQueryBudgetTest.java b/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListQueryBudgetTest.java
+diff --git a/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListPagingTest.java b/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListPagingTest.java
 new file mode 100644
-index 00000000..da53f40f
+index 00000000..d64fc9c6
 --- /dev/null
-+++ b/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListQueryBudgetTest.java
-@@ -0,0 +1,124 @@
++++ b/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListPagingTest.java
+@@ -0,0 +1,179 @@
 +package victor.training.petclinic.rest;
 +
++import static java.util.Comparator.comparing;
 +import static org.assertj.core.api.Assertions.assertThat;
 +import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 +import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 +
 +import java.time.LocalDate;
++import java.util.ArrayList;
++import java.util.Comparator;
++import java.util.HashMap;
 +import java.util.List;
++import java.util.Map;
 +
 +import org.junit.jupiter.api.BeforeEach;
 +import org.junit.jupiter.params.ParameterizedTest;
 +import org.junit.jupiter.params.provider.CsvSource;
++import org.junit.jupiter.params.provider.ValueSource;
 +import org.springframework.beans.factory.annotation.Autowired;
 +import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 +import org.springframework.boot.test.context.SpringBootTest;
@@ -224,132 +207,176 @@ index 00000000..da53f40f
 +import io.zonky.test.db.AutoConfigureEmbeddedDatabase;
 +import jakarta.persistence.EntityManager;
 +import jakarta.transaction.Transactional;
++import org.junit.jupiter.api.Test;
 +import victor.training.petclinic.domain.Owner;
 +import victor.training.petclinic.domain.Pet;
 +import victor.training.petclinic.domain.PetType;
 +import victor.training.petclinic.domain.Visit;
++import victor.training.petclinic.tools.SqlRecorder;
 +
-+/** Guards the owner list against N+1 and in-memory pagination: page first, then fetch the graph of that page only. */
++/**
++ * Stable ordering across page boundaries, and the SQL a cold page costs. The fixture has duplicate
++ * full names, shared cities, owners without pets and owners with several pets of different types,
++ * each with visits — the shapes that break offset paging or multiply queries.
++ */
 +@SpringBootTest(properties = {
-+        "spring.jpa.properties.hibernate.session_factory.statement_inspector=victor.training.petclinic.rest.SqlStatementRecorder",
++        SqlRecorder.ACTIVATE,
 +        "spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch=true",
 +        "spring.jpa.properties.hibernate.cache.use_second_level_cache=false",
-+        "spring.jpa.properties.hibernate.cache.use_query_cache=false",
-+})
++        "spring.jpa.properties.hibernate.cache.use_query_cache=false"})
 +@AutoConfigureEmbeddedDatabase(provider = AutoConfigureEmbeddedDatabase.DatabaseProvider.ZONKY)
 +@AutoConfigureMockMvc
 +@WithMockUser(roles = "OWNER_ADMIN")
 +@Transactional
-+class OwnerListQueryBudgetTest {
-+    private static final int MATCHING_OWNERS = 45;
-+    private static final int PETS_PER_OWNER = 2;
-+    private static final int VISITS_PER_PET = 2;
++class OwnerListPagingTest {
++    private static final String PREFIX = "Qb";
++    private static final int OWNERS = 24;
++    private static final Comparator<Owner> BY_NAME = comparing(Owner::getLastName).thenComparing(Owner::getFirstName)
++            .thenComparing(Owner::getId);
++    private static final Comparator<Owner> BY_CITY = comparing(Owner::getCity).thenComparing(BY_NAME);
 +
 +    @Autowired
 +    MockMvc mockMvc;
 +    @Autowired
 +    EntityManager entityManager;
 +
-+    final ObjectMapper mapper = new ObjectMapper();
++    private final ObjectMapper mapper = new ObjectMapper();
++    private final List<Owner> owners = new ArrayList<>();
++    private final Map<Integer, Integer> petCountByOwnerId = new HashMap<>();
 +
 +    @BeforeEach
-+    void persistOwnersWithPetsAndVisits() {
-+        PetType cat = persistedType("zq-cat");
-+        PetType dog = persistedType("zq-dog");
-+        for (int i = 0; i < MATCHING_OWNERS; i++) {
++    void persistFixture() {
++        PetType cat = entityManager.getReference(PetType.class, 1);
++        PetType dog = entityManager.getReference(PetType.class, 2);
++        for (int i = 0; i < OWNERS; i++) {
 +            Owner owner = TestData.anOwner();
-+            owner.setLastName("Zqb%02d".formatted(i));
++            owner.setLastName(PREFIX + "abcdef".charAt(i % 6)); // i and i+6 share a full name
++            owner.setFirstName(i < OWNERS / 2 ? "Ann" : "Bob");
++            owner.setCity("Cty" + i % 3);
 +            entityManager.persist(owner);
-+            for (int p = 0; p < PETS_PER_OWNER; p++) {
-+                persistPetWithVisits(owner, p % 2 == 0 ? cat : dog, "Pet" + p);
++            int petCount = i % 3; // a third of the owners have no pet
++            for (int p = 0; p < petCount; p++) {
++                persistPetWithTwoVisits(owner, "Pet" + p, p % 2 == 0 ? cat : dog);
 +            }
++            owners.add(owner);
++            petCountByOwnerId.put(owner.getId(), petCount);
 +        }
 +        entityManager.flush();
 +        entityManager.clear();
-+        SqlStatementRecorder.reset();
++        SqlRecorder.clear();
 +    }
 +
-+    @ParameterizedTest(name = "page {0} of size {1}")
-+    @CsvSource({"0, 5", "0, 20", "1, 20", "1, 5"})
-+    void aFullPage_takesAtMostThreeSelects_pagedByTheDatabaseBeforeLoadingPets(int page, int size) throws Exception {
-+        JsonNode response = mapper.readTree(mockMvc.perform(get("/api/owners")
-+                .param("lastName", "Zqb").param("page", String.valueOf(page)).param("size", String.valueOf(size)))
-+                .andExpect(status().isOk())
-+                .andReturn().getResponse().getContentAsString());
-+
-+        List<String> selects = SqlStatementRecorder.selects();
-+        assertThat(selects).as("SQL SELECTs through serialization").hasSizeLessThanOrEqualTo(3);
-+        assertThat(firstIndexMatching(selects, "fetch first|limit"))
-+                .as("the owners page is limited in SQL before any pet is loaded")
-+                .isNotNegative()
-+                .isLessThan(firstIndexMatching(selects, "\\bpets\\b"));
-+        assertThat(response.path("totalElements").asInt()).isEqualTo(MATCHING_OWNERS);
-+        assertThat(response.path("content")).hasSize(size);
-+        for (JsonNode owner : response.path("content")) {
-+            assertThat(owner.path("pets")).hasSize(PETS_PER_OWNER);
-+            for (JsonNode pet : owner.path("pets")) {
-+                assertThat(pet.path("type").path("name").asText()).startsWith("zq-");
-+                assertThat(pet.path("visits")).hasSize(VISITS_PER_PET);
-+            }
-+        }
-+    }
-+
-+    private static int firstIndexMatching(List<String> statements, String regex) {
-+        for (int i = 0; i < statements.size(); i++) {
-+            if (statements.get(i).toLowerCase().matches("(?s).*(" + regex + ").*")) {
-+                return i;
-+            }
-+        }
-+        return Integer.MAX_VALUE;
-+    }
-+
-+    private PetType persistedType(String name) {
-+        PetType type = TestData.aPetType(name);
-+        entityManager.persist(type);
-+        return type;
-+    }
-+
-+    private void persistPetWithVisits(Owner owner, PetType type, String name) {
-+        Pet pet = TestData.aPet();
++    private void persistPetWithTwoVisits(Owner owner, String name, PetType type) {
++        Pet pet = new Pet();
 +        pet.setName(name);
++        pet.setBirthDate(LocalDate.of(2020, 1, 1));
 +        pet.setType(type);
-+        owner.addPet(pet);
++        pet.setOwner(owner);
 +        entityManager.persist(pet);
-+        for (int v = 0; v < VISITS_PER_PET; v++) {
++        for (int v = 1; v <= 2; v++) {
 +            Visit visit = new Visit();
-+            visit.setDate(LocalDate.of(2024, 1, 1 + v));
++            visit.setDate(LocalDate.of(2024, v, 1));
 +            visit.setDescription("visit " + v);
-+            pet.addVisit(visit);
++            visit.setPet(pet);
 +            entityManager.persist(visit);
 +        }
++    }
++
++    @ParameterizedTest
++    @CsvSource({
++            "name,asc,5", "name,desc,5", "city,asc,5", "city,desc,5",
++            "name,asc,20", "name,desc,20", "city,asc,20", "city,desc,20"})
++    void traversingEveryPage_yieldsEachOwnerOnceInTheRequestedOrder(String key, String direction, int size)
++            throws Exception {
++        List<Integer> expected = owners.stream()
++                .sorted(key.equals("name") ? BY_NAME : BY_CITY)
++                .map(Owner::getId)
++                .toList();
++        if (direction.equals("desc")) {
++            expected = expected.reversed();
++        }
++
++        List<Integer> traversed = new ArrayList<>();
++        for (int page = 0; page * size < OWNERS; page++) {
++            JsonNode body = list("lastName=" + PREFIX + "&sort=" + key + "," + direction
++                    + "&size=" + size + "&page=" + page);
++            assertThat(body.path("totalElements").asInt()).isEqualTo(OWNERS);
++            body.path("content").forEach(owner -> traversed.add(owner.path("id").asInt()));
++        }
++
++        assertThat(traversed).containsExactlyElementsOf(expected);
++    }
++
++    @Test
++    void everyOwnerOnAPageCarriesAllItsPetsTypesAndVisits() throws Exception {
++        JsonNode content = list("lastName=" + PREFIX + "&size=20").path("content");
++
++        assertThat(content).hasSize(20);
++        for (JsonNode owner : content) {
++            JsonNode pets = owner.path("pets");
++            assertThat(pets).hasSize(petCountByOwnerId.get(owner.path("id").asInt()));
++            for (JsonNode pet : pets) {
++                assertThat(pet.path("type").path("name").asText()).isIn("cat", "dog");
++                assertThat(pet.path("visits")).hasSize(2);
++            }
++        }
++    }
++
++    @ParameterizedTest
++    @CsvSource({"20,0", "5,1", "5,3"})
++    void aColdFullPage_costsAtMostThreeSelects_withPagingDoneByTheDatabase(int size, int page) throws Exception {
++        JsonNode body = list("lastName=" + PREFIX + "&size=" + size + "&page=" + page);
++
++        assertThat(body.path("content")).hasSize(size);
++        List<String> selects = SqlRecorder.selects();
++        assertThat(selects).hasSizeLessThanOrEqualTo(3);
++        String pageQuery = selects.getFirst();
++        assertThat(pageQuery).contains("from owners").doesNotContain("pets")
++                .containsAnyOf("offset", "fetch first", "limit");
++        assertThat(selects).filteredOn(sql -> sql.contains("pets"))
++                .singleElement()
++                .satisfies(graph -> assertThat(graph).doesNotContain("offset", "fetch first", "limit"));
++    }
++
++    @ParameterizedTest
++    @ValueSource(strings = {"lastName=" + PREFIX + "&page=9", "lastName=Nobody"})
++    void anEmptyPage_loadsNoPetsOrVisits(String query) throws Exception {
++        JsonNode body = list(query);
++
++        assertThat(body.path("content")).isEmpty();
++        assertThat(SqlRecorder.selects())
++                .hasSizeLessThanOrEqualTo(2)
++                .noneMatch(sql -> sql.contains("pets") || sql.contains("visits"));
++    }
++
++    private JsonNode list(String query) throws Exception {
++        String json = mockMvc.perform(get("/api/owners?" + query))
++                .andExpect(status().isOk())
++                .andReturn().getResponse().getContentAsString();
++        return mapper.readTree(json);
 +    }
 +}
 diff --git a/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java b/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java
 new file mode 100644
-index 00000000..b389546c
+index 00000000..80e5174a
 --- /dev/null
 +++ b/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java
-@@ -0,0 +1,307 @@
+@@ -0,0 +1,240 @@
 +package victor.training.petclinic.rest;
 +
 +import static org.assertj.core.api.Assertions.assertThat;
 +import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 +import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 +
-+import java.time.LocalDate;
 +import java.util.ArrayList;
 +import java.util.List;
-+import java.util.stream.StreamSupport;
 +
-+import org.junit.jupiter.api.BeforeEach;
 +import org.junit.jupiter.api.Test;
 +import org.junit.jupiter.params.ParameterizedTest;
-+import org.junit.jupiter.params.provider.CsvSource;
 +import org.junit.jupiter.params.provider.ValueSource;
 +import org.springframework.beans.factory.annotation.Autowired;
 +import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 +import org.springframework.boot.test.context.SpringBootTest;
-+import org.springframework.jdbc.core.JdbcTemplate;
 +import org.springframework.security.test.context.support.WithMockUser;
 +import org.springframework.test.web.servlet.MockMvc;
 +import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -358,290 +385,236 @@ index 00000000..b389546c
 +import com.fasterxml.jackson.databind.ObjectMapper;
 +
 +import io.zonky.test.db.AutoConfigureEmbeddedDatabase;
-+import jakarta.persistence.EntityManager;
 +import jakarta.transaction.Transactional;
 +import victor.training.petclinic.domain.Owner;
-+import victor.training.petclinic.domain.Pet;
-+import victor.training.petclinic.domain.PetType;
-+import victor.training.petclinic.domain.Visit;
 +import victor.training.petclinic.repository.OwnerRepository;
-+import victor.training.petclinic.repository.PetRepository;
-+import victor.training.petclinic.repository.PetTypeRepository;
-+import victor.training.petclinic.repository.VisitRepository;
 +
++/** The paged contract of GET /api/owners, against the 26 seeded owners plus a few of its own. */
 +@SpringBootTest
 +@AutoConfigureEmbeddedDatabase(provider = AutoConfigureEmbeddedDatabase.DatabaseProvider.ZONKY)
 +@AutoConfigureMockMvc
 +@WithMockUser(roles = "OWNER_ADMIN")
 +@Transactional
 +class OwnerListTest {
-+    private static final String NAME_ORDER = "last_name, first_name, id";
++    private static final int SEEDED_OWNERS = 26;
 +
 +    @Autowired
 +    MockMvc mockMvc;
 +    @Autowired
-+    JdbcTemplate jdbc;
-+    @Autowired
 +    OwnerRepository ownerRepository;
-+    @Autowired
-+    PetRepository petRepository;
-+    @Autowired
-+    PetTypeRepository petTypeRepository;
-+    @Autowired
-+    VisitRepository visitRepository;
-+    @Autowired
-+    EntityManager entityManager;
 +
-+    final ObjectMapper mapper = new ObjectMapper();
++    private final ObjectMapper mapper = new ObjectMapper();
 +
-+    // 7 owners sharing the prefix "Zpg": a duplicate full name, shared cities, all without pets
-+    int annBath1, annBath2, bobCork, annZpgbBath, cidAvon, danCork, eveAvon;
++    @Test
++    void defaultRequest_firstTenByNameAscending_withTotal() throws Exception {
++        JsonNode page = list("/api/owners");
 +
-+    @BeforeEach
-+    void persistOwnersSharingAPrefix() {
-+        annBath1 = owner("Ann", "Zpga", "Bath");
-+        annBath2 = owner("Ann", "Zpga", "Bath");
-+        bobCork = owner("Bob", "Zpga", "Cork");
-+        annZpgbBath = owner("Ann", "Zpgb", "Bath");
-+        cidAvon = owner("Cid", "Zpgc", "Avon");
-+        danCork = owner("Dan", "Zpgd", "Cork");
-+        eveAvon = owner("Eve", "Zpge", "Avon");
++        assertThat(fieldNames(page)).containsExactlyInAnyOrder("content", "totalElements");
++        assertThat(page.path("totalElements").asLong()).isEqualTo(SEEDED_OWNERS);
++        assertThat(lastNames(page)).hasSize(10)
++                .containsExactly("Baskerville", "Carraclough", "Darling", "Darling", "Dickens",
++                        "Dolittle", "Filch", "Geppetto", "Granger", "Hagrid");
++        assertThat(firstNames(page).subList(2, 4)).containsExactly("George", "Wendy");
 +    }
 +
 +    @Test
-+    void defaultRequest_returnsTheFirstTenByNameWithTheTotal() throws Exception {
-+        JsonNode page = list(get("/api/owners"));
++    void contentCarriesNestedPetsTypesAndVisits() throws Exception {
++        JsonNode alice = list("/api/owners?lastName=Liddell").path("content").get(0);
 +
-+        assertThat(ids(page)).containsExactlyElementsOf(idsInSql(NAME_ORDER, 0, 10));
-+        assertThat(page.path("totalElements").asLong()).isEqualTo(ownerRepository.count());
++        assertThat(alice.path("pets")).hasSize(2);
++        JsonNode cheshire = alice.path("pets").get(0);
++        assertThat(cheshire.path("name").asText()).isEqualTo("Cheshire");
++        assertThat(cheshire.path("type").path("name").asText()).isEqualTo("cat");
++        assertThat(cheshire.path("visits")).hasSize(2);
 +    }
 +
 +    @Test
-+    void envelope_hasExactlyContentAndTotalElements() throws Exception {
-+        JsonNode page = list(get("/api/owners"));
++    void ownersWithoutPetsAreListed() throws Exception {
++        saveOwner("Petless", "Zpetless");
 +
-+        assertThat(page.isObject()).isTrue();
-+        List<String> fields = new ArrayList<>();
-+        page.fieldNames().forEachRemaining(fields::add);
-+        assertThat(fields).containsExactlyInAnyOrder("content", "totalElements");
-+        assertThat(page.path("content").isArray()).isTrue();
-+    }
++        JsonNode page = list("/api/owners?lastName=Zpetless");
 +
-+    @Test
-+    void requestedPage_skipsTheEarlierPages() throws Exception {
-+        JsonNode page = list(get("/api/owners").param("page", "1").param("size", "5"));
-+
-+        assertThat(ids(page)).containsExactlyElementsOf(idsInSql(NAME_ORDER, 5, 5));
-+        assertThat(page.path("totalElements").asLong()).isEqualTo(ownerRepository.count());
++        assertThat(firstNames(page)).containsExactly("Petless");
++        assertThat(page.path("content").get(0).path("pets")).isEmpty();
 +    }
 +
 +    @ParameterizedTest
 +    @ValueSource(ints = {5, 10, 20})
 +    void allowedSizes(int size) throws Exception {
-+        JsonNode page = list(get("/api/owners").param("size", String.valueOf(size)));
++        JsonNode page = list("/api/owners?size=" + size);
 +
-+        assertThat(ids(page)).containsExactlyElementsOf(idsInSql(NAME_ORDER, 0, size));
-+    }
-+
-+    @ParameterizedTest
-+    @CsvSource({
-+            "size, 7",
-+            "size, 0",
-+            "size, -5",
-+            "size, abc",
-+            "page, -1",
-+            "page, abc",
-+            "page, 1.5",
-+            "page, 99999999999",
-+            "page, 2147483647", // page * size does not fit the database offset
-+            "sort, lastName,asc",
-+            "sort, telephone,asc",
-+            "sort, name",
-+            "sort, name,up",
-+            "sort, name,ASC",
-+            "sort, name,asc,city,desc",
-+    })
-+    void invalidInput_isRejected(String param, String value) throws Exception {
-+        mockMvc.perform(get("/api/owners").param(param, value))
-+                .andExpect(status().isBadRequest());
++        assertThat(page.path("content")).hasSize(size);
++        assertThat(page.path("totalElements").asLong()).isEqualTo(SEEDED_OWNERS);
 +    }
 +
 +    @Test
-+    void repeatedSort_isRejected() throws Exception {
-+        mockMvc.perform(get("/api/owners").param("sort", "name,asc").param("sort", "city,desc"))
-+                .andExpect(status().isBadRequest());
++    void secondPageOfFive_isPositionsSixToTen() throws Exception {
++        List<String> firstTen = lastNames(list("/api/owners?size=10"));
++
++        JsonNode page = list("/api/owners?page=1&size=5");
++
++        assertThat(lastNames(page)).isEqualTo(firstTen.subList(5, 10));
++        assertThat(page.path("totalElements").asLong()).isEqualTo(SEEDED_OWNERS);
 +    }
 +
 +    @Test
-+    void pageBeyondTheLast_isEmptyWithTheRealTotal() throws Exception {
-+        JsonNode page = list(get("/api/owners").param("lastName", "Zpg").param("page", "5").param("size", "5"));
++    void lastPartialPage() throws Exception {
++        JsonNode page = list("/api/owners?page=5&size=5");
++
++        assertThat(page.path("content")).hasSize(1);
++        assertThat(page.path("totalElements").asLong()).isEqualTo(SEEDED_OWNERS);
++    }
++
++    @Test
++    void pageBeyondTheLast_isEmptyWithActualTotal() throws Exception {
++        JsonNode page = list("/api/owners?page=99&size=20");
 +
 +        assertThat(page.path("content")).isEmpty();
-+        assertThat(page.path("totalElements").asLong()).isEqualTo(7);
++        assertThat(page.path("totalElements").asLong()).isEqualTo(SEEDED_OWNERS);
 +    }
 +
 +    @Test
-+    void filteredPage_countsTheWholeFilteredSet() throws Exception {
-+        JsonNode page = list(get("/api/owners").param("lastName", "Zpg").param("page", "1").param("size", "5"));
-+
-+        assertThat(ids(page)).containsExactly(danCork, eveAvon);
-+        assertThat(page.path("totalElements").asLong()).isEqualTo(7);
-+    }
-+
-+    @Test
-+    void noMatch_isAnEmptyPage() throws Exception {
-+        JsonNode page = list(get("/api/owners").param("lastName", "NonExistent"));
++    void noMatch_isEmptyWithZeroTotal() throws Exception {
++        JsonNode page = list("/api/owners?lastName=NonExistent");
 +
 +        assertThat(page.path("content")).isEmpty();
 +        assertThat(page.path("totalElements").asLong()).isZero();
 +    }
 +
-+    @Test
-+    void emptyLastName_matchesEveryone() throws Exception {
-+        JsonNode page = list(get("/api/owners").param("lastName", ""));
++    @ParameterizedTest
++    @ValueSource(strings = {
++            "size=7", "size=0", "size=-5", "size=abc",
++            "page=-1", "page=abc", "page=1.5", "page=99999999999", "page=2147483647&size=20",
++            "sort=lastName,asc", "sort=telephone,asc", "sort=name", "sort=name,up",
++            "sort=name,asc,city", "sort=NAME,asc", "sort=name,asc&sort=city,asc"})
++    void invalidParameters_400(String query) throws Exception {
++        mockMvc.perform(get("/api/owners?" + query))
++                .andExpect(status().isBadRequest());
++    }
 +
-+        assertThat(page.path("totalElements").asLong()).isEqualTo(ownerRepository.count());
++    @ParameterizedTest
++    @ValueSource(strings = {"name,asc", "name,desc", "city,asc", "city,desc"})
++    void allowedSorts(String sort) throws Exception {
++        JsonNode page = list("/api/owners?sort=" + sort);
++
++        assertThat(page.path("content")).hasSize(10);
 +    }
 +
 +    @Test
-+    void lastNamePrefix_isCaseSensitive() throws Exception {
-+        assertThat(lastNames(list(get("/api/owners").param("lastName", "Pot"))))
-+                .isNotEmpty().allMatch(lastName -> lastName.startsWith("Pot")).contains("Potter");
-+        assertThat(totalFor("otter")).isZero();
-+        assertThat(totalFor("Harry")).isZero();
-+        assertThat(totalFor("potter")).isZero();
++    void nameDescending_startsFromTheEndOfNameAscending() throws Exception {
++        List<String> lastPageAscending = lastNames(list("/api/owners?page=5&size=5"));
++        lastPageAscending.addAll(0, lastNames(list("/api/owners?page=4&size=5")).subList(1, 5));
++
++        JsonNode page = list("/api/owners?sort=name,desc&size=5");
++
++        assertThat(lastNames(page)).containsExactlyElementsOf(lastPageAscending.reversed());
 +    }
 +
 +    @Test
-+    void lastNamePrefix_treatsSqlWildcardsLiterally() throws Exception {
-+        int percent = owner("Pc", "Zw%x", "Bath");
-+        int underscore = owner("Us", "Zw_y", "Bath");
-+        owner("Plain", "Zwaz", "Bath");
++    void cityAscending_tiesByLastNameFirstName() throws Exception {
++        JsonNode page = list("/api/owners?sort=city,asc&size=20");
 +
-+        assertThat(ids(list(get("/api/owners").param("lastName", "Zw%")))).containsExactly(percent);
-+        assertThat(ids(list(get("/api/owners").param("lastName", "Zw_")))).containsExactly(underscore);
++        List<String> cities = new ArrayList<>();
++        page.path("content").forEach(o -> cities.add(o.path("city").asText()));
++        assertThat(cities).isSortedAccordingTo(String::compareTo);
++        int london = cities.indexOf("London");
++        assertThat(firstNames(page).subList(london, london + 5))
++                .containsExactly("George", "Wendy", "Sherlock", "Roger", "Newt");
 +    }
 +
 +    @Test
-+    void nameAscending_breaksTiesById_acrossPageBoundaries() throws Exception {
-+        assertThat(traverse("name,asc"))
-+                .containsExactly(annBath1, annBath2, bobCork, annZpgbBath, cidAvon, danCork, eveAvon);
-+    }
-+
-+    @Test
-+    void nameDescending_reversesTheWholeChain() throws Exception {
-+        assertThat(traverse("name,desc"))
-+                .containsExactly(eveAvon, danCork, cidAvon, annZpgbBath, bobCork, annBath2, annBath1);
-+    }
-+
-+    @Test
-+    void cityAscending_thenName_thenId() throws Exception {
-+        assertThat(traverse("city,asc"))
-+                .containsExactly(cidAvon, eveAvon, annBath1, annBath2, annZpgbBath, bobCork, danCork);
-+    }
-+
-+    @Test
-+    void cityDescending_reversesTheWholeChain() throws Exception {
-+        assertThat(traverse("city,desc"))
-+                .containsExactly(danCork, bobCork, annZpgbBath, annBath2, annBath1, eveAvon, cidAvon);
-+    }
-+
-+    @Test
-+    void listedOwner_carriesTheSameNestedDataAsItsDetail() throws Exception {
-+        int withPets = owner("Fay", "Zpgf", "Bath");
-+        PetType hamster = petTypeRepository.save(TestData.aPetType("zp-hamster"));
-+        PetType parrot = petTypeRepository.save(TestData.aPetType("zp-parrot"));
-+        pet(withPets, "Alpha", hamster, "check-up", "vaccine");
-+        pet(withPets, "Beta", parrot, "wing clip");
-+        entityManager.flush();
-+        entityManager.clear();
-+
-+        JsonNode page = list(get("/api/owners").param("lastName", "Zpgf"));
-+        JsonNode detail = json(get("/api/owners/{id}", withPets));
-+
-+        assertThat(page.path("content")).hasSize(1);
-+        assertThat(page.path("content").get(0)).isEqualTo(detail);
-+        assertThat(detail.path("pets")).hasSize(2);
-+    }
-+
-+    @Test
-+    void ownersWithoutPets_areListedWithAnEmptyPetList() throws Exception {
-+        JsonNode page = list(get("/api/owners").param("lastName", "Zpge"));
-+
-+        assertThat(page.path("content").get(0).path("pets")).isEmpty();
-+    }
-+
-+    private List<Integer> traverse(String sort) throws Exception {
-+        List<Integer> all = new ArrayList<>();
-+        for (int pageIndex = 0; pageIndex < 2; pageIndex++) {
-+            all.addAll(ids(list(get("/api/owners").param("lastName", "Zpg")
-+                    .param("sort", sort).param("size", "5").param("page", String.valueOf(pageIndex)))));
++    void prefixIsCaseSensitiveAndAnchoredToLastNameStart() throws Exception {
++        assertThat(firstNames(list("/api/owners?lastName=Pot"))).containsExactly("Beatrix", "Harry");
++        assertThat(list("/api/owners?lastName=Pot").path("totalElements").asLong()).isEqualTo(2);
++        for (String noMatch : List.of("otter", "Harry", "potter")) {
++            assertThat(list("/api/owners?lastName=" + noMatch).path("totalElements").asLong())
++                    .as(noMatch).isZero();
 +        }
-+        return all;
 +    }
 +
-+    private long totalFor(String lastName) throws Exception {
-+        return list(get("/api/owners").param("lastName", lastName)).path("totalElements").asLong();
++    @Test
++    void emptyPrefix_matchesAll() throws Exception {
++        assertThat(list("/api/owners?lastName=").path("totalElements").asLong()).isEqualTo(SEEDED_OWNERS);
 +    }
 +
-+    private JsonNode list(MockHttpServletRequestBuilder request) throws Exception {
-+        JsonNode page = json(request);
-+        assertThat(page.has("content") && page.has("totalElements")).as("a page envelope: " + page).isTrue();
-+        return page;
++    @Test
++    void filteredSecondPage_countsOnlyMatches() throws Exception {
++        for (int i = 1; i <= 7; i++) {
++            saveOwner("Seven" + i, "Zed");
++        }
++
++        JsonNode page = list("/api/owners?lastName=Zed&size=5&page=1");
++
++        assertThat(firstNames(page)).containsExactly("Seven6", "Seven7");
++        assertThat(page.path("totalElements").asLong()).isEqualTo(7);
 +    }
 +
-+    private JsonNode json(MockHttpServletRequestBuilder request) throws Exception {
-+        String body = mockMvc.perform(request)
-+                .andExpect(status().isOk())
-+                .andReturn().getResponse().getContentAsString();
-+        return mapper.readTree(body);
++    @Test
++    void wildcardCharactersMatchLiterally() throws Exception {
++        saveOwner("Percent", "Zq%x");
++        saveOwner("Underscore", "Zq_x");
++        saveOwner("Plain", "Zqax");
++
++        assertThat(firstNames(listByLastName("Zq%"))).containsExactly("Percent");
++        assertThat(firstNames(listByLastName("Zq_"))).containsExactly("Underscore");
 +    }
 +
-+    private static List<Integer> ids(JsonNode page) {
-+        return StreamSupport.stream(page.path("content").spliterator(), false)
-+                .map(owner -> owner.path("id").asInt())
-+                .toList();
-+    }
-+
-+    private static List<String> lastNames(JsonNode page) {
-+        return StreamSupport.stream(page.path("content").spliterator(), false)
-+                .map(owner -> owner.path("lastName").asText())
-+                .toList();
-+    }
-+
-+    private List<Integer> idsInSql(String orderBy, int offset, int limit) {
-+        return jdbc.queryForList("SELECT id FROM owners ORDER BY " + orderBy + " OFFSET ? LIMIT ?",
-+                Integer.class, offset, limit);
-+    }
-+
-+    private int owner(String firstName, String lastName, String city) {
++    private void saveOwner(String firstName, String lastName) {
 +        Owner owner = TestData.anOwner();
 +        owner.setFirstName(firstName);
 +        owner.setLastName(lastName);
-+        owner.setCity(city);
-+        return ownerRepository.save(owner).getId();
++        ownerRepository.save(owner);
 +    }
 +
-+    private void pet(int ownerId, String name, PetType type, String... visitDescriptions) {
-+        Pet pet = TestData.aPet();
-+        pet.setName(name);
-+        pet.setType(type);
-+        pet.setOwner(ownerRepository.findById(ownerId).orElseThrow());
-+        petRepository.save(pet);
-+        for (String description : visitDescriptions) {
-+            Visit visit = new Visit();
-+            visit.setDate(LocalDate.of(2024, 1, 1));
-+            visit.setDescription(description);
-+            visit.setPet(pet);
-+            visitRepository.save(visit);
-+        }
++    private JsonNode listByLastName(String lastName) throws Exception {
++        return list(get("/api/owners").param("lastName", lastName));
++    }
++
++    private JsonNode list(String uri) throws Exception {
++        return list(get(uri));
++    }
++
++    private JsonNode list(MockHttpServletRequestBuilder request) throws Exception {
++        String json = mockMvc.perform(request)
++                .andExpect(status().isOk())
++                .andReturn().getResponse().getContentAsString();
++        return mapper.readTree(json);
++    }
++
++    private static List<String> fieldNames(JsonNode page) {
++        assertThat(page.isObject()).as("page envelope is a JSON object").isTrue();
++        List<String> names = new ArrayList<>();
++        page.fieldNames().forEachRemaining(names::add);
++        return names;
++    }
++
++    private static List<String> lastNames(JsonNode page) {
++        return column(page, "lastName");
++    }
++
++    private static List<String> firstNames(JsonNode page) {
++        return column(page, "firstName");
++    }
++
++    private static List<String> column(JsonNode page, String field) {
++        List<String> values = new ArrayList<>();
++        page.path("content").forEach(owner -> values.add(owner.path(field).asText()));
++        return values;
 +    }
 +}
 diff --git a/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java b/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java
-index aea42c80..43d7a178 100644
+index aea42c80..1a7fff18 100644
 --- a/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java
 +++ b/petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java
-@@ -28,12 +28,12 @@ import victor.training.petclinic.repository.OwnerRepository;
+@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
+ 
+ import java.text.SimpleDateFormat;
+ import java.time.LocalDate;
++import java.util.ArrayList;
+ import java.util.List;
+ 
+ import org.assertj.core.api.Assertions;
+@@ -28,12 +29,12 @@ import victor.training.petclinic.repository.OwnerRepository;
  import victor.training.petclinic.repository.PetRepository;
  import victor.training.petclinic.repository.PetTypeRepository;
  import victor.training.petclinic.rest.dto.OwnerDto;
@@ -655,67 +628,78 @@ index aea42c80..43d7a178 100644
  import com.fasterxml.jackson.databind.ObjectMapper;
  import com.fasterxml.jackson.databind.SerializationFeature;
  import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-@@ -128,7 +128,7 @@ public class OwnerTest {
+@@ -148,16 +149,22 @@ public class OwnerTest {
+                 .contains(Assertions.tuple(owner2Id, "JavaBeans"));
+     }
  
-     @Test
-     void getAll() throws Exception {
--        List<OwnerDto> owners = search("/api/owners");
-+        List<OwnerDto> owners = search("/api/owners?lastName=Franklin");
- 
-         assertThat(owners)
-                 .extracting(OwnerDto::getId, OwnerDto::getFirstName, OwnerDto::getLastName)
-@@ -156,8 +156,7 @@ public class OwnerTest {
-                 .getResponse()
-                 .getContentAsString();
- 
++    /** Every page of the result, so a fixture owner is found wherever the sort puts it. */
+     private List<OwnerDto> search(String uriTemplate) throws Exception {
+-        String responseJson = mockMvc.perform(get(uriTemplate))
+-                .andExpect(status().isOk())
+-                .andExpect(content().contentType("application/json"))
+-                .andReturn()
+-                .getResponse()
+-                .getContentAsString();
+-
 -        return mapper.readValue(responseJson, new TypeReference<List<OwnerDto>>() {
 -        });
-+        return mapper.readValue(responseJson, OwnerPageDto.class).content();
++        List<OwnerDto> owners = new ArrayList<>();
++        for (int page = 0;; page++) {
++            String responseJson = mockMvc.perform(get(uriTemplate).param("page", "" + page).param("size", "20"))
++                    .andExpect(status().isOk())
++                    .andExpect(content().contentType("application/json"))
++                    .andReturn()
++                    .getResponse()
++                    .getContentAsString();
++            OwnerPageDto ownerPage = mapper.readValue(responseJson, OwnerPageDto.class);
++            owners.addAll(ownerPage.content());
++            if (ownerPage.content().isEmpty() || owners.size() >= ownerPage.totalElements()) {
++                return owners;
++            }
++        }
      }
  
      @Test
-diff --git a/petclinic-backend/src/test/java/victor/training/petclinic/rest/SqlStatementRecorder.java b/petclinic-backend/src/test/java/victor/training/petclinic/rest/SqlStatementRecorder.java
+diff --git a/petclinic-backend/src/test/java/victor/training/petclinic/tools/SqlRecorder.java b/petclinic-backend/src/test/java/victor/training/petclinic/tools/SqlRecorder.java
 new file mode 100644
-index 00000000..97406fd7
+index 00000000..0209133d
 --- /dev/null
-+++ b/petclinic-backend/src/test/java/victor/training/petclinic/rest/SqlStatementRecorder.java
-@@ -0,0 +1,34 @@
-+package victor.training.petclinic.rest;
++++ b/petclinic-backend/src/test/java/victor/training/petclinic/tools/SqlRecorder.java
+@@ -0,0 +1,32 @@
++package victor.training.petclinic.tools;
 +
 +import java.util.List;
 +import java.util.concurrent.CopyOnWriteArrayList;
 +
 +import org.hibernate.resource.jdbc.spi.StatementInspector;
 +
-+/** Records every SQL statement Hibernate prepares; Hibernate instantiates it by class name, hence the static state. */
-+public class SqlStatementRecorder implements StatementInspector {
-+    private static final List<String> statements = new CopyOnWriteArrayList<>();
++/** Records every SQL statement Hibernate prepares, so a test can count them. */
++public class SqlRecorder implements StatementInspector {
++    /** Put in {@code @SpringBootTest(properties = ...)} to activate. */
++    public static final String ACTIVATE = "spring.jpa.properties.hibernate.session_factory.statement_inspector="
++            + "victor.training.petclinic.tools.SqlRecorder";
++    private static final List<String> STATEMENTS = new CopyOnWriteArrayList<>();
 +
 +    @Override
 +    public String inspect(String sql) {
-+        statements.add(sql);
++        STATEMENTS.add(sql);
 +        return sql;
 +    }
 +
-+    public static void reset() {
-+        statements.clear();
++    public static void clear() {
++        STATEMENTS.clear();
 +    }
 +
++    /** SELECTs only, stripped of the leading comment that hibernate.use_sql_comments adds. */
 +    public static List<String> selects() {
-+        return statements.stream()
-+                .map(SqlStatementRecorder::withoutLeadingComment)
-+                .filter(sql -> sql.regionMatches(true, 0, "select", 0, 6))
++        return STATEMENTS.stream()
++                .map(sql -> sql.replaceFirst("(?s)^\\s*/\\*.*?\\*/\\s*", "").toLowerCase())
++                .filter(sql -> sql.startsWith("select"))
 +                .toList();
-+    }
-+
-+    // use_sql_comments=true prefixes each statement with /* what produced it */
-+    private static String withoutLeadingComment(String sql) {
-+        String trimmed = sql.strip();
-+        return trimmed.startsWith("/*") ? trimmed.substring(trimmed.indexOf("*/") + 2).strip() : trimmed;
 +    }
 +}
 diff --git a/petclinic-backend/src/test/resources/features/functional/owners.feature b/petclinic-backend/src/test/resources/features/functional/owners.feature
-index fa8c5948..a246decd 100644
+index fa8c5948..3c772bfe 100644
 --- a/petclinic-backend/src/test/resources/features/functional/owners.feature
 +++ b/petclinic-backend/src/test/resources/features/functional/owners.feature
 @@ -13,8 +13,8 @@ Feature: Owner management
@@ -724,37 +708,34 @@ index fa8c5948..a246decd 100644
      Then the response status is 200
 -    And the response JSON array has size 2
 -    And every item in the response has "lastName" equal to "Davis"
-+    And the response page has 2 owners out of 2 matching
++    And the page lists 2 owners out of 2
 +    And every owner on the page has "lastName" equal to "Davis"
  
    Scenario: Owner profile includes pets with their type
      Given an owner "Jean Coleman" with a "dog" pet named "Samantha" born on "2020-03-15"
 diff --git a/petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts b/petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts
-index 7c111ba1..f07fb17f 100644
+index 7c111ba1..5dfa5a8b 100644
 --- a/petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts
 +++ b/petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts
-@@ -1,142 +1,258 @@
+@@ -1,142 +1,272 @@
 -/* tslint:disable:no-unused-variable */
 -
- import { ComponentFixture, TestBed, waitForAsync } from '@angular/core/testing';
--import {By} from '@angular/platform-browser';
+-import { ComponentFixture, TestBed, waitForAsync } from '@angular/core/testing';
++import {ComponentFixture, TestBed} from '@angular/core/testing';
+ import {By} from '@angular/platform-browser';
 -import {DebugElement, NO_ERRORS_SCHEMA} from '@angular/core';
-+import { By } from '@angular/platform-browser';
-+import { NO_ERRORS_SCHEMA } from '@angular/core';
-+import { NoopAnimationsModule } from '@angular/platform-browser/animations';
-+import { HarnessLoader, TestKey } from '@angular/cdk/testing';
-+import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
-+import { MatPaginator } from '@angular/material/paginator';
-+import { MatPaginatorHarness } from '@angular/material/paginator/testing';
-+import { MatSortHeaderHarness } from '@angular/material/sort/testing';
-+import { Subject } from 'rxjs';
-+import { RouterTestingModule } from '@angular/router/testing';
++import {NoopAnimationsModule} from '@angular/platform-browser/animations';
++import {RouterTestingModule} from '@angular/router/testing';
++import {TestbedHarnessEnvironment} from '@angular/cdk/testing/testbed';
++import {HarnessLoader, TestKey} from '@angular/cdk/testing';
++import {MatPaginatorHarness} from '@angular/material/paginator/testing';
++import {MatSortHeaderHarness} from '@angular/material/sort/testing';
++import {Observable, of, Subject, throwError} from 'rxjs';
  
--import {OwnerListComponent} from './owner-list.component';
+ import {OwnerListComponent} from './owner-list.component';
 -import {FormsModule} from '@angular/forms';
 -import {ActivatedRoute} from '@angular/router';
-+import { OwnerListComponent } from './owner-list.component';
- import { OwnerService } from '../owner.service';
+-import { OwnerService } from '../owner.service';
 -import {Owner} from '../owner';
 -import {Observable, of, Subject} from 'rxjs';
 -import {RouterTestingModule} from '@angular/router/testing';
@@ -762,30 +743,26 @@ index 7c111ba1..f07fb17f 100644
 -import {PartsModule} from '../../parts/parts.module';
 -import {ActivatedRouteStub} from '../../testing/router-stubs';
 -import {OwnerDetailComponent} from '../owner-detail/owner-detail.component';
--import {OwnersModule} from '../owners.module';
+ import {OwnersModule} from '../owners.module';
 -import {DummyComponent} from '../../testing/dummy.component';
 -import {OwnerAddComponent} from '../owner-add/owner-add.component';
 -import {OwnerEditComponent} from '../owner-edit/owner-edit.component';
--import Spy = jasmine.Spy;
--
++import {OwnerService} from '../owner.service';
++import {Owner} from '../owner';
++import {OwnerPage, OwnerPageQuery} from '../owner-page';
+ import Spy = jasmine.Spy;
+ 
 -
 -class OwnerServiceStub {
 -  getOwners(): Observable<Owner[]> {
 -    return of();
 -  }
-+import { Owner } from '../owner';
-+import { OwnerListQuery, OwnerPage } from '../owner-page';
-+import { OwnersModule } from '../owners.module';
-+import { DummyComponent } from '../../testing/dummy.component';
- 
+-
 -  searchOwners(lastName: string): Observable<Owner[]> {
 -    return of();
 -  }
-+interface SentRequest {
-+  query: OwnerListQuery;
-+  response: Subject<OwnerPage>;
- }
- 
+-}
+-
  describe('OwnerListComponent', () => {
 -
 -  let component: OwnerListComponent;
@@ -807,28 +784,11 @@ index 7c111ba1..f07fb17f 100644
 -    pets: []
 -  };
 -  let testOwners: Owner[];
-+  let component: OwnerListComponent;
-+  let loader: HarnessLoader;
-+  let requests: SentRequest[];
-+
-+  const owner = (id: number, lastName = 'Franklin'): Owner => ({
-+    id, firstName: 'George', lastName, address: '110 W. Liberty St.',
-+    city: 'Madison', telephone: '6085551023', pets: []
-+  });
-+  const tenOwners = Array.from({ length: 10 }, (_, i) => owner(i + 1));
- 
-   beforeEach(waitForAsync(() => {
-+    requests = [];
-+    const ownerService = {
-+      getOwners: (query: OwnerListQuery) => {
-+        const response = new Subject<OwnerPage>();
-+        requests.push({ query, response });
-+        return response;
-+      }
-+    };
-     TestBed.configureTestingModule({
-       declarations: [DummyComponent],
-       schemas: [NO_ERRORS_SCHEMA],
+-
+-  beforeEach(waitForAsync(() => {
+-    TestBed.configureTestingModule({
+-      declarations: [DummyComponent],
+-      schemas: [NO_ERRORS_SCHEMA],
 -      imports: [CommonModule, FormsModule, PartsModule, OwnersModule,
 -        RouterTestingModule.withRoutes(
 -          [{path: 'owners', component: OwnerListComponent},
@@ -842,15 +802,31 @@ index 7c111ba1..f07fb17f 100644
 -      ]
 -    })
 -      .compileComponents();
-+      imports: [OwnersModule, NoopAnimationsModule,
-+        RouterTestingModule.withRoutes([{ path: 'owners/:id', component: DummyComponent }])],
-+      providers: [{ provide: OwnerService, useValue: ownerService }]
-+    }).compileComponents();
-   }));
- 
-   beforeEach(() => {
--    testOwners = [testOwner];
+-  }));
 -
+-  beforeEach(() => {
+-    testOwners = [testOwner];
++  let component: OwnerListComponent;
++  let loader: HarnessLoader;
++  let getOwnerPage: Spy<(query?: OwnerPageQuery) => Observable<OwnerPage>>;
++
++  const owner = (id: number, lastName = 'Franklin'): Owner => ({
++    id, firstName: 'George', lastName, address: '110 W. Liberty St.', city: 'Madison',
++    telephone: '6085551023', pets: []
++  });
++  const pageOf = (count: number, totalElements: number): OwnerPage => ({
++    content: Array.from({length: count}, (_, i) => owner(i + 1)),
++    totalElements
++  });
++  const FIRST_PAGE: OwnerPageQuery = {lastName: '', page: 0, size: 10, sort: 'name,asc'};
++
++  beforeEach(async () => {
++    const ownerService = {getOwnerPage: () => of(pageOf(10, 26))};
++    await TestBed.configureTestingModule({
++      imports: [OwnersModule, NoopAnimationsModule, RouterTestingModule],
++      providers: [{provide: OwnerService, useValue: ownerService}]
++    }).compileComponents();
+ 
      fixture = TestBed.createComponent(OwnerListComponent);
      component = fixture.componentInstance;
 -    ownerService = fixture.debugElement.injector.get(OwnerService);
@@ -859,69 +835,33 @@ index 7c111ba1..f07fb17f 100644
 -    searchOwnersSpy = spyOn(ownerService, 'searchOwners')
 -      .and.returnValue(of(testOwners));
 -
--  });
--
++    loader = TestbedHarnessEnvironment.loader(fixture);
++    getOwnerPage = spyOn(ownerService, 'getOwnerPage').and.callThrough();
+   });
+ 
 -  it('should create OwnerListComponent', () => {
 -    expect(component).toBeTruthy();
-+    loader = TestbedHarnessEnvironment.loader(fixture);
-+    fixture.detectChanges();
-   });
+-  });
++  const text = () => (fixture.nativeElement as HTMLElement).textContent;
++  const rows = () => fixture.debugElement.queryAll(By.css('tbody tr.owner-row'));
++  const noOwnersMessage = () => fixture.debugElement.query(By.css('#noOwners'));
++  const errorAlert = () => fixture.debugElement.query(By.css('#ownersError'));
++  const paginator = () => fixture.debugElement.query(By.css('mat-paginator'));
++  const addOwnerButton = () => fixture.debugElement.query(By.css('#addOwner'));
++  const lastQuery = () => getOwnerPage.calls.mostRecent().args[0];
  
 -  it('should call ngOnInit() method', () => {
-+  function respond(request: SentRequest, page: OwnerPage) {
-+    request.response.next(page);
-+    request.response.complete();
++  function submitSearch(prefix: string) {
++    component.lastName = prefix;
++    fixture.debugElement.query(By.css('#search-owner-form button[type=submit]')).nativeElement.click();
      fixture.detectChanges();
 -    expect(getOwnersSpy.calls.any()).toBe(true, 'getOwners called');
+-  });
 +  }
-+
-+  function last(): SentRequest {
-+    return requests[requests.length - 1];
-+  }
-+
-+  function text(selector: string): string | null {
-+    const element = fixture.debugElement.query(By.css(selector));
-+    return element ? element.nativeElement.textContent : null;
-+  }
-+
-+  async function onLaterPage() {
-+    respond(requests[0], { content: tenOwners, totalElements: 26 });
-+    await (await loader.getHarness(MatPaginatorHarness)).goToNextPage();
-+    respond(last(), { content: tenOwners, totalElements: 26 });
-+  }
-+
-+  describe('initial load', () => {
-+    it('requests the first page of 10 sorted by name, with no filter', () => {
-+      expect(requests.map(r => r.query)).toEqual([{ lastName: '', page: 0, size: 10, sort: 'name,asc' }]);
-+    });
-+
-+    it('shows the rows, the range and the total', async () => {
-+      respond(requests[0], { content: tenOwners, totalElements: 26 });
-+
-+      expect(fixture.debugElement.queryAll(By.css('.ownerFullName')).length).toBe(10);
-+      expect(text('.ownerFullName')).toContain('George Franklin');
-+      expect(await (await loader.getHarness(MatPaginatorHarness)).getRangeLabel()).toBe('1 – 10 of 26');
-+    });
-+
-+    it('offers page sizes 5, 10 and 20', () => {
-+      respond(requests[0], { content: tenOwners, totalElements: 26 });
-+
-+      const paginator: MatPaginator = fixture.debugElement.query(By.directive(MatPaginator)).componentInstance;
-+      expect(paginator.pageSizeOptions).toEqual([5, 10, 20]);
-+      expect(paginator.pageSize).toBe(10);
-+    });
-+
-+    it('keeps the owner links and Add Owner', () => {
-+      respond(requests[0], { content: [owner(7)], totalElements: 1 });
-+
-+      expect(fixture.debugElement.query(By.css('.ownerFullName a')).attributes['href']).toBe('/owners/7');
-+      expect(text('#addOwner')).toContain('Add Owner');
-+    });
-   });
  
-+  describe('navigation', () => {
-+    it('the next page is exactly one request with the same filter, size and sort', async () => {
-+      await onLaterPage();
++  describe('initial state', () => {
++    it('requests the first page of 10 by name ascending, once', () => {
++      fixture.detectChanges();
  
 -  it(' should show full name after getOwners observable (async) ', waitForAsync(() => {
 -    fixture.detectChanges();
@@ -930,96 +870,132 @@ index 7c111ba1..f07fb17f 100644
 -      de = fixture.debugElement.query(By.css('.ownerFullName'));
 -      el = de.nativeElement;
 -      expect(el.innerText).toBe((testOwner.firstName.toString() + ' ' + testOwner.lastName.toString()));
-+      expect(requests.length).toBe(2);
-+      expect(last().query).toEqual({ lastName: '', page: 1, size: 10, sort: 'name,asc' });
++      expect(getOwnerPage.calls.allArgs()).toEqual([[FIRST_PAGE]]);
 +    });
 +
-+    it('a page size change goes back to the first page', async () => {
-+      await onLaterPage();
++    it('renders the page rows, the range and total, and sizes 5/10/20', async () => {
++      fixture.detectChanges();
++      const pager = await loader.getHarness(MatPaginatorHarness);
 +
-+      await (await loader.getHarness(MatPaginatorHarness)).setPageSize(20);
-+
-+      expect(requests.length).toBe(3);
-+      expect(last().query).toEqual({ lastName: '', page: 0, size: 20, sort: 'name,asc' });
++      expect(rows().length).toBe(10);
++      expect(await pager.getRangeLabel()).toBe('1 – 10 of 26');
++      expect(await pager.getPageSize()).toBe(10);
++      expect(component.pageSizes).toEqual([5, 10, 20]);
      });
 -  }));
  
 -  it('searchByLastName should call getOwners for empty term', () => {
 -    getOwnersSpy.calls.reset();
 -    searchOwnersSpy.calls.reset();
-+    it('sorting goes back to the first page and keeps the submitted filter', async () => {
-+      component.lastName = 'Fr';
-+      component.search();
-+      respond(last(), { content: tenOwners, totalElements: 26 });
-+      await (await loader.getHarness(MatPaginatorHarness)).goToNextPage();
-+      respond(last(), { content: tenOwners, totalElements: 26 });
++    it('offers sorting on Name and City only, starting with Name ascending', async () => {
++      fixture.detectChanges();
++      const headers = await loader.getAllHarnesses(MatSortHeaderHarness);
  
 -    component.searchByLastName('');
-+      await (await loader.getHarness(MatSortHeaderHarness.with({ label: 'City' }))).click();
++      expect(await Promise.all(headers.map(h => h.getLabel()))).toEqual(['Name', 'City']);
++      expect(await headers[0].getSortDirection()).toBe('asc');
++      const headerTexts = fixture.debugElement.queryAll(By.css('thead th'))
++        .map(th => th.nativeElement.textContent.trim());
++      expect(headerTexts).toEqual(['Name', 'Address', 'City', 'Telephone', 'Pets']);
++    });
++
++    it('keeps owner links and Add Owner', () => {
++      fixture.detectChanges();
  
 -    expect(getOwnersSpy).toHaveBeenCalled();
 -    expect(searchOwnersSpy).not.toHaveBeenCalled();
-+      expect(last().query).toEqual({ lastName: 'Fr', page: 0, size: 10, sort: 'city,asc' });
-+    });
-+
-+    it('a sortable header flips its direction and never clears it', async () => {
-+      const name = await loader.getHarness(MatSortHeaderHarness.with({ label: 'Name' }));
-+
-+      await name.click();
-+      await name.click();
-+
-+      expect(requests.slice(1).map(r => r.query.sort)).toEqual(['name,desc', 'name,asc']);
-+    });
-+
-+    it('sorts from the keyboard', async () => {
-+      const city = await loader.getHarness(MatSortHeaderHarness.with({ label: 'City' }));
-+
-+      await (await city.host()).sendKeys(TestKey.ENTER);
-+
-+      expect(last().query.sort).toBe('city,asc');
-+    });
-+
-+    it('only Name and City can be sorted', async () => {
-+      const headers = await loader.getAllHarnesses(MatSortHeaderHarness);
-+
-+      expect(await Promise.all(headers.map(h => h.getLabel()))).toEqual(['Name', 'City']);
-+      const plainHeaders = fixture.debugElement.queryAll(By.css('th:not([mat-sort-header])'))
-+        .map(th => th.nativeElement.textContent.trim());
-+      expect(plainHeaders).toEqual(['Address', 'Telephone', 'Pets']);
++      expect(rows()[0].query(By.css('a')).nativeElement.getAttribute('href')).toBe('/owners/1');
++      expect(addOwnerButton()).toBeTruthy();
 +    });
    });
  
 -  it('searchByLastName should call searchOwners for non-empty term', () => {
 -    getOwnersSpy.calls.reset();
 -    searchOwnersSpy.calls.reset();
-+  describe('search', () => {
-+    it('submitting from a later page sends one request for page 0, keeping the sort', async () => {
-+      await onLaterPage();
-+      await (await loader.getHarness(MatSortHeaderHarness.with({ label: 'City' }))).click();
-+      await (await loader.getHarness(MatSortHeaderHarness.with({ label: 'City' }))).click();
-+      respond(last(), { content: tenOwners, totalElements: 26 });
++  describe('one request per action', () => {
++    it('next page keeps filter, size and sort', async () => {
++      fixture.detectChanges();
++      getOwnerPage.calls.reset();
++
 +      await (await loader.getHarness(MatPaginatorHarness)).goToNextPage();
-+      const before = requests.length;
++
++      expect(getOwnerPage.calls.allArgs()).toEqual([[{...FIRST_PAGE, page: 1}]]);
++    });
++
++    it('previous page goes back one', async () => {
++      fixture.detectChanges();
++      const pager = await loader.getHarness(MatPaginatorHarness);
++      await pager.goToNextPage();
++      await pager.goToNextPage();
++      getOwnerPage.calls.reset();
++
++      await pager.goToPreviousPage();
++
++      expect(getOwnerPage.calls.allArgs()).toEqual([[{...FIRST_PAGE, page: 1}]]);
++    });
++
++    it('a page-size change restarts from page 0', async () => {
++      fixture.detectChanges();
++      const pager = await loader.getHarness(MatPaginatorHarness);
++      await pager.goToNextPage();
++      getOwnerPage.calls.reset();
++
++      await pager.setPageSize(20);
++
++      expect(getOwnerPage.calls.allArgs()).toEqual([[{...FIRST_PAGE, size: 20, page: 0}]]);
++    });
++
++    it('a sort change restarts from page 0, and toggling never clears the sort', async () => {
++      fixture.detectChanges();
++      await (await loader.getHarness(MatPaginatorHarness)).goToNextPage();
++      const city = await loader.getHarness(MatSortHeaderHarness.with({label: 'City'}));
++      getOwnerPage.calls.reset();
  
 -    component.searchByLastName('Fr');
-+      component.lastName = 'Dav';
-+      fixture.debugElement.query(By.css('#search-owner-form button[type=submit]')).nativeElement.click();
-+
-+      expect(requests.length).toBe(before + 1);
-+      expect(last().query).toEqual({ lastName: 'Dav', page: 0, size: 10, sort: 'city,desc' });
-+    });
++      await city.click();
++      await city.click();
++      await city.click();
  
 -    expect(searchOwnersSpy).toHaveBeenCalledWith('Fr');
 -    expect(getOwnersSpy).not.toHaveBeenCalled();
-+    it('paging keeps the submitted filter, not the text typed since', async () => {
-+      component.lastName = 'Fr';
-+      component.search();
-+      respond(last(), { content: tenOwners, totalElements: 26 });
++      expect(getOwnerPage.calls.allArgs()).toEqual([
++        [{...FIRST_PAGE, sort: 'city,asc'}],
++        [{...FIRST_PAGE, sort: 'city,desc'}],
++        [{...FIRST_PAGE, sort: 'city,asc'}]]);
++      expect(await city.getSortDirection()).toBe('asc');
++    });
 +
-+      component.lastName = 'Typed but not submitted';
++    it('sorts from the keyboard', async () => {
++      fixture.detectChanges();
++      const name = await loader.getHarness(MatSortHeaderHarness.with({label: 'Name'}));
++      getOwnerPage.calls.reset();
++
++      await (await name.host()).sendKeys(TestKey.ENTER);
++
++      expect(getOwnerPage.calls.allArgs()).toEqual([[{...FIRST_PAGE, sort: 'name,desc'}]]);
++    });
++
++    it('a search from a later page keeps the sort, restarts from page 0, and is sent once', async () => {
++      fixture.detectChanges();
++      await (await loader.getHarness(MatSortHeaderHarness.with({label: 'City'}))).click();
++      await (await loader.getHarness(MatSortHeaderHarness.with({label: 'City'}))).click();
++      await (await loader.getHarness(MatPaginatorHarness)).goToNextPage();
++      getOwnerPage.calls.reset();
++
++      submitSearch('Fr');
++
++      expect(getOwnerPage.calls.allArgs()).toEqual([[{lastName: 'Fr', page: 0, size: 10, sort: 'city,desc'}]]);
++    });
++
++    it('paging uses the submitted prefix, not the text typed since', async () => {
++      fixture.detectChanges();
++      submitSearch('Fr');
++      component.lastName = 'Dav';
++      getOwnerPage.calls.reset();
++
 +      await (await loader.getHarness(MatPaginatorHarness)).goToNextPage();
 +
-+      expect(last().query.lastName).toBe('Fr');
++      expect(lastQuery()).toEqual({...FIRST_PAGE, lastName: 'Fr', page: 1});
 +    });
    });
  
@@ -1029,74 +1005,103 @@ index 7c111ba1..f07fb17f 100644
 -    const initialLoad = new Subject<Owner[]>();
 -    getOwnersSpy.and.returnValue(initialLoad);
 -    fixture.detectChanges();
-+  describe('only the latest request answers', () => {
-+    it('a late initial load cannot overwrite a search', () => {
-+      const initialLoad = requests[0];
-+      component.lastName = 'Davis';
-+      component.search();
-+      const search = last();
++  describe('latest request wins', () => {
++    let initial: Subject<OwnerPage>;
++    let latest: Subject<OwnerPage>;
++
++    beforeEach(() => {
++      initial = new Subject();
++      latest = new Subject();
++      getOwnerPage.and.returnValues(initial, latest);
++      fixture.detectChanges();
++      submitSearch('Franklin');
++    });
++
++    it('a late answer to an earlier request is ignored', () => {
++      latest.next({content: [owner(7)], totalElements: 1});
++      initial.next(pageOf(10, 26));
++      fixture.detectChanges();
++
++      expect(component.owners.map(o => o.id)).toEqual([7]);
++      expect(component.totalElements).toBe(1);
++      expect(component.loading).toBeFalse();
++    });
++
++    it('the earlier request cannot end the loading of the latest', () => {
++      initial.next(pageOf(10, 26));
++      initial.complete();
  
 -    component.searchByLastName('Franklin');
 -    initialLoad.next([testOwner, {...testOwner, id: 2, lastName: 'Davis'}]);
-+      respond(search, { content: [owner(2, 'Davis')], totalElements: 1 });
-+      respond(initialLoad, { content: tenOwners, totalElements: 26 });
- 
--    expect(component.owners).toEqual([testOwner]);
-+      expect(component.owners).toEqual([owner(2, 'Davis')]);
-+      expect(component.totalElements).toBe(1);
-+    });
-+
-+    it('a stale request neither fails nor ends the loading of the latest one', () => {
-+      const stale = requests[0];
-+      component.search();
-+
-+      stale.response.error('boom');
-+      stale.response.complete();
-+      fixture.detectChanges();
-+
-+      expect(component.errorMessage).toBeNull();
 +      expect(component.loading).toBeTrue();
 +    });
 +
-+    it('leaving the screen cancels the request in flight', () => {
-+      const inFlight = requests[0];
++    it('a late failure of an earlier request shows no error', () => {
++      initial.error('boom');
++      fixture.detectChanges();
 +
++      expect(component.errorMessage).toBeFalsy();
++      expect(errorAlert()).toBeNull();
++    });
++
++    it('leaving the screen cancels the outstanding request', () => {
 +      fixture.destroy();
-+
-+      expect(inFlight.response.observers.length).toBe(0);
+ 
+-    expect(component.owners).toEqual([testOwner]);
++      expect(latest.observers.length).toBe(0);
 +    });
    });
  
 +  describe('empty results and failures', () => {
-+    it('no match shows the no-owners message with the submitted prefix and hides the paginator', () => {
-+      component.lastName = 'Zz';
-+      component.search();
-+      component.lastName = 'edited after submitting';
-+      respond(last(), { content: [], totalElements: 0 });
-+
-+      expect(text('#noOwners')).toContain('No owners with last name starting with "Zz"');
-+      expect(fixture.debugElement.query(By.directive(MatPaginator))).toBeNull();
-+    });
-+
-+    it('an empty page past the end keeps the paginator and claims no missing owners', () => {
-+      respond(requests[0], { content: [], totalElements: 26 });
-+
-+      expect(text('#noOwners')).toBeNull();
-+      expect(fixture.debugElement.query(By.directive(MatPaginator))).not.toBeNull();
-+    });
-+
-+    it('a failure is shown as an error, not as an empty search', () => {
-+      requests[0].response.error('server returned code 500');
++    it('zero matches: message with the submitted prefix, no paginator', () => {
++      getOwnerPage.and.returnValue(of({content: [], totalElements: 0}));
++      fixture.detectChanges();
++      submitSearch('Zzz');
++      component.lastName = 'typed later';
 +      fixture.detectChanges();
 +
-+      expect(text('#ownersError')).toContain('server returned code 500');
-+      expect(text('#noOwners')).toBeNull();
++      expect(noOwnersMessage().nativeElement.textContent).toContain('"Zzz"');
++      expect(paginator()).toBeNull();
++      expect(addOwnerButton()).toBeTruthy();
++    });
++
++    it('an empty page beyond a nonzero total keeps navigation and claims no "no matches"', async () => {
++      getOwnerPage.and.returnValues(of(pageOf(10, 26)), of({content: [], totalElements: 26}));
++      fixture.detectChanges();
++      const pager = await loader.getHarness(MatPaginatorHarness);
++
++      await pager.goToNextPage();
++
++      expect(rows().length).toBe(0);
++      expect(noOwnersMessage()).toBeNull();
++      expect(await pager.isPreviousPageDisabled()).toBeFalse();
++    });
++
++    it('a failure shows an explicit error, not "no matches"', () => {
++      getOwnerPage.and.returnValue(throwError('server returned code 500'));
++      fixture.detectChanges();
++
++      expect(errorAlert().nativeElement.textContent).toContain('server returned code 500');
++      expect(noOwnersMessage()).toBeNull();
++      expect(rows().length).toBe(0);
++      expect(addOwnerButton()).toBeTruthy();
 +      expect(component.loading).toBeFalse();
++    });
++
++    it('a later success clears the error', () => {
++      getOwnerPage.and.returnValues(throwError('boom'), of(pageOf(3, 3)));
++      fixture.detectChanges();
++
++      submitSearch('');
++
++      expect(errorAlert()).toBeNull();
++      expect(rows().length).toBe(3);
++      expect(text()).not.toContain('boom');
 +    });
 +  });
  });
 diff --git a/petclinic-frontend/src/app/owners/owner.service.spec.ts b/petclinic-frontend/src/app/owners/owner.service.spec.ts
-index 4d2f5a14..135e54d4 100644
+index 4d2f5a14..c8aa046b 100644
 --- a/petclinic-frontend/src/app/owners/owner.service.spec.ts
 +++ b/petclinic-frontend/src/app/owners/owner.service.spec.ts
 @@ -8,6 +8,7 @@ import { HttpResponse } from '@angular/common/http';
@@ -1107,7 +1112,7 @@ index 4d2f5a14..135e54d4 100644
  
  describe('OwnerService', () => {
    let httpTestingController: HttpTestingController;
-@@ -48,14 +49,55 @@ describe('OwnerService', () => {
+@@ -48,14 +49,63 @@ describe('OwnerService', () => {
      httpTestingController.verify();
    });
  
@@ -1115,64 +1120,71 @@ index 4d2f5a14..135e54d4 100644
 -    ownerService
 -      .getOwners()
 -      .subscribe((owners) => expect(owners).toEqual(expectedOwners), fail);
-+  const expectedPage: OwnerPage = { content: expectedOwners, totalElements: 26 };
++  const expectedPage: OwnerPage = {content: expectedOwners, totalElements: 26};
 +
-+  it('without a query, leaves page, size, sort and filter to the API defaults', () => {
-+    let received: OwnerPage | undefined;
-+    ownerService.getOwners().subscribe((page) => received = page, fail);
++  it('getOwnerPage without a query relies on the server defaults', () => {
++    ownerService.getOwnerPage()
++      .subscribe((page) => expect(page).toEqual(expectedPage), fail);
  
      const req = httpTestingController.expectOne(ownerService.entityUrl);
      expect(req.request.method).toEqual('GET');
 -    req.flush(expectedOwners);
 +    expect(req.request.params.keys()).toEqual([]);
 +    req.flush(expectedPage);
-+
-+    expect(received).toEqual(expectedPage);
-+    expect(received?.totalElements).toBe(26);
 +  });
 +
-+  it('sends the filter, page, size and sort as query parameters', () => {
-+    ownerService
-+      .getOwners({ lastName: 'Fr', page: 2, size: 5, sort: 'city,desc' })
++  it('getOwnerPage sends filter, page, size and sort', () => {
++    ownerService.getOwnerPage({lastName: 'Fr', page: 2, size: 20, sort: 'city,desc'})
 +      .subscribe((page) => expect(page).toEqual(expectedPage), fail);
 +
 +    const req = httpTestingController.expectOne(
-+      (r) => r.url === ownerService.entityUrl && r.method === 'GET'
-+    );
-+    expect(req.request.urlWithParams).toEqual(
-+      ownerService.entityUrl + '?lastName=Fr&page=2&size=5&sort=city,desc'
-+    );
++      ownerService.entityUrl + '?lastName=Fr&page=2&size=20&sort=city,desc');
++    expect(req.request.method).toEqual('GET');
 +    req.flush(expectedPage);
 +  });
 +
-+  it('percent-encodes a prefix so it reaches the API literally', () => {
-+    ownerService.getOwners({ lastName: "O'B c&d%_+" }).subscribe();
++  it('getOwnerPage yields the page envelope, never a bare array', () => {
++    let received: OwnerPage;
++    ownerService.getOwnerPage({page: 0}).subscribe((page) => received = page, fail);
++
++    httpTestingController.expectOne(() => true).flush(expectedPage);
++
++    expect(Array.isArray(received)).toBe(false);
++    expect(received.content).toEqual(expectedOwners);
++    expect(received.totalElements).toBe(26);
++  });
++
++  it('getOwnerPage encodes every reserved character of the last-name prefix', () => {
++    ownerService.getOwnerPage({lastName: "O'Hara+Co & %_=#"}).subscribe();
 +
 +    const req = httpTestingController.expectOne(() => true);
-+    expect(req.request.urlWithParams).toEqual(
-+      ownerService.entityUrl + "?lastName=O'B%20c%26d%25_%2B"
-+    );
++    expect(req.request.urlWithParams).toBe(ownerService.entityUrl + "?lastName=O'Hara%2BCo%20%26%20%25_%3D%23");
 +    req.flush(expectedPage);
 +  });
 +
-+  it('propagates a failed list request instead of turning it into an empty page', () => {
++  it('getOwnerPage sends an empty prefix, which matches every owner', () => {
++    ownerService.getOwnerPage({lastName: ''}).subscribe();
++
++    httpTestingController.expectOne(ownerService.entityUrl + '?lastName=').flush(expectedPage);
++  });
++
++  it('getOwnerPage propagates a failure instead of answering an empty page', () => {
 +    let failure: unknown;
-+    let received: OwnerPage | undefined;
-+    ownerService.getOwners({ size: 7 }).subscribe((page) => received = page, (error) => failure = error);
++    ownerService.getOwnerPage().subscribe(
++      () => fail('a failed request must not emit a page'),
++      (error) => failure = error);
 +
-+    httpTestingController.expectOne(() => true)
-+      .flush({ title: 'Validation Error' }, { status: 400, statusText: 'Bad Request' });
++    httpTestingController.expectOne(ownerService.entityUrl)
++      .flush('boom', {status: 500, statusText: 'Server Error'});
 +
-+    expect(received).toBeUndefined();
-+    expect(failure).toBeTruthy();
++    expect(failure).toBeDefined();
    });
  
    it('search the owner by id', () => {
-@@ -130,16 +172,4 @@ describe('OwnerService', () => {
-     expect(req.request.body).toEqual(null);
+@@ -131,15 +181,4 @@ describe('OwnerService', () => {
      req.flush(null);
    });
--
+ 
 -  it('search owners by last name prefix', () => {
 -    ownerService.searchOwners('Fr').subscribe((owners) => {
 -      expect(owners).toEqual(expectedOwners);
@@ -1186,14 +1198,14 @@ index 4d2f5a14..135e54d4 100644
 -  });
  });
 diff --git a/petclinic-test/src/owner-search.feature b/petclinic-test/src/owner-search.feature
-index fe2dd8c9..838e6d23 100644
+index fe2dd8c9..2cf906e9 100644
 --- a/petclinic-test/src/owner-search.feature
 +++ b/petclinic-test/src/owner-search.feature
 @@ -1,6 +1,6 @@
  Feature: Search owners by last name
    As a clinic user
 -  I want to filter owners by typing part of a last name
-+  I want to filter owners by typing part of a last name, and page through the matches
++  I want to filter owners by typing part of a last name, a page at a time
    So that I can quickly find the owners I care about
  
    Background:
@@ -1202,34 +1214,34 @@ index fe2dd8c9..838e6d23 100644
  
    @generate_sequence
 -  Scenario: Searching with an empty last name lists every owner
-+  Scenario: Searching with an empty last name shows the first page of every owner
++  Scenario: Searching with an empty last name lists the first page of every owner
      When I open the owners page
      And I search owners for ""
 -    Then every owner in the clinic is listed
-+    Then the first 10 owners by name are listed, out of every owner in the clinic
++    Then the first 10 owners by "name,asc" are listed in order
++    And the range reads "1 – 10" of every owner
 +
-+  Scenario: Paging through every owner, 5 at a time
++  Scenario: Paging forward reaches every owner exactly once
 +    When I open the owners page
-+    And I show 5 owners per page
-+    And I page through to the last page
-+    Then every owner in the clinic was listed once, in name order
++    And I show 20 owners per page
++    And I page forward to the last page
++    Then every owner was listed exactly once, by name
 +
-+  Scenario: Sorting by city, then reversing it
++  Scenario: Sorting by city, descending
 +    When I open the owners page
-+    And I sort the owners by "City"
-+    Then the first 10 owners by "city,asc" are listed
-+    When I sort the owners by "City"
-+    Then the first 10 owners by "city,desc" are listed
++    And I sort owners by "City" "descending"
++    Then the first 10 owners by "city,desc" are listed in order
 +
 +  Scenario: Changing the page size returns to the first page
 +    When I open the owners page
 +    And I go to the next page
-+    And I show 20 owners per page
-+    Then the first 20 owners by "name,asc" are listed
++    And I show 5 owners per page
++    Then the range reads "1 – 5" of every owner
 +
-+  Scenario: Searching from a later page returns to the first page of the matches
++  Scenario: A new search returns to the first page and keeps the sort
 +    When I open the owners page
++    And I sort owners by "City" "ascending"
 +    And I go to the next page
 +    And I search owners for "Pot"
-+    Then exactly these owners are listed: "Beatrix Potter, Harry Potter"
-+    And the paginator reads "1 – 2 of 2"
++    Then these owners are listed in order: "Harry Potter, Beatrix Potter"
++    And the range reads "1 – 2 of 2"

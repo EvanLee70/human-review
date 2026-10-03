@@ -27,15 +27,15 @@
         }
       ]
     },
-    "075m496": {
-      "title": "SELECT o FROM Owner o LEFT JOIN FETCH o.pets p LEFT JOIN FETCH p.type …",
+    "1cn3tpo": {
+      "title": "SELECT DISTINCT o FROM Owner o LEFT JOIN FETCH o.pets p LEFT JOIN FETCH …",
       "steps": [
         {
           "label": "",
-          "text": "SELECT o1_0.id, o1_0.address, o1_0.city, o1_0.first_name, o1_0.last_name, p1_0.owner_id, p1_0.id, p1_0.birth_date, p1_0.name, t1_0.id, t1_0.name, v1_0.pet_id, v1_0.id, v1_0.visit_date, v1_0.description, v1_0.visit_time, o1_0.telephone\nFROM owners o1_0\nLEFT JOIN pets p1_0\nON o1_0.id=p1_0.owner_id\nLEFT JOIN types t1_0\nON t1_0.id=p1_0.type_id\nLEFT JOIN visits v1_0\nON p1_0.id=v1_0.pet_id\nWHERE o1_0.id in (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "text": "SELECT distinct o1_0.id, o1_0.address, o1_0.city, o1_0.first_name, o1_0.last_name, p1_0.owner_id, p1_0.id, p1_0.birth_date, p1_0.name, t1_0.id, t1_0.name, v1_0.pet_id, v1_0.id, v1_0.visit_date, v1_0.description, v1_0.visit_time, o1_0.telephone\nFROM owners o1_0\nLEFT JOIN pets p1_0\nON o1_0.id=p1_0.owner_id\nLEFT JOIN types t1_0\nON t1_0.id=p1_0.type_id\nLEFT JOIN visits v1_0\nON p1_0.id=v1_0.pet_id\nWHERE o1_0.id in (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           "alternate": {
             "label": "",
-            "text": "SELECT o1_0.id, o1_0.address, o1_0.city, o1_0.first_name, o1_0.last_name, p1_0.owner_id, p1_0.id, p1_0.birth_date, p1_0.name, t1_0.id, t1_0.name, v1_0.pet_id, v1_0.id, v1_0.visit_date, v1_0.description, v1_0.visit_time, o1_0.telephone\nFROM owners o1_0\nLEFT JOIN pets p1_0\nON o1_0.id=p1_0.owner_id\nLEFT JOIN types t1_0\nON t1_0.id=p1_0.type_id\nLEFT JOIN visits v1_0\nON p1_0.id=v1_0.pet_id\nWHERE o1_0.id in (9, 12, 11, 17, 25, 10, 15, 23, 19, 18)"
+            "text": "SELECT distinct o1_0.id, o1_0.address, o1_0.city, o1_0.first_name, o1_0.last_name, p1_0.owner_id, p1_0.id, p1_0.birth_date, p1_0.name, t1_0.id, t1_0.name, v1_0.pet_id, v1_0.id, v1_0.visit_date, v1_0.description, v1_0.visit_time, o1_0.telephone\nFROM owners o1_0\nLEFT JOIN pets p1_0\nON o1_0.id=p1_0.owner_id\nLEFT JOIN types t1_0\nON t1_0.id=p1_0.type_id\nLEFT JOIN visits v1_0\nON p1_0.id=v1_0.pet_id\nWHERE o1_0.id in (9, 12, 11, 17, 25, 10, 15, 23, 19, 18)"
           }
         }
       ]
@@ -110,7 +110,7 @@
         }
       ]
     },
-    "17en09j": {
+    "0uhq8yk": {
       "title": "insert for victor.training.petclinic.domain.Visit",
       "steps": [
         {
@@ -118,7 +118,7 @@
           "text": "INSERT INTO visits (visit_date, description, pet_id, visit_time)\nVALUES (?, ?, ?, ?)",
           "alternate": {
             "label": "",
-            "text": "INSERT INTO visits (visit_date, description, pet_id, visit_time)\nVALUES ('2026-05-12', 'Annual check-up 1791046492311', 11, ?)"
+            "text": "INSERT INTO visits (visit_date, description, pet_id, visit_time)\nVALUES ('2026-05-12', 'Annual check-up 1791060055012', 11, ?)"
           }
         }
       ]
@@ -132,21 +132,21 @@
         }
       ]
     },
-    "02zbtlv": {
+    "08wcj1g": {
       "title": "Test → Backend: POST /api/owners/{ownerId}/pets/{petId}/visits",
       "steps": [
         {
           "label": "request body",
-          "text": "{\n  \"description\": \"Annual check-up 1791046492311\",\n  \"date\": \"2026-05-12\"\n}"
+          "text": "{\n  \"description\": \"Annual check-up 1791060055012\",\n  \"date\": \"2026-05-12\"\n}"
         }
       ]
     },
-    "1sc355p": {
+    "1cvmnt8": {
       "title": "Backend → Test: 200",
       "steps": [
         {
           "label": "response body",
-          "text": "{\n  \"firstName\": \"Henry\",\n  \"lastName\": \"Baskerville\",\n  \"address\": \"Baskerville Hall\",\n  \"city\": \"Dartmoor\",\n  \"telephone\": \"(0044)1626832093\",\n  \"id\": 9,\n  \"pets\": [\n    {\n      \"name\": \"Baskerville\",\n      \"birthDate\": \"2017-02-24\",\n      \"type\": {\n        \"name\": \"dog\",\n        \"id\": 2\n      },\n      \"id\": 11,\n      \"ownerId\": 9,\n      \"visits\": [\n        {\n          \"date\": \"2026-05-12\",\n          \"description\": \"Annual check-up 1791046492311\",\n          \"id\": 29,\n          \"petId\": 11,\n          \"petName\": \"Baskerville\",\n          \"ownerId\": 9,\n          \"ownerFirstName\": \"Henry\",\n          \"ownerLastName\": \"Baskerville\"\n        }\n      ]\n    }\n  ]\n}"
+          "text": "{\n  \"firstName\": \"Henry\",\n  \"lastName\": \"Baskerville\",\n  \"address\": \"Baskerville Hall\",\n  \"city\": \"Dartmoor\",\n  \"telephone\": \"(0044)1626832093\",\n  \"id\": 9,\n  \"pets\": [\n    {\n      \"name\": \"Baskerville\",\n      \"birthDate\": \"2017-02-24\",\n      \"type\": {\n        \"name\": \"dog\",\n        \"id\": 2\n      },\n      \"id\": 11,\n      \"ownerId\": 9,\n      \"visits\": [\n        {\n          \"date\": \"2026-05-12\",\n          \"description\": \"Annual check-up 1791060055012\",\n          \"id\": 29,\n          \"petId\": 11,\n          \"petName\": \"Baskerville\",\n          \"ownerId\": 9,\n          \"ownerFirstName\": \"Henry\",\n          \"ownerLastName\": \"Baskerville\"\n        }\n      ]\n    }\n  ]\n}"
         }
       ]
     }

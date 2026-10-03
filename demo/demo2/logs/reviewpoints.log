@@ -1,40 +1,37 @@
   * reviewpoints -> review
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/review-points.py --root . --out .human-review/review-points.json
-review-points.md: 28 item(s) in 6 fixed, 11 ignored, 11 assumptions
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/2846de95968e/skills/human-review/scripts/review-points.py --root . --out .human-review/review-points.json
+review-points.md: 25 item(s) in 5 fixed, 13 ignored, 7 assumptions
   Fixed        (Fixed)
-      · Sort header snapped back to Name asc when the table was rebuilt   [2 ref, 2 snippet, medium, from correctness reviewer, ticket-fit reviewer]
-      · Caller-supplied values echoed into the log on 400s   [2 ref, 2 snippet, medium, from security reviewer]
-      · Query-budget ordering assertion passed when no pets query existed   [1 ref, 1 snippet, low, from tests reviewer]
-      · Invalid-input test accepted any 400   [1 ref, 1 snippet, low, from tests reviewer]
-      · Add Owner in the error state was not pinned by any test   [1 ref, 1 snippet, low, from tests reviewer]
-      · Two added lines over 119 characters   [2 ref, 2 snippet, low, from pre-push hook]
+      · A failed page load left paginator and sort describing an unloaded page   [3 ref, 3 snippet, medium, from correctness, tests and ticket-fit reviewers]
+      · Type-mismatch 400 echoed raw caller input into the log and body   [2 ref, 2 snippet, low, from security and correctness reviewers]
+      · Invalid-parameter tests asserted only the HTTP status   [1 ref, 1 snippet, low, from tests reviewer]
+      · release.md stated verifications without saying where they came from   [2 ref, 2 snippet, low, from ticket-fit reviewer]
+      · Sonar: generic length assertions and mutable injected members   [4 ref, 4 snippet, info, from CI (SonarCloud)]
   Ignored      (Ignored)
-      · Owner deleted between page query and graph fetch fails the list with 5   [1 ref, 1 snippet, medium, from correctness, security and tests reviewers]
-      · Error view hides the paginator, so a failed page cannot be retried   [1 ref, 1 snippet, low, from correctness reviewer]
-      · Prefix index may be skipped under a generic prepared-statement plan   [1 ref, 1 snippet, low, from correctness reviewer]
-      · Index tests check existence, not that queries use them   [1 ref, 1 snippet, low, from tests reviewer]
-      · Deep page index runs a deep OFFSET plus a COUNT   [1 ref, 1 snippet, low, from security reviewer]
-      · Unbounded lastName length in the prefix query   [1 ref, 1 snippet, low, from security reviewer]
-      · Component error spec feeds a plain string, not the service&#x27;s erro   [1 ref, 1 snippet, low, from tests reviewer]
-      · HttpParams sends &quot;+&quot; unencoded, read back as a space   [1 ref, 1 snippet, info, from ticket-fit reviewer]
-      · Name shows &quot;First Last&quot; but sorts by last name   [1 ref, 1 snippet, low, from ticket-fit reviewer]
-      · Comment on #25 and Bizu notification left undone   [1 ref, 1 snippet, low, from ticket-fit reviewer]
-      · First/last buttons and index migration were not asked for   [1 ref, 1 snippet, info, from ticket-fit reviewer]
+      · Deep page offsets as an unauthenticated DoS through huge OFFSET scans   [1 ref, 1 snippet, info, from security reviewer]
+      · lastName has no server-side length cap   [1 ref, 1 snippet, low, from security reviewer]
+      · Task 4.4 not done: no comment on #25, Bizu not told   [1 ref, 1 snippet, medium, from ticket-fit reviewer]
+      · Global handler turns every controller&#x27;s type-mismatch 500 into 40   [1 ref, 1 snippet, medium, from ticket-fit reviewer]
+      · Add Owner now always rendered, outside the table   [1 ref, 1 snippet, low, from ticket-fit reviewer]
+      · Hand-rolled query codec, getOwners/searchOwners removed   [1 ref, 1 snippet, low, from ticket-fit reviewer]
+      · Owner deleted between page query and graph fetch makes the list 500   [1 ref, 1 snippet, medium, from correctness and tests reviewers]
+      · Latency proxy test now needs exactly 10 owners and was never run   [1 ref, 1 snippet, low, from tests reviewer]
+      · Index tests check existence, not that queries use them   [1 ref, 1 snippet, medium, from tests reviewer]
+      · City-sort test orders with Java compareTo, not DB collation   [1 ref, 1 snippet, low, from tests reviewer]
+      · A failed first load leaves nothing to retry   [1 ref, 1 snippet, info, from correctness reviewer]
+      · Sonar: duplicated literal &quot;Validation failed: {}&quot;   [1 ref, 1 snippet, low, from CI (SonarCloud)]
+      · Sonar: prefer String#replaceAll   [1 ref, 1 snippet, info, from CI (SonarCloud)]
   Assumptions  (Assumptions)
-      · A non-numeric parameter is a 400 on every endpoint, not just the list   [1 ref, 1 snippet, confidence 0.65]
-      · On a failed request, rows are cleared and the table hidden   [1 ref, 1 snippet, confidence 0.55]
-      · Add Owner is shown in every state, including loading and error   [1 ref, 1 snippet, confidence 0.8]
-      · An empty sort= or size= falls back to the default instead of a 400   [1 ref, 1 snippet, confidence 0.6]
-      · Sort tokens are exact lowercase; name,ASC is rejected   [1 ref, 1 snippet, confidence 0.7]
-      · &quot;Unrepresentable page&quot; means page times size overflows the o   [1 ref, 1 snippet, confidence 0.8]
-      · Page size documented as a 5–20 range, not an enum   [1 ref, 1 snippet, confidence 0.7]
-      · The service omits absent parameters; the component always sends all fo   [1 ref, 1 snippet, confidence 0.85]
-      · Graph fetch without SQL DISTINCT   [1 ref, 1 snippet, confidence 0.9]
-      · Pets cell rendered as divs, not nested table rows   [1 ref, 1 snippet, confidence 0.85]
-      · User manual text updated, screenshot left stale   [1 ref, 1 snippet, confidence 0.6]
+      · A type mismatch on any endpoint answers 400, not 500   [1 ref, 1 snippet, confidence 0.6]
+      · Empty size=, sort=, page= fall back to the defaults   [1 ref, 1 snippet, confidence 0.5]
+      · A page whose offset overflows an int is a 400   [1 ref, 1 snippet, confidence 0.75]
+      · On a failed load the last loaded page stays, with its controls   [1 ref, 1 snippet, confidence 0.6]
+      · Every list request sends all four parameters explicitly   [1 ref, 1 snippet, confidence 0.85]
+      · Commas stay unescaped in query values   [1 ref, 1 snippet, confidence 0.8]
+      · The last-name prefix is submitted untrimmed   [1 ref, 1 snippet, confidence 0.75]
   fixed in     HEAD
-  base: eb6a0d1f58053105682bba4325dcc66f808b29f5 · implementation: 5904ae081a46ac1f15c144d33846cbf6fe5635a6 · reviewers: 4 read-only Sonnet subagents (correctness, security, tests, ticket-fit) + pre-push hook · session: ca22c4c3-183a-49e8-b215-28211e9e12b7
+  base: eb6a0d1f58053105682bba4325dcc66f808b29f5 · implementation: fdd38d681e0bc9d8e6b97461705e40dd0d8676ca · reviewers: 4 read-only subagents (correctness, security, tests, ticket-fit; sonnet) + CI/SonarCloud · session: 33e81a92-5167-4f48-a157-691425b82012
   wrote  .human-review/review-points.json
-[review-points] WARNING: Fixed: 'Sort header snapped back to Name asc when the table was rebu' (line 16) — `file: petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts:259-276` spans 18 lines; anchor the lines that do the thing (the page opens 12 and folds the rest).
+[review-points] WARNING: Fixed: 'A failed page load left paginator and sort describing an unl' (line 16) — `file: petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts:261-275` spans 15 lines; anchor the lines that do the thing (the page opens 12 and folds the rest).
     $ git merge-base eb6a0d1f58053105682bba4325dcc66f808b29f5 HEAD
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/review-commits.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --json
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/2846de95968e/skills/human-review/scripts/review-commits.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --json

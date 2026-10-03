@@ -71,7 +71,7 @@
         }
       ]
     },
-    "0iub9z5": {
+    "0kd99ki": {
       "title": "insert for victor.training.petclinic.domain.Visit",
       "steps": [
         {
@@ -79,7 +79,7 @@
           "text": "INSERT INTO visits (visit_date, description, pet_id, visit_time)\nVALUES (?, ?, ?, ?)",
           "alternate": {
             "label": "",
-            "text": "INSERT INTO visits (visit_date, description, pet_id, visit_time)\nVALUES ('2026-05-12', 'Annual check-up 1791046453655', 11, ?)"
+            "text": "INSERT INTO visits (visit_date, description, pet_id, visit_time)\nVALUES ('2026-05-12', 'Annual check-up 1791060014439', 11, ?)"
           }
         }
       ]
@@ -93,21 +93,21 @@
         }
       ]
     },
-    "08usg7u": {
+    "0g26fyl": {
       "title": "Browser → Backend: POST /api/owners/{ownerId}/pets/{petId}/visits",
       "steps": [
         {
           "label": "request body",
-          "text": "{\n  \"date\": \"2026-05-12\",\n  \"description\": \"Annual check-up 1791046453655\",\n  \"id\": null,\n  \"pet\": {\n    \"name\": \"Baskerville\",\n    \"birthDate\": \"2017-02-24\",\n    \"type\": {\n      \"name\": \"dog\",\n      \"id\": 2\n    },\n    \"id\": 11,\n    \"ownerId\": 9,\n    \"visits\": []\n  }\n}"
+          "text": "{\n  \"date\": \"2026-05-12\",\n  \"description\": \"Annual check-up 1791060014439\",\n  \"id\": null,\n  \"pet\": {\n    \"name\": \"Baskerville\",\n    \"birthDate\": \"2017-02-24\",\n    \"type\": {\n      \"name\": \"dog\",\n      \"id\": 2\n    },\n    \"id\": 11,\n    \"ownerId\": 9,\n    \"visits\": []\n  }\n}"
         }
       ]
     },
-    "0lvbb3r": {
+    "041zhcq": {
       "title": "Backend → Browser: 200",
       "steps": [
         {
           "label": "response body",
-          "text": "{\n  \"firstName\": \"Henry\",\n  \"lastName\": \"Baskerville\",\n  \"address\": \"Baskerville Hall\",\n  \"city\": \"Dartmoor\",\n  \"telephone\": \"(0044)1626832093\",\n  \"id\": 9,\n  \"pets\": [\n    {\n      \"name\": \"Baskerville\",\n      \"birthDate\": \"2017-02-24\",\n      \"type\": {\n        \"name\": \"dog\",\n        \"id\": 2\n      },\n      \"id\": 11,\n      \"ownerId\": 9,\n      \"visits\": [\n        {\n          \"date\": \"2026-05-12\",\n          \"description\": \"Annual check-up 1791046453655\",\n          \"id\": 29,\n          \"petId\": 11,\n          \"petName\": \"Baskerville\",\n          \"ownerId\": 9,\n          \"ownerFirstName\": \"Henry\",\n          \"ownerLastName\": \"Baskerville\"\n        }\n      ]\n    }\n  ]\n}"
+          "text": "{\n  \"firstName\": \"Henry\",\n  \"lastName\": \"Baskerville\",\n  \"address\": \"Baskerville Hall\",\n  \"city\": \"Dartmoor\",\n  \"telephone\": \"(0044)1626832093\",\n  \"id\": 9,\n  \"pets\": [\n    {\n      \"name\": \"Baskerville\",\n      \"birthDate\": \"2017-02-24\",\n      \"type\": {\n        \"name\": \"dog\",\n        \"id\": 2\n      },\n      \"id\": 11,\n      \"ownerId\": 9,\n      \"visits\": [\n        {\n          \"date\": \"2026-05-12\",\n          \"description\": \"Annual check-up 1791060014439\",\n          \"id\": 29,\n          \"petId\": 11,\n          \"petName\": \"Baskerville\",\n          \"ownerId\": 9,\n          \"ownerFirstName\": \"Henry\",\n          \"ownerLastName\": \"Baskerville\"\n        }\n      ]\n    }\n  ]\n}"
         }
       ]
     }

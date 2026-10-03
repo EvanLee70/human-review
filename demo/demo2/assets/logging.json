@@ -198,24 +198,24 @@
         "evidence": "declared `Logger log`",
         "confidence": "declared",
         "method": "warn",
-        "format": "\"Invalid value for parameter '{}'\"",
+        "format": "\"Validation failed: {}\"",
         "args": [
-          "ex.getName()"
+          "detail"
         ],
-        "raw_line": "        log.warn(\"Invalid value for parameter '{}'\", ex.getName());",
-        "text": "log.warn(\"Invalid value for parameter '{}'\", ex.getName())",
+        "raw_line": "        log.warn(\"Validation failed: {}\", detail);",
+        "text": "log.warn(\"Validation failed: {}\", detail)",
         "method_start": 85,
         "method_end": 93,
         "origins": [
           {
-            "line": 86,
-            "name": "ex",
-            "kind": "param",
-            "text": ""
+            "line": 89,
+            "name": "detail",
+            "kind": "local",
+            "text": "\"Invalid value for parameter '\" + ex.getName() + \"'\""
           }
         ],
         "arg_types": [
-          null
+          "String"
         ],
         "change": "added",
         "was": "",
@@ -672,34 +672,34 @@
           "line": 32,
           "name": "OWNERS",
           "type": "String",
-          "text": "public static final String OWNERS = \"\"\"\n            {\n              \"content\": [\n                { \"id\": 1, \"firstName\": \"Betty\", \"lastName\": \"Davis\", \"address\": \"638 Cardinal Ave.\",\n                  \"city\": \"Sun Prairie\", \"telephone\": \"6085551749\", \"pets\": [] },\n                { \"id\": 2, \"firstName\": \"George\", \"lastName\": \"Franklin\", \"address\": \"110 W. Liberty St.\",\n                  \"city\": \"Madison\", \"telephone\": \"6085551023\",\n                  \"pets\": [ { \"id\": 1, \"name\": \"Leo\", \"birthDate\": \"2010-09-07\",\n                              \"type\": { \"id\": 1, \"name\": \"cat\" }, \"ownerId\": 2,\n                              \"visits\": [ { \"id\": 1, \"date\": \"2013-01-01\", \"description\": \"rabies shot\",\n                                            \"petId\": 1 } ] } ] }\n              ],\n              \"totalElements\": 26\n            }\"\"\";"
+          "text": "public static final String OWNERS = \"\"\"\n            {\n              \"content\": [\n                { \"id\": 1, \"firstName\": \"George\", \"lastName\": \"Franklin\", \"address\": \"110 W. Liberty St.\",\n                  \"city\": \"Madison\", \"telephone\": \"6085551023\",\n                  \"pets\": [ { \"id\": 1, \"name\": \"Leo\", \"birthDate\": \"2010-09-07\",\n                              \"type\": { \"id\": 1, \"name\": \"cat\" }, \"ownerId\": 1, \"visits\": [] } ] },\n                { \"id\": 2, \"firstName\": \"Betty\", \"lastName\": \"Davis\", \"address\": \"638 Cardinal Ave.\",\n                  \"city\": \"Sun Prairie\", \"telephone\": \"6085551749\", \"pets\": [] }\n              ],\n              \"totalElements\": 26\n            }\"\"\";"
         },
         {
-          "line": 47,
+          "line": 45,
           "name": "PETS",
           "type": "String",
           "text": "public static final String PETS = \"\"\"\n            [\n              { \"id\": 1, \"name\": \"Leo\", \"birthDate\": \"2010-09-07\", \"type\": { \"id\": 1, \"name\": \"cat\" },\n                \"ownerId\": 1, \"visits\": [] },\n              { \"id\": 2, \"name\": \"Basil\", \"birthDate\": \"2012-08-06\", \"type\": { \"id\": 2, \"name\": \"hamster\" },\n                \"ownerId\": 2,\n                \"visits\": [ { \"id\": 1, \"date\": \"2013-01-01\", \"description\": \"rabies shot\", \"petId\": 2 } ] }\n            ]\"\"\";"
         },
         {
-          "line": 56,
+          "line": 54,
           "name": "VISITS",
           "type": "String",
           "text": "public static final String VISITS = \"\"\"\n            [\n              { \"id\": 1, \"date\": \"2013-01-01\", \"description\": \"rabies shot\", \"petId\": 7 },\n              { \"id\": 2, \"date\": \"2013-01-02\", \"description\": \"annual checkup\", \"petId\": 8 }\n            ]\"\"\";"
         },
         {
-          "line": 62,
+          "line": 60,
           "name": "SPECIALTIES",
           "type": "String",
           "text": "public static final String SPECIALTIES = \"\"\"\n            [\n              { \"id\": 1, \"name\": \"radiology\", \"description\": \"x-rays, broken bones, imaging\" },\n              { \"id\": 2, \"name\": \"surgery\", \"description\": \"operations, spaying, neutering\" },\n              { \"id\": 3, \"name\": \"dentistry\", \"description\": \"teeth cleaning, extractions\" }\n            ]\"\"\";"
         },
         {
-          "line": 69,
+          "line": 67,
           "name": "PET_TYPES",
           "type": "String",
           "text": "public static final String PET_TYPES = \"\"\"\n            [\n              { \"id\": 1, \"name\": \"cat\" },\n              { \"id\": 2, \"name\": \"dog\" },\n              { \"id\": 3, \"name\": \"hamster\" }\n            ]\"\"\";"
         }
       ],
-      "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java": [
+      "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerPageRequest.java": [
         {
           "line": 15,
           "name": "PAGE_SIZES",
@@ -721,55 +721,55 @@
       ],
       "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java": [
         {
-          "line": 62,
+          "line": 63,
           "name": "ownerRepository",
           "type": "OwnerRepository",
           "text": "private final OwnerRepository ownerRepository;"
         },
         {
-          "line": 63,
+          "line": 64,
           "name": "petRepository",
           "type": "PetRepository",
           "text": "private final PetRepository petRepository;"
         },
         {
-          "line": 64,
+          "line": 65,
           "name": "visitRepository",
           "type": "VisitRepository",
           "text": "private final VisitRepository visitRepository;"
         },
         {
-          "line": 65,
+          "line": 66,
           "name": "petTypeRepository",
           "type": "PetTypeRepository",
           "text": "private final PetTypeRepository petTypeRepository;"
         },
         {
-          "line": 67,
+          "line": 68,
           "name": "ownerMapper",
           "type": "OwnerMapper",
           "text": "private final OwnerMapper ownerMapper;"
         },
         {
-          "line": 69,
+          "line": 70,
           "name": "petMapper",
           "type": "PetMapper",
           "text": "private final PetMapper petMapper;"
         },
         {
-          "line": 71,
+          "line": 72,
           "name": "visitMapper",
           "type": "VisitMapper",
           "text": "private final VisitMapper visitMapper;"
         },
         {
-          "line": 73,
+          "line": 74,
           "name": "notificationSender",
           "type": "NotificationSender",
           "text": "private final NotificationSender notificationSender;"
         },
         {
-          "line": 75,
+          "line": 76,
           "name": "clock",
           "type": "Clock",
           "text": "private final Clock clock;"
@@ -1934,26 +1934,38 @@
       "petclinic-backend/src/test/java/victor/training/petclinic/repository/OwnerListIndexesMigrationTest.java": [
         {
           "line": 21,
-          "name": "OWNER_LIST_INDEXES",
-          "type": "List<String>",
-          "text": "private static final List<String> OWNER_LIST_INDEXES = List.of(\n            \"CREATE INDEX owners_city_order_idx ON public.owners USING btree (city, last_name, first_name, id)\",\n            \"CREATE INDEX owners_last_name_pattern_idx ON public.owners USING btree (last_name text_pattern_ops)\",\n            \"CREATE INDEX owners_name_order_idx ON public.owners USING btree (last_name, first_name, id)\");"
+          "name": "UPGRADED_SCHEMA",
+          "type": "String",
+          "text": "private static final String UPGRADED_SCHEMA = \"upgraded_from_v3\";"
+        },
+        {
+          "line": 23,
+          "name": "dataSource",
+          "type": "DataSource",
+          "text": "@Autowired\n    DataSource dataSource;"
+        },
+        {
+          "line": 25,
+          "name": "jdbc",
+          "type": "JdbcTemplate",
+          "text": "@Autowired\n    JdbcTemplate jdbc;"
         }
       ],
       "petclinic-backend/src/test/java/victor/training/petclinic/rest/AddVisitApiTest.java": [
         {
-          "line": 63,
+          "line": 62,
           "name": "VISIT_DATE",
           "type": "String",
           "text": "private static final String VISIT_DATE = \"2026-05-12\";"
         },
         {
-          "line": 65,
+          "line": 64,
           "name": "mockMvc",
           "type": "MockMvc",
           "text": "@Autowired\n    MockMvc mockMvc;"
         },
         {
-          "line": 68,
+          "line": 67,
           "name": "mapper",
           "type": "ObjectMapper",
           "text": "private final ObjectMapper mapper = new ObjectMapper();"
@@ -2015,51 +2027,89 @@
           "text": "private PetType petType;"
         }
       ],
-      "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListQueryBudgetTest.java": [
+      "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListPagingTest.java": [
         {
-          "line": 43,
-          "name": "MATCHING_OWNERS",
-          "type": "int",
-          "text": "private static final int MATCHING_OWNERS = 45;"
+          "line": 53,
+          "name": "PREFIX",
+          "type": "String",
+          "text": "private static final String PREFIX = \"Qb\";"
         },
         {
-          "line": 44,
-          "name": "PETS_PER_OWNER",
+          "line": 54,
+          "name": "OWNERS",
           "type": "int",
-          "text": "private static final int PETS_PER_OWNER = 2;"
+          "text": "private static final int OWNERS = 24;"
         },
         {
-          "line": 45,
-          "name": "VISITS_PER_PET",
-          "type": "int",
-          "text": "private static final int VISITS_PER_PET = 2;"
+          "line": 55,
+          "name": "BY_NAME",
+          "type": "Comparator<Owner>",
+          "text": "private static final Comparator<Owner> BY_NAME = comparing(Owner::getLastName).thenComparing(Owner::getFirstName)\n            .thenComparing(Owner::getId);"
         },
         {
-          "line": 47,
+          "line": 57,
+          "name": "BY_CITY",
+          "type": "Comparator<Owner>",
+          "text": "private static final Comparator<Owner> BY_CITY = comparing(Owner::getCity).thenComparing(BY_NAME);"
+        },
+        {
+          "line": 59,
           "name": "mockMvc",
           "type": "MockMvc",
           "text": "@Autowired\n    MockMvc mockMvc;"
         },
         {
-          "line": 49,
+          "line": 61,
           "name": "entityManager",
           "type": "EntityManager",
           "text": "@Autowired\n    EntityManager entityManager;"
         },
         {
-          "line": 52,
+          "line": 64,
           "name": "mapper",
           "type": "ObjectMapper",
-          "text": "final ObjectMapper mapper = new ObjectMapper();"
+          "text": "private final ObjectMapper mapper = new ObjectMapper();"
+        },
+        {
+          "line": 65,
+          "name": "owners",
+          "type": "List<Owner>",
+          "text": "private final List<Owner> owners = new ArrayList<>();"
+        },
+        {
+          "line": 66,
+          "name": "petCountByOwnerId",
+          "type": "Map<Integer, Integer>",
+          "text": "private final Map<Integer, Integer> petCountByOwnerId = new HashMap<>();"
         }
       ],
       "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java": [
         {
-          "line": 49,
-          "name": "NAME_ORDER",
-          "type": "String",
-          "text": "private static final String NAME_ORDER = \"last_name, first_name, id\";"
+          "line": 36,
+          "name": "SEEDED_OWNERS",
+          "type": "int",
+          "text": "private static final int SEEDED_OWNERS = 26;"
         },
+        {
+          "line": 38,
+          "name": "mockMvc",
+          "type": "MockMvc",
+          "text": "@Autowired\n    MockMvc mockMvc;"
+        },
+        {
+          "line": 40,
+          "name": "ownerRepository",
+          "type": "OwnerRepository",
+          "text": "@Autowired\n    OwnerRepository ownerRepository;"
+        },
+        {
+          "line": 43,
+          "name": "mapper",
+          "type": "ObjectMapper",
+          "text": "private final ObjectMapper mapper = new ObjectMapper();"
+        }
+      ],
+      "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java": [
         {
           "line": 51,
           "name": "mockMvc",
@@ -2067,99 +2117,43 @@
           "text": "@Autowired\n    MockMvc mockMvc;"
         },
         {
-          "line": 53,
-          "name": "jdbc",
-          "type": "JdbcTemplate",
-          "text": "@Autowired\n    JdbcTemplate jdbc;"
-        },
-        {
-          "line": 55,
-          "name": "ownerRepository",
-          "type": "OwnerRepository",
-          "text": "@Autowired\n    OwnerRepository ownerRepository;"
-        },
-        {
-          "line": 57,
-          "name": "petRepository",
-          "type": "PetRepository",
-          "text": "@Autowired\n    PetRepository petRepository;"
-        },
-        {
-          "line": 59,
-          "name": "petTypeRepository",
-          "type": "PetTypeRepository",
-          "text": "@Autowired\n    PetTypeRepository petTypeRepository;"
-        },
-        {
-          "line": 61,
-          "name": "visitRepository",
-          "type": "VisitRepository",
-          "text": "@Autowired\n    VisitRepository visitRepository;"
-        },
-        {
-          "line": 63,
-          "name": "entityManager",
-          "type": "EntityManager",
-          "text": "@Autowired\n    EntityManager entityManager;"
-        },
-        {
-          "line": 66,
-          "name": "mapper",
-          "type": "ObjectMapper",
-          "text": "final ObjectMapper mapper = new ObjectMapper();"
-        },
-        {
-          "line": 69,
-          "name": "annBath1",
-          "type": "int",
-          "text": "int annBath1, annBath2, bobCork, annZpgbBath, cidAvon, danCork, eveAvon;"
-        }
-      ],
-      "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java": [
-        {
-          "line": 50,
-          "name": "mockMvc",
-          "type": "MockMvc",
-          "text": "@Autowired\n    MockMvc mockMvc;"
-        },
-        {
-          "line": 53,
+          "line": 54,
           "name": "mapper",
           "type": "ObjectMapper",
           "text": "ObjectMapper mapper = new ObjectMapper()\n            .registerModule(new JavaTimeModule())\n            .setDateFormat(new SimpleDateFormat(\"yyyy-MM-dd\"))\n            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);"
         },
         {
-          "line": 58,
+          "line": 59,
           "name": "ownerRepository",
           "type": "OwnerRepository",
           "text": "@Autowired\n    OwnerRepository ownerRepository;"
         },
         {
-          "line": 61,
+          "line": 62,
           "name": "petRepository",
           "type": "PetRepository",
           "text": "@Autowired\n    PetRepository petRepository;"
         },
         {
-          "line": 64,
+          "line": 65,
           "name": "petTypeRepository",
           "type": "PetTypeRepository",
           "text": "@Autowired\n    PetTypeRepository petTypeRepository;"
         },
         {
-          "line": 67,
+          "line": 68,
           "name": "ownerId",
           "type": "int",
           "text": "int ownerId;"
         },
         {
-          "line": 68,
+          "line": 69,
           "name": "petId",
           "type": "int",
           "text": "int petId;"
         },
         {
-          "line": 69,
+          "line": 70,
           "name": "petType",
           "type": "PetType",
           "text": "PetType petType;"
@@ -2283,14 +2277,6 @@
           "name": "specialtyId",
           "type": "int",
           "text": "int specialtyId;"
-        }
-      ],
-      "petclinic-backend/src/test/java/victor/training/petclinic/rest/SqlStatementRecorder.java": [
-        {
-          "line": 10,
-          "name": "statements",
-          "type": "List<String>",
-          "text": "private static final List<String> statements = new CopyOnWriteArrayList<>();"
         }
       ],
       "petclinic-backend/src/test/java/victor/training/petclinic/rest/UserTest.java": [
@@ -2480,6 +2466,20 @@
           "type": "PasswordEncoder",
           "text": "@Autowired\n    PasswordEncoder passwordEncoder;"
         }
+      ],
+      "petclinic-backend/src/test/java/victor/training/petclinic/tools/SqlRecorder.java": [
+        {
+          "line": 11,
+          "name": "ACTIVATE",
+          "type": "String",
+          "text": "public static final String ACTIVATE = \"spring.jpa.properties.hibernate.session_factory.statement_inspector=\"\n            + \"victor.training.petclinic.tools.SqlRecorder\";"
+        },
+        {
+          "line": 13,
+          "name": "STATEMENTS",
+          "type": "List<String>",
+          "text": "private static final List<String> STATEMENTS = new CopyOnWriteArrayList<>();"
+        }
       ]
     }
   },
@@ -2497,24 +2497,24 @@
         "evidence": "declared `Logger log`",
         "confidence": "declared",
         "method": "warn",
-        "format": "\"Invalid value for parameter '{}'\"",
+        "format": "\"Validation failed: {}\"",
         "args": [
-          "ex.getName()"
+          "detail"
         ],
-        "raw_line": "        log.warn(\"Invalid value for parameter '{}'\", ex.getName());",
-        "text": "log.warn(\"Invalid value for parameter '{}'\", ex.getName())",
+        "raw_line": "        log.warn(\"Validation failed: {}\", detail);",
+        "text": "log.warn(\"Validation failed: {}\", detail)",
         "method_start": 85,
         "method_end": 93,
         "origins": [
           {
-            "line": 86,
-            "name": "ex",
-            "kind": "param",
-            "text": ""
+            "line": 89,
+            "name": "detail",
+            "kind": "local",
+            "text": "\"Invalid value for parameter '\" + ex.getName() + \"'\""
           }
         ],
         "arg_types": [
-          null
+          "String"
         ],
         "change": "added",
         "was": "",

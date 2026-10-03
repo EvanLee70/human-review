@@ -1,24 +1,24 @@
   * video -> behaviour
     $ git rev-parse HEAD
     $ git rev-parse --short HEAD
-    $ ./start-docker.sh url petclinic-de10408f
-    reusing the stack already up at http://localhost:62217
+    $ ./start-docker.sh url petclinic-7b11e1c4
+    reusing the stack already up at http://localhost:64312
     seed: reset (/__reset)
-    $ BASE_URL=http://localhost:62217 API_URL=http://localhost:62217 HUMAN_REVIEW_APP_COMMIT=de10408f602bbc32fd88c14951cbd83500d54036 HUMAN_REVIEW_APP_STARTED=1 /Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/record-feature-video.sh .human-review/assets/feature.webm
-[video] the app cannot say which commit it is; this run started it itself, from de10408f602bbc32fd88c14951cbd83500d54036
+    $ BASE_URL=http://localhost:64312 API_URL=http://localhost:64312 HUMAN_REVIEW_APP_COMMIT=7b11e1c401612b9d9fa3835b6055ee45b001357a HUMAN_REVIEW_APP_STARTED=1 /Users/victorrentea/.claude/plugins/cache/human-review/human-review/2846de95968e/skills/human-review/scripts/record-feature-video.sh .human-review/assets/feature.webm
+[video] the app cannot say which commit it is; this run started it itself, from 7b11e1c401612b9d9fa3835b6055ee45b001357a
 [video] title card: "Demo" / "Owners grid: paged and sorted by Name or City", 3.41s
-[video] feature-script.js: 1/1 changed screens filmed, 14 cues (14 with a box) -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/feature.raw.webm
+[video] feature-script.js: 1/1 changed screens filmed, 8 cues (8 with a box) -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/feature.raw.webm
 [video] viewport 1280x800 @ dpr 1
-[video] narration: 14/14 cues, 40.6s of speech, voice "Samantha"
-[video] cut 60.4s of still footage (41 stretches): 127.0s -> 66.6s
-[annotate] 226 caption states from 226 frames
-[annotate] 14 captions, 14 spotlights, 14 spoken -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/feature.webm
-[video] cut 39.4s of still footage (38 stretches): 127.0s -> 87.6s
-[annotate] 255 caption states from 255 frames
-[annotate] 14 captions, 14 spotlights, 14 spoken -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/feature.voice-trump.webm
+[video] narration: 8/8 cues, 34.9s of speech, voice "Samantha"
+[video] cut 108.2s of still footage (22 stretches): 157.1s -> 48.9s
+[annotate] 177 caption states from 177 frames
+[annotate] 8 captions, 8 spotlights, 8 spoken -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/feature.webm
+[video] cut 93.2s of still footage (22 stretches): 157.1s -> 63.9s
+[annotate] 202 caption states from 202 frames
+[annotate] 8 captions, 8 spotlights, 8 spoken -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/feature.voice-trump.webm
 [video] 🐘 voice -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/feature.voice-trump.webm
-[video] cut 28.3s of still footage (27 stretches): 127.0s -> 98.7s
-[annotate] 258 caption states from 258 frames
-[annotate] 14 captions, 14 spotlights, 14 spoken -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/feature.voice-discovery.webm
+[video] cut 82.8s of still footage (15 stretches): 157.1s -> 74.4s
+[annotate] 202 caption states from 202 frames
+[annotate] 8 captions, 8 spotlights, 8 spoken -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/feature.voice-discovery.webm
 [video] Discovery voice -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/feature.voice-discovery.webm
-[video] 66.640000s, 3.3M
+[video] 48.888000s, 2.3M

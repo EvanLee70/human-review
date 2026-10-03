@@ -3,32 +3,32 @@
  "picked": [
   {
    "path": "petclinic-test/src/owner-search.feature",
-   "name": "Paging through every owner, 5 at a time",
-   "line": 31,
+   "name": "Paging forward reaches every owner exactly once",
+   "line": 32,
    "status": "added",
    "why": "written by this branch",
    "suite": "e2e"
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "defaultRequest_returnsTheFirstTenByNameWithTheTotal",
-   "line": 83,
+   "name": "defaultRequest_firstTenByNameAscending_withTotal",
+   "line": 46,
    "status": "added",
    "why": "written by this branch",
    "suite": "java"
   },
   {
    "path": "petclinic-test/src/owner-search.feature",
-   "name": "Sorting by city, then reversing it",
-   "line": 37,
+   "name": "Sorting by city, descending",
+   "line": 38,
    "status": "added",
    "why": "written by this branch",
    "suite": "e2e"
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "envelope_hasExactlyContentAndTotalElements",
-   "line": 91,
+   "name": "contentCarriesNestedPetsTypesAndVisits",
+   "line": 58,
    "status": "added",
    "why": "written by this branch",
    "suite": "java"
@@ -36,15 +36,15 @@
   {
    "path": "petclinic-test/src/owner-search.feature",
    "name": "Changing the page size returns to the first page",
-   "line": 44,
+   "line": 43,
    "status": "added",
    "why": "written by this branch",
    "suite": "e2e"
   },
   {
    "path": "petclinic-test/src/owner-search.feature",
-   "name": "Searching from a later page returns to the first page of the matches",
-   "line": 50,
+   "name": "A new search returns to the first page and keeps the sort",
+   "line": 49,
    "status": "added",
    "why": "written by this branch",
    "suite": "e2e"
@@ -62,8 +62,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "requests the first page of 10 sorted by name, with no filter",
-   "line": 84,
+   "name": "requests the first page of 10 by name ascending, once",
+   "line": 62,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -71,8 +71,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "shows the rows, the range and the total",
-   "line": 88,
+   "name": "renders the page rows, the range and total, and sizes 5/10/20",
+   "line": 68,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -80,8 +80,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "offers page sizes 5, 10 and 20",
-   "line": 96,
+   "name": "offers sorting on Name and City only, starting with Name ascending",
+   "line": 78,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -89,8 +89,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "keeps the owner links and Add Owner",
-   "line": 104,
+   "name": "keeps owner links and Add Owner",
+   "line": 89,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -98,8 +98,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "the next page is exactly one request with the same filter, size and sort",
-   "line": 113,
+   "name": "next page keeps filter, size and sort",
+   "line": 98,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -107,8 +107,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "a page size change goes back to the first page",
-   "line": 120,
+   "name": "previous page goes back one",
+   "line": 107,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -116,8 +116,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "sorting goes back to the first page and keeps the submitted filter",
-   "line": 129,
+   "name": "a page-size change restarts from page 0",
+   "line": 119,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -125,8 +125,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "a sortable header flips its direction and never clears it",
-   "line": 141,
+   "name": "a sort change restarts from page 0, and toggling never clears the sort",
+   "line": 130,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -135,7 +135,7 @@
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
    "name": "sorts from the keyboard",
-   "line": 150,
+   "line": 147,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -143,8 +143,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "only Name and City can be sorted",
-   "line": 158,
+   "name": "a search from a later page keeps the sort, restarts from page 0, and is sent once",
+   "line": 157,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -152,7 +152,7 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "submitting from a later page sends one request for page 0, keeping the sort",
+   "name": "paging uses the submitted prefix, not the text typed since",
    "line": 169,
    "status": "added",
    "why": "written by this branch",
@@ -161,8 +161,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "paging keeps the submitted filter, not the text typed since",
-   "line": 184,
+   "name": "a late answer to an earlier request is ignored",
+   "line": 193,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -170,8 +170,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "a late initial load cannot overwrite a search",
-   "line": 197,
+   "name": "the earlier request cannot end the loading of the latest",
+   "line": 203,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -179,7 +179,7 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "a stale request neither fails nor ends the loading of the latest one",
+   "name": "a late failure of an earlier request shows no error",
    "line": 210,
    "status": "added",
    "why": "written by this branch",
@@ -188,8 +188,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "leaving the screen cancels the request in flight",
-   "line": 222,
+   "name": "leaving the screen cancels the outstanding request",
+   "line": 218,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -197,8 +197,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "no match shows the no-owners message with the submitted prefix and hides the paginator",
-   "line": 232,
+   "name": "zero matches: message with the submitted prefix, no paginator",
+   "line": 226,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -206,8 +206,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "an empty page past the end keeps the paginator and claims no missing owners",
-   "line": 242,
+   "name": "an empty page beyond a nonzero total keeps navigation and claims no \"no matches\"",
+   "line": 238,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -215,8 +215,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "a failure is shown as an error, not as an empty search",
-   "line": 249,
+   "name": "a failure shows an explicit error, not \"no matches\"",
+   "line": 250,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -224,8 +224,17 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
-   "name": "the table rebuilt after a no-match search still shows the sort it requests",
-   "line": 259,
+   "name": "a failed later page leaves the last loaded page, with its paginator and sort, on screen",
+   "line": 261,
+   "status": "added",
+   "why": "written by this branch",
+   "suite": null,
+   "left": "no traced suite runs this file"
+  },
+  {
+   "path": "petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts",
+   "name": "a later success clears the error",
+   "line": 277,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -233,7 +242,7 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner.service.spec.ts",
-   "name": "without a query, leaves page, size, sort and filter to the API defaults",
+   "name": "getOwnerPage without a query relies on the server defaults",
    "line": 54,
    "status": "added",
    "why": "written by this branch",
@@ -242,8 +251,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner.service.spec.ts",
-   "name": "sends the filter, page, size and sort as query parameters",
-   "line": 67,
+   "name": "getOwnerPage sends filter, page, size and sort",
+   "line": 64,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -251,8 +260,8 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner.service.spec.ts",
-   "name": "percent-encodes a prefix so it reaches the API literally",
-   "line": 81,
+   "name": "getOwnerPage yields the page envelope, never a bare array",
+   "line": 74,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -260,8 +269,26 @@
   },
   {
    "path": "petclinic-frontend/src/app/owners/owner.service.spec.ts",
-   "name": "propagates a failed list request instead of turning it into an empty page",
-   "line": 91,
+   "name": "getOwnerPage encodes every reserved character of the last-name prefix",
+   "line": 85,
+   "status": "added",
+   "why": "written by this branch",
+   "suite": null,
+   "left": "no traced suite runs this file"
+  },
+  {
+   "path": "petclinic-frontend/src/app/owners/owner.service.spec.ts",
+   "name": "getOwnerPage sends an empty prefix, which matches every owner",
+   "line": 93,
+   "status": "added",
+   "why": "written by this branch",
+   "suite": null,
+   "left": "no traced suite runs this file"
+  },
+  {
+   "path": "petclinic-frontend/src/app/owners/owner.service.spec.ts",
+   "name": "getOwnerPage propagates a failure instead of answering an empty page",
+   "line": 99,
    "status": "added",
    "why": "written by this branch",
    "suite": null,
@@ -269,8 +296,8 @@
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "requestedPage_skipsTheEarlierPages",
-   "line": 102,
+   "name": "ownersWithoutPetsAreListed",
+   "line": 69,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
@@ -279,7 +306,7 @@
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
    "name": "allowedSizes",
-   "line": 111,
+   "line": 80,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
@@ -287,7 +314,52 @@
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "invalidInput_isRejected",
+   "name": "secondPageOfFive_isPositionsSixToTen",
+   "line": 88,
+   "status": "added",
+   "why": "written by this branch",
+   "suite": "java",
+   "left": "over the cap of 6 traced tests"
+  },
+  {
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
+   "name": "lastPartialPage",
+   "line": 98,
+   "status": "added",
+   "why": "written by this branch",
+   "suite": "java",
+   "left": "over the cap of 6 traced tests"
+  },
+  {
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
+   "name": "pageBeyondTheLast_isEmptyWithActualTotal",
+   "line": 106,
+   "status": "added",
+   "why": "written by this branch",
+   "suite": "java",
+   "left": "over the cap of 6 traced tests"
+  },
+  {
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
+   "name": "noMatch_isEmptyWithZeroTotal",
+   "line": 114,
+   "status": "added",
+   "why": "written by this branch",
+   "suite": "java",
+   "left": "over the cap of 6 traced tests"
+  },
+  {
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
+   "name": "invalidParameters_400",
+   "line": 127,
+   "status": "added",
+   "why": "written by this branch",
+   "suite": "java",
+   "left": "over the cap of 6 traced tests"
+  },
+  {
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
+   "name": "typeMismatch_doesNotEchoTheRejectedInput",
    "line": 135,
    "status": "added",
    "why": "written by this branch",
@@ -296,7 +368,7 @@
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "repeatedSort_isRejected",
+   "name": "allowedSorts",
    "line": 143,
    "status": "added",
    "why": "written by this branch",
@@ -305,8 +377,8 @@
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "pageBeyondTheLast_isEmptyWithTheRealTotal",
-   "line": 149,
+   "name": "nameDescending_startsFromTheEndOfNameAscending",
+   "line": 150,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
@@ -314,8 +386,8 @@
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "filteredPage_countsTheWholeFilteredSet",
-   "line": 157,
+   "name": "cityAscending_tiesByLastNameFirstName",
+   "line": 160,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
@@ -323,8 +395,8 @@
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "noMatch_isAnEmptyPage",
-   "line": 165,
+   "name": "prefixIsCaseSensitiveAndAnchoredToLastNameStart",
+   "line": 172,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
@@ -332,8 +404,8 @@
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "emptyLastName_matchesEveryone",
-   "line": 173,
+   "name": "emptyPrefix_matchesAll",
+   "line": 182,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
@@ -341,8 +413,8 @@
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "lastNamePrefix_isCaseSensitive",
-   "line": 180,
+   "name": "filteredSecondPage_countsOnlyMatches",
+   "line": 187,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
@@ -350,16 +422,7 @@
   },
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "lastNamePrefix_treatsSqlWildcardsLiterally",
-   "line": 189,
-   "status": "added",
-   "why": "written by this branch",
-   "suite": "java",
-   "left": "over the cap of 6 traced tests"
-  },
-  {
-   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "nameAscending_breaksTiesById_acrossPageBoundaries",
+   "name": "wildcardCharactersMatchLiterally",
    "line": 199,
    "status": "added",
    "why": "written by this branch",
@@ -367,72 +430,36 @@
    "left": "over the cap of 6 traced tests"
   },
   {
-   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "nameDescending_reversesTheWholeChain",
-   "line": 205,
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListPagingTest.java",
+   "name": "traversingEveryPage_yieldsEachOwnerOnceInTheRequestedOrder",
+   "line": 110,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
    "left": "over the cap of 6 traced tests"
   },
   {
-   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "cityAscending_thenName_thenId",
-   "line": 211,
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListPagingTest.java",
+   "name": "everyOwnerOnAPageCarriesAllItsPetsTypesAndVisits",
+   "line": 132,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
    "left": "over the cap of 6 traced tests"
   },
   {
-   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "cityDescending_reversesTheWholeChain",
-   "line": 217,
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListPagingTest.java",
+   "name": "aColdFullPage_costsAtMostThreeSelects_withPagingDoneByTheDatabase",
+   "line": 148,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
    "left": "over the cap of 6 traced tests"
   },
   {
-   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "listedOwner_carriesTheSameNestedDataAsItsDetail",
-   "line": 223,
-   "status": "added",
-   "why": "written by this branch",
-   "suite": "java",
-   "left": "over the cap of 6 traced tests"
-  },
-  {
-   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-   "name": "ownersWithoutPets_areListedWithAnEmptyPetList",
-   "line": 241,
-   "status": "added",
-   "why": "written by this branch",
-   "suite": "java",
-   "left": "over the cap of 6 traced tests"
-  },
-  {
-   "path": "petclinic-backend/src/test/java/victor/training/petclinic/repository/OwnerListIndexesMigrationTest.java",
-   "name": "freshDatabase_getsTheOwnerListIndexes",
-   "line": 27,
-   "status": "added",
-   "why": "written by this branch",
-   "suite": "java",
-   "left": "over the cap of 6 traced tests"
-  },
-  {
-   "path": "petclinic-backend/src/test/java/victor/training/petclinic/repository/OwnerListIndexesMigrationTest.java",
-   "name": "databaseAtV3_migratesKeepingItsOwners",
-   "line": 38,
-   "status": "added",
-   "why": "written by this branch",
-   "suite": "java",
-   "left": "over the cap of 6 traced tests"
-  },
-  {
-   "path": "petclinic-backend/src/test/java/victor/training/petclinic/repository/OwnerListIndexesMigrationTest.java",
-   "name": "previousRelease_stillValidatesADatabaseAtV4",
-   "line": 54,
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListPagingTest.java",
+   "name": "anEmptyPage_loadsNoPetsOrVisits",
+   "line": 164,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
@@ -441,7 +468,7 @@
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java",
    "name": "getAll",
-   "line": 130,
+   "line": 131,
    "status": "modified",
    "why": "edited by this branch",
    "suite": "java",
@@ -450,7 +477,7 @@
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java",
    "name": "getAllWithAddressFilter",
-   "line": 139,
+   "line": 140,
    "status": "modified",
    "why": "edited by this branch",
    "suite": "java",
@@ -459,16 +486,25 @@
   {
    "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java",
    "name": "getAllWithNameFilter_notFound",
-   "line": 163,
+   "line": 171,
    "status": "modified",
    "why": "edited by this branch",
    "suite": "java",
    "left": "over the cap of 6 traced tests"
   },
   {
-   "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListQueryBudgetTest.java",
-   "name": "aFullPage_takesAtMostThreeSelects_pagedByTheDatabaseBeforeLoadingPets",
-   "line": 73,
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/repository/OwnerListIndexesMigrationTest.java",
+   "name": "freshDatabase_hasTheOwnerListIndexes",
+   "line": 35,
+   "status": "added",
+   "why": "written by this branch",
+   "suite": "java",
+   "left": "over the cap of 6 traced tests"
+  },
+  {
+   "path": "petclinic-backend/src/test/java/victor/training/petclinic/repository/OwnerListIndexesMigrationTest.java",
+   "name": "databaseAlreadyAtV3_upgradesToTheOwnerListIndexes",
+   "line": 40,
    "status": "added",
    "why": "written by this branch",
    "suite": "java",
@@ -497,16 +533,16 @@
   "e2e": [
    {
     "path": "petclinic-test/src/owner-search.feature",
-    "name": "Paging through every owner, 5 at a time",
-    "line": 31,
+    "name": "Paging forward reaches every owner exactly once",
+    "line": 32,
     "status": "added",
     "why": "written by this branch",
     "suite": "e2e"
    },
    {
     "path": "petclinic-test/src/owner-search.feature",
-    "name": "Sorting by city, then reversing it",
-    "line": 37,
+    "name": "Sorting by city, descending",
+    "line": 38,
     "status": "added",
     "why": "written by this branch",
     "suite": "e2e"
@@ -514,15 +550,15 @@
    {
     "path": "petclinic-test/src/owner-search.feature",
     "name": "Changing the page size returns to the first page",
-    "line": 44,
+    "line": 43,
     "status": "added",
     "why": "written by this branch",
     "suite": "e2e"
    },
    {
     "path": "petclinic-test/src/owner-search.feature",
-    "name": "Searching from a later page returns to the first page of the matches",
-    "line": 50,
+    "name": "A new search returns to the first page and keeps the sort",
+    "line": 49,
     "status": "added",
     "why": "written by this branch",
     "suite": "e2e"
@@ -531,16 +567,16 @@
   "java": [
    {
     "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-    "name": "defaultRequest_returnsTheFirstTenByNameWithTheTotal",
-    "line": 83,
+    "name": "defaultRequest_firstTenByNameAscending_withTotal",
+    "line": 46,
     "status": "added",
     "why": "written by this branch",
     "suite": "java"
    },
    {
     "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerListTest.java",
-    "name": "envelope_hasExactlyContentAndTotalElements",
-    "line": 91,
+    "name": "contentCarriesNestedPetsTypesAndVisits",
+    "line": 58,
     "status": "added",
     "why": "written by this branch",
     "suite": "java"
@@ -550,11 +586,11 @@
  "runs": [
   {
    "command": "cd petclinic-test && GENSEQ_SELECT={tests.e2e} ./run-tests-with-tracing.sh",
-   "seconds": 27.4
+   "seconds": 28.5
   },
   {
    "command": "cd petclinic-backend && mvn -o -Pgenseq test -Dgroups=genseq",
-   "seconds": 14.8
+   "seconds": 15.9
   },
   {
    "command": "cd petclinic-backend && GENSEQ_SELECT={tests.java} mvn -o -Pgenseq test -Dtest={tests.java} -Dsurefire.failIfNoSpecifiedTests=false",
@@ -562,8 +598,8 @@
   },
   {
    "command": "cd petclinic-test && GENSEQ_REFRESH=1 npm run trace:diagram",
-   "seconds": 9.5
+   "seconds": 9.1
   }
  ],
- "at": "2026-10-03T16:55:21+00:00"
+ "at": "2026-10-03T20:41:23+00:00"
 }

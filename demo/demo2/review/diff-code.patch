@@ -1,38 +1,46 @@
 diff --git a/openspec/changes/paginate-sort-owners/release.md b/openspec/changes/paginate-sort-owners/release.md
 new file mode 100644
-index 00000000..7ae8fb8d
+index 00000000..8cfdea7a
 --- /dev/null
 +++ b/openspec/changes/paginate-sort-owners/release.md
-@@ -0,0 +1,29 @@
-+# Release: paginate-sort-owners
+@@ -0,0 +1,37 @@
++# Release and rollback: paginate-sort-owners
 +
 +## One PR, one deploy
 +
-+`GET /api/owners` now answers `{content, totalElements}` instead of an array: **breaking**.
-+Backend and frontend ship together, in one PR and one deploy. No other in-repo client reads the
-+list (the chatbot and MCP use `GET /api/owners/{id}` only); JMeter only creates/updates/deletes.
++`GET /api/owners` changes from an array to `{content, totalElements}` (**breaking**). Backend,
++frontend and every in-repo consumer (backend tests, Cucumber/Playwright glue) change in the same
++PR and ship in the same deploy. Do not deploy the backend alone: the old frontend would read the
++envelope as an empty owner list.
 +
-+Order of the deploy:
-+1. Backend. Flyway applies `V4__owner_list_indexes.sql` (three `CREATE INDEX` on `owners`) at boot.
-+2. Frontend, immediately after. Between the two, the old frontend shows an empty Owners grid.
++1. Merge the single PR (backend + `V4__owner_list_indexes.sql` + frontend + tests + regenerated
++   `openapi.yaml`, `api-types.ts`, `DB.sql`, sequence diagrams).
++2. Deploy backend and frontend together. Flyway applies V4 on backend start: three additive
++   B-tree indexes on `owners`, no data change. On a large table, `CREATE INDEX` locks writes to
++   `owners` while it builds; at today's size this is negligible.
++3. Smoke check: `GET /api/owners` returns `totalElements`; `GET /api/owners?size=7` returns 400;
++   the Owners screen shows `1 – 10 of N`.
 +
 +## Rollback
 +
-+Roll back **both** applications together, to the previous release:
-+1. Frontend.
-+2. Backend.
++Roll back **both** applications to the previous version together. Leave the database as it is:
 +
-+Leave the database as it is. The indexes are additive and the previous backend boots against
-+it: Flyway ignores an applied migration newer than its own (`*:future`), which
-+`OwnerListIndexesMigrationTest.previousRelease_stillValidatesADatabaseAtV4` checks.
-+Never edit or delete `V4__owner_list_indexes.sql` once applied anywhere persistent; if the
-+indexes ever have to go, drop them in a new `V5`.
++- Keep V4 and its indexes. The previous backend validates against a database at V4, because Flyway
++  ignores applied migrations newer than its own by default (`*:future`). Checked on 2026-10-03 by
++  validating HEAD's V1-V3 + seed against a V4 database: successful. The indexes are invisible to
++  the old queries and to `ddl-auto=validate`.
++- Never edit, rename or delete `V4__owner_list_indexes.sql` once a persistent environment has
++  applied it; a fix goes in V5. A changed V4 fails Flyway validation with a checksum mismatch.
++  This already happened locally: the shared dev database in this checkout had a different V4 from
++  an earlier attempt and refused to boot. Reset such a dev database with `./start-database.sh`, or
++  point the backend at a fresh one; never repair the checksum in a shared environment.
 +
-+## Not verified by this release
++## Not verified by this change
 +
-+Performance at 100,000 owners and under concurrent load is **unverified**: no large dataset was
-+generated and `OwnerSearchThroughLatencyProxyTest` was only compiled, not run. What is verified
-+is that paging happens in SQL before pets load, in at most 3 SELECTs per page.
++Response times with ~100,000 owners and under concurrent load are **unmeasured** (deferred for
++budget). Verified: the database pages before loading associations, and a full page costs at most 3
++SELECTs. `OwnerSearchThroughLatencyProxyTest` compiles against the new envelope with its original
++thresholds, but was not run.
 diff --git a/openspec/changes/paginate-sort-owners/tasks.md b/openspec/changes/paginate-sort-owners/tasks.md
 index b385dae6..aa81617f 100644
 --- a/openspec/changes/paginate-sort-owners/tasks.md
@@ -95,10 +103,10 @@ index b385dae6..aa81617f 100644
 +- [x] 5.2 Review the integrated diff for atomic backend/frontend contract migration, generated-file consistency, and unchanged detail/CRUD/chatbot behavior. Verify only intended application and generated-output changes are present; if tooling edits become necessary, follow the project's tooling-on-main rule rather than leaving them solely on `db27oct`.
 +- [x] 5.3 Prepare the one-PR/one-deploy release and paired application rollback instructions. Verify both old application versions remain compatible with the additive indexes and no applied Flyway migration is edited or removed.
 diff --git a/petclinic-backend/src/main/java/victor/training/petclinic/repository/OwnerRepository.java b/petclinic-backend/src/main/java/victor/training/petclinic/repository/OwnerRepository.java
-index 8b581a2b..53b08088 100644
+index 8b581a2b..d95e0fd5 100644
 --- a/petclinic-backend/src/main/java/victor/training/petclinic/repository/OwnerRepository.java
 +++ b/petclinic-backend/src/main/java/victor/training/petclinic/repository/OwnerRepository.java
-@@ -1,15 +1,28 @@
+@@ -1,15 +1,27 @@
  package victor.training.petclinic.repository;
  
 +import java.util.Collection;
@@ -116,10 +124,9 @@ index 8b581a2b..53b08088 100644
 -    List<Owner> findByLastNameStartingWith(String lastName);
 +    Page<Owner> findByLastNameStartingWith(String lastName, Pageable pageable);
 +
-+    // Never paged: LIMIT over a collection fetch would page in memory, after loading every row.
-+    // No DISTINCT: Hibernate 6 dedupes fetch-joined roots itself, SQL DISTINCT would only add a sort
++    // Never paged: a LIMIT over collection fetch joins would be applied in memory, after loading every row
 +    @Query("""
-+            SELECT o FROM Owner o
++            SELECT DISTINCT o FROM Owner o
 +            LEFT JOIN FETCH o.pets p
 +            LEFT JOIN FETCH p.type
 +            LEFT JOIN FETCH p.visits
@@ -129,10 +136,19 @@ index 8b581a2b..53b08088 100644
      Optional<Owner> findById(int id);
  
 diff --git a/petclinic-backend/src/main/java/victor/training/petclinic/rest/ApiExamples.java b/petclinic-backend/src/main/java/victor/training/petclinic/rest/ApiExamples.java
-index 14a0e075..65377741 100644
+index 14a0e075..1d0e518c 100644
 --- a/petclinic-backend/src/main/java/victor/training/petclinic/rest/ApiExamples.java
 +++ b/petclinic-backend/src/main/java/victor/training/petclinic/rest/ApiExamples.java
-@@ -30,14 +30,19 @@ public final class ApiExamples {
+@@ -5,7 +5,7 @@ package victor.training.petclinic.rest;
+  * source of truth.
+  *
+  * <p>Each constant is referenced from an {@code @ExampleObject(value = ...)} on the matching
+- * {@code GET} list endpoint, so springdoc copies it verbatim into the generated
++ * {@code GET} list endpoint (for owners, a page envelope), so springdoc copies it verbatim into the generated
+  * {@code openapi.yaml} (under {@code responses.200.content.application/json.examples}). From
+  * there the optional dev tool {@code petclinic-frontend/wiremock/start.sh} turns each example
+  * into a WireMock stub — so a stand-in mock backend can never drift from the documented contract.
+@@ -30,14 +30,17 @@ public final class ApiExamples {
              ]""";
  
      public static final String OWNERS = """
@@ -146,26 +162,24 @@ index 14a0e075..65377741 100644
 -            ]""";
 +            {
 +              "content": [
-+                { "id": 1, "firstName": "Betty", "lastName": "Davis", "address": "638 Cardinal Ave.",
-+                  "city": "Sun Prairie", "telephone": "6085551749", "pets": [] },
-+                { "id": 2, "firstName": "George", "lastName": "Franklin", "address": "110 W. Liberty St.",
++                { "id": 1, "firstName": "George", "lastName": "Franklin", "address": "110 W. Liberty St.",
 +                  "city": "Madison", "telephone": "6085551023",
 +                  "pets": [ { "id": 1, "name": "Leo", "birthDate": "2010-09-07",
-+                              "type": { "id": 1, "name": "cat" }, "ownerId": 2,
-+                              "visits": [ { "id": 1, "date": "2013-01-01", "description": "rabies shot",
-+                                            "petId": 1 } ] } ] }
++                              "type": { "id": 1, "name": "cat" }, "ownerId": 1, "visits": [] } ] },
++                { "id": 2, "firstName": "Betty", "lastName": "Davis", "address": "638 Cardinal Ave.",
++                  "city": "Sun Prairie", "telephone": "6085551749", "pets": [] }
 +              ],
 +              "totalElements": 26
 +            }""";
  
      public static final String PETS = """
              [
-diff --git a/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java b/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java
+diff --git a/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerPageRequest.java b/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerPageRequest.java
 new file mode 100644
-index 00000000..553c35f0
+index 00000000..8bba116e
 --- /dev/null
-+++ b/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerListPaging.java
-@@ -0,0 +1,47 @@
++++ b/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerPageRequest.java
+@@ -0,0 +1,48 @@
 +package victor.training.petclinic.rest;
 +
 +import java.util.Map;
@@ -178,11 +192,11 @@ index 00000000..553c35f0
 +
 +import jakarta.validation.ValidationException;
 +
-+/** Turns the owner-list query parameters into a {@link Pageable}, rejecting anything outside the whitelist. */
-+final class OwnerListPaging {
++/** Turns the owner-list query parameters into a {@link Pageable}, rejecting anything else with a 400. */
++final class OwnerPageRequest {
 +    static final Set<Integer> PAGE_SIZES = Set.of(5, 10, 20);
 +
-+    // Business sort keys, each mapped to a total order: the id makes every chain unique
++    // Business keys, not entity properties; ids break full-name ties so offset pages never overlap.
 +    private static final Map<String, String[]> SORT_CHAINS = Map.of(
 +            "name", new String[]{"lastName", "firstName", "id"},
 +            "city", new String[]{"city", "lastName", "firstName", "id"});
@@ -190,34 +204,35 @@ index 00000000..553c35f0
 +            "asc", Direction.ASC,
 +            "desc", Direction.DESC);
 +
-+    private OwnerListPaging() {
++    private OwnerPageRequest() {
 +    }
 +
-+    static Pageable toPageable(int page, int size, String sort) {
++    static Pageable of(int page, int size, String sort) {
 +        if (!PAGE_SIZES.contains(size)) {
-+            throw new ValidationException("size must be one of " + PAGE_SIZES + ", was " + size);
++            throw new ValidationException("Page size must be one of 5, 10, 20, got " + size);
 +        }
 +        if (page < 0 || (long) page * size > Integer.MAX_VALUE) {
-+            throw new ValidationException("page out of range: " + page);
++            throw new ValidationException("Page must be between 0 and " + Integer.MAX_VALUE / size + ", got " + page);
 +        }
 +        return PageRequest.of(page, size, toSort(sort));
 +    }
 +
 +    private static Sort toSort(String sort) {
 +        String[] keyAndDirection = sort.split(",", -1);
-+        String[] chain = keyAndDirection.length == 2 ? SORT_CHAINS.get(keyAndDirection[0]) : null;
-+        Direction direction = keyAndDirection.length == 2 ? DIRECTIONS.get(keyAndDirection[1]) : null;
-+        if (chain == null || direction == null) {
-+            throw new ValidationException("sort must be one of name,asc name,desc city,asc city,desc; was " + sort);
++        if (keyAndDirection.length != 2
++                || !SORT_CHAINS.containsKey(keyAndDirection[0])
++                || !DIRECTIONS.containsKey(keyAndDirection[1])) {
++            throw new ValidationException(
++                    "Sort must be one of name,asc name,desc city,asc city,desc, got " + sort);
 +        }
-+        return Sort.by(direction, chain);
++        return Sort.by(DIRECTIONS.get(keyAndDirection[1]), SORT_CHAINS.get(keyAndDirection[0]));
 +    }
 +}
 diff --git a/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java b/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java
-index 2e6e7b44..cdf30504 100644
+index 2e6e7b44..e0c6117e 100644
 --- a/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java
 +++ b/petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java
-@@ -1,10 +1,18 @@
+@@ -1,10 +1,19 @@
  package victor.training.petclinic.rest;
  
 +import static java.util.function.Function.identity;
@@ -229,14 +244,15 @@ index 2e6e7b44..cdf30504 100644
  import java.util.List;
 +import java.util.Map;
 +import java.util.Optional;
- 
++
 +import org.springframework.data.domain.Page;
 +import org.springframework.data.domain.Pageable;
+ 
 +import org.springframework.http.ProblemDetail;
  import org.springframework.http.ResponseEntity;
  import victor.training.petclinic.mapper.OwnerMapper;
  import victor.training.petclinic.mapper.PetMapper;
-@@ -19,6 +27,7 @@ import victor.training.petclinic.repository.PetTypeRepository;
+@@ -19,6 +28,7 @@ import victor.training.petclinic.repository.PetTypeRepository;
  import victor.training.petclinic.repository.VisitRepository;
  import victor.training.petclinic.rest.dto.OwnerDto;
  import victor.training.petclinic.rest.dto.OwnerFieldsDto;
@@ -244,7 +260,7 @@ index 2e6e7b44..cdf30504 100644
  import victor.training.petclinic.rest.dto.PetDto;
  import victor.training.petclinic.rest.dto.PetFieldsDto;
  import victor.training.petclinic.rest.dto.VisitFieldsDto;
-@@ -38,7 +47,7 @@ import org.springframework.web.util.UriComponentsBuilder;
+@@ -38,7 +48,7 @@ import org.springframework.web.util.UriComponentsBuilder;
  
  import io.opentelemetry.instrumentation.annotations.WithSpan;
  import io.swagger.v3.oas.annotations.Operation;
@@ -253,54 +269,51 @@ index 2e6e7b44..cdf30504 100644
  import io.swagger.v3.oas.annotations.media.Content;
  import io.swagger.v3.oas.annotations.media.ExampleObject;
  import io.swagger.v3.oas.annotations.media.Schema;
-@@ -86,15 +95,48 @@ public class OwnerRestController {
+@@ -86,15 +96,45 @@ public class OwnerRestController {
          this.clock = clock;
      }
  
 -    @Operation(operationId = "listOwners", summary = "List owners")
-+    @Operation(operationId = "listOwners", summary = "List owners, one page at a time",
-+            description = "Filters by a case-sensitive last-name prefix, then returns the requested page "
-+                    + "together with the number of matching owners. A page past the last one is empty.")
++    @Operation(operationId = "listOwners", summary = "List one page of owners, optionally filtered by last name")
      @ApiResponse(responseCode = "200", description = "OK",
              content = @Content(mediaType = "application/json",
 -                    array = @ArraySchema(schema = @Schema(implementation = OwnerDto.class)),
 +                    schema = @Schema(implementation = OwnerPageDto.class),
                      examples = @ExampleObject(name = "sample", value = ApiExamples.OWNERS)))
 +    @ApiResponse(responseCode = "400", description = "Invalid page, size or sort",
-+            content = @Content(mediaType = "application/problem+json",
-+                    schema = @Schema(implementation = ProblemDetail.class)))
++            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
      @GetMapping(produces = "application/json")
 -    public List<OwnerDto> listOwners(@RequestParam(name = "lastName", defaultValue = "") String lastName) {
 -        List<Owner> owners = ownerRepository.findByLastNameStartingWith(lastName);
 -        return ownerMapper.toOwnerDtoCollection(owners);
++    // @formatter:off
 +    public OwnerPageDto listOwners(
-+            @Parameter(description = "Case-sensitive prefix of the last name; empty matches everyone") @RequestParam(
-+                    name = "lastName", defaultValue = "") String lastName,
-+            @Parameter(description = "Zero-based page index",
-+                    schema = @Schema(type = "integer", format = "int32", minimum = "0",
-+                            defaultValue = "0")) @RequestParam(name = "page", defaultValue = "0") int page,
-+            // allowableValues would render as an enum of strings on an integer
-+            @Parameter(description = "Owners per page: 5, 10 or 20",
-+                    schema = @Schema(type = "integer", format = "int32", minimum = "5", maximum = "20",
-+                            defaultValue = "10")) @RequestParam(name = "size", defaultValue = "10") int size,
-+            @Parameter(description = "Name sorts by last name, first name, id; City by city, then the same",
-+                    schema = @Schema(type = "string", defaultValue = "name,asc",
-+                            allowableValues = {"name,asc", "name,desc", "city,asc", "city,desc"})) @RequestParam(
-+                                    name = "sort", defaultValue = "name,asc") String sort) {
-+        Pageable pageable = OwnerListPaging.toPageable(page, size, sort);
++            @Parameter(description = "Case-sensitive prefix of the last name; empty matches all")
++            @RequestParam(name = "lastName", defaultValue = "") String lastName,
++            @Parameter(description = "Zero-based page index")
++            @RequestParam(name = "page", defaultValue = "0") @Schema(minimum = "0") int page,
++            @Parameter(description = "Owners per page")
++            @RequestParam(name = "size", defaultValue = "10") @Schema(allowableValues = {"5", "10", "20"}) int size,
++            @Parameter(description = "name: by last name, first name, id; city: by city, then as name."
++                    + " The direction applies to every field.")
++            @RequestParam(name = "sort", defaultValue = "name,asc")
++            @Schema(allowableValues = {"name,asc", "name,desc", "city,asc", "city,desc"}) String sort) {
++        // @formatter:on
++        Pageable pageable = OwnerPageRequest.of(page, size, sort);
 +        Page<Owner> ownerPage = ownerRepository.findByLastNameStartingWith(lastName, pageable);
-+        List<Owner> owners = fetchPetsAndVisits(ownerPage.getContent());
++        List<Owner> owners = fetchPetsAndVisitsInPageOrder(ownerPage.getContent());
 +        return new OwnerPageDto(ownerMapper.toOwnerDtoCollection(owners), ownerPage.getTotalElements());
 +    }
 +
-+    private List<Owner> fetchPetsAndVisits(List<Owner> pageOwners) {
++    private List<Owner> fetchPetsAndVisitsInPageOrder(List<Owner> pageOwners) {
 +        if (pageOwners.isEmpty()) {
 +            return List.of();
 +        }
 +        List<Integer> ids = pageOwners.stream().map(Owner::getId).toList();
++        // IN (...) does not keep the page order
 +        Map<Integer, Owner> fetchedById = ownerRepository.findAllByIdFetchingPetsAndVisits(ids).stream()
 +                .collect(toMap(Owner::getId, identity()));
-+        return ids.stream() // IN (...) loses the page order
++        return ids.stream()
 +                .map(id -> Optional.ofNullable(fetchedById.get(id))
 +                        .orElseThrow(() -> new IllegalStateException("Owner " + id + " vanished while listing")))
 +                .toList();
@@ -309,7 +322,7 @@ index 2e6e7b44..cdf30504 100644
      @Operation(operationId = "countOwners", summary = "Count owners")
 diff --git a/petclinic-backend/src/main/java/victor/training/petclinic/rest/dto/OwnerPageDto.java b/petclinic-backend/src/main/java/victor/training/petclinic/rest/dto/OwnerPageDto.java
 new file mode 100644
-index 00000000..61d8e3e9
+index 00000000..ce918ad4
 --- /dev/null
 +++ b/petclinic-backend/src/main/java/victor/training/petclinic/rest/dto/OwnerPageDto.java
 @@ -0,0 +1,13 @@
@@ -319,7 +332,7 @@ index 00000000..61d8e3e9
 +
 +import io.swagger.v3.oas.annotations.media.Schema;
 +
-+@Schema(description = "One page of owners, plus how many owners match the filter in total.")
++@Schema(description = "One page of owners.")
 +public record OwnerPageDto(
 +        @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
 +                description = "The owners on the requested page.") List<OwnerDto> content,
@@ -327,7 +340,7 @@ index 00000000..61d8e3e9
 +                description = "The number of owners matching the filter, across all pages.") long totalElements) {
 +}
 diff --git a/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java b/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java
-index c6bba922..3a26005e 100644
+index c6bba922..5af9b1ee 100644
 --- a/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java
 +++ b/petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java
 @@ -13,6 +13,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -342,12 +355,12 @@ index c6bba922..3a26005e 100644
                  .body(buildProblemDetail("Validation Error", ex.getMessage(), HttpStatus.BAD_REQUEST, request));
      }
  
-+    // e.g. ?page=abc, or a number too large for an int
++    // e.g. ?page=abc, which Spring itself would answer with a 400, were it not for the catch-all below
 +    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
 +    public ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException ex,
 +            HttpServletRequest request) {
 +        String detail = "Invalid value '" + ex.getValue() + "' for parameter '" + ex.getName() + "'";
-+        log.warn(detail);
++        log.warn("Validation failed: {}", detail);
 +        return ResponseEntity.badRequest()
 +                .body(buildProblemDetail("Validation Error", detail, HttpStatus.BAD_REQUEST, request));
 +    }
@@ -357,24 +370,25 @@ index c6bba922..3a26005e 100644
      public ResponseEntity<ProblemDetail> handleGeneralException(Exception e, HttpServletRequest request) {
 diff --git a/petclinic-backend/src/main/resources/db/migration/V4__owner_list_indexes.sql b/petclinic-backend/src/main/resources/db/migration/V4__owner_list_indexes.sql
 new file mode 100644
-index 00000000..10a5562f
+index 00000000..2d8322c3
 --- /dev/null
 +++ b/petclinic-backend/src/main/resources/db/migration/V4__owner_list_indexes.sql
-@@ -0,0 +1,9 @@
-+-- The owners grid filters by a last-name prefix, then pages through the matches sorted by Name or City.
+@@ -0,0 +1,10 @@
++-- The owners grid (GET /api/owners) pages through ~100k owners by Name or City, filtered by a
++-- last-name prefix. Each sort chain ends in id, so offset pages never overlap; one direction applies
++-- to the whole chain, so either can walk the same index forwards or backwards.
 +
-+-- LIKE 'prefix%': under the en_US.UTF-8 collation a plain btree cannot serve a prefix match
++-- LIKE 'prefix%' cannot use a plain B-tree under a non-C collation; text_pattern_ops can.
 +CREATE INDEX owners_last_name_pattern_idx ON owners (last_name text_pattern_ops);
 +
-+-- One index per sort chain, ending with the id that makes the order total; the whole chain
-+-- flips direction together, so a backward scan serves the descending sort too.
 +CREATE INDEX owners_name_order_idx ON owners (last_name, first_name, id);
++
 +CREATE INDEX owners_city_order_idx ON owners (city, last_name, first_name, id);
 diff --git a/petclinic-frontend/src/app/owners/owner-list/owner-list.component.html b/petclinic-frontend/src/app/owners/owner-list/owner-list.component.html
-index fbece5d5..5d292cf4 100644
+index fbece5d5..11ac240c 100644
 --- a/petclinic-frontend/src/app/owners/owner-list/owner-list.component.html
 +++ b/petclinic-frontend/src/app/owners/owner-list/owner-list.component.html
-@@ -2,57 +2,65 @@
+@@ -2,57 +2,64 @@
    <div class="container xd-container">
      <h2>Owners</h2>
  
@@ -405,93 +419,77 @@ index fbece5d5..5d292cf4 100644
 -    <div *ngIf="!owners">No owners with LastName starting with "{{lastName}}"</div>
 -    <div class="table-responsive" id="ownersTable"  *ngIf="owners">
 -      <table class="table table-striped">
--        <thead>
--        <tr>
--          <th>Name</th>
--          <th>Address</th>
--          <th>City</th>
--          <th>Telephone</th>
--          <th>Pets</th>
--        </tr>
--        </thead>
 +    <div id="ownersError" class="alert alert-danger" role="alert" *ngIf="errorMessage">
 +      Could not load owners: {{ errorMessage }}
 +    </div>
-+    <div id="noOwners" *ngIf="noOwnersFound">No owners with last name starting with "{{ submittedLastName }}"</div>
++    <div id="noOwners" *ngIf="noMatches">No owners with LastName starting with "{{ submittedLastName }}"</div>
 +
-+    <ng-container *ngIf="!errorMessage && !noOwnersFound">
-+      <div class="table-responsive" id="ownersTable">
-+        <table class="table table-striped" matSort matSortActive="name" matSortDirection="asc" matSortDisableClear
-+          (matSortChange)="onSort($event)">
-+          <thead>
-+          <tr>
-+            <th mat-sort-header="name">Name</th>
-+            <th>Address</th>
-+            <th mat-sort-header="city">City</th>
-+            <th>Telephone</th>
-+            <th>Pets</th>
-+          </tr>
-+          </thead>
++    <div class="table-responsive" id="ownersTable" *ngIf="!noMatches" [attr.aria-busy]="loading">
++      <table class="table table-striped"
++        matSort [matSortActive]="sortKey" [matSortDirection]="sortDirection" matSortDisableClear
++        (matSortChange)="onSort($event)">
+         <thead>
+         <tr>
+-          <th>Name</th>
++          <th mat-sort-header="name">Name</th>
+           <th>Address</th>
+-          <th>City</th>
++          <th mat-sort-header="city">City</th>
+           <th>Telephone</th>
+           <th>Pets</th>
+         </tr>
+         </thead>
  
--        <tbody>
+         <tbody>
 -        <tr *ngFor="let owner of owners">
--          <td class="ownerFullName"><a routerLink="/owners/{{owner.id}}" routerLinkActive="active"
--            (click)="onSelect(owner)">{{ owner.firstName }} {{ owner.lastName }}</a></td>
--          <td>{{ owner.address }}</td>
--          <td>{{ owner.city }}</td>
--          <td>{{ owner.telephone }}</td>
--          <td>
++        <tr class="owner-row" *ngFor="let owner of owners">
+           <td class="ownerFullName"><a routerLink="/owners/{{owner.id}}" routerLinkActive="active"
+             (click)="onSelect(owner)">{{ owner.firstName }} {{ owner.lastName }}</a></td>
+           <td>{{ owner.address }}</td>
+           <td>{{ owner.city }}</td>
+           <td>{{ owner.telephone }}</td>
+           <td>
 -        <tr *ngFor="let pet of owner.pets">
 -          {{ pet.name }}
 -        </tr>
 -        </td>
--        </tr>
--        </tbody>
--      </table>
++            <div *ngFor="let pet of owner.pets">{{ pet.name }}</div>
++          </td>
+         </tr>
+         </tbody>
+       </table>
 -      <div>
 -        <button *ngIf="isOwnersDataReceived" class="btn btn-default" (click)="addOwner()">Add Owner</button>
-+          <tbody>
-+          <tr *ngFor="let owner of owners">
-+            <td class="ownerFullName"><a routerLink="/owners/{{owner.id}}" routerLinkActive="active">{{ owner.firstName }} {{ owner.lastName }}</a></td>
-+            <td>{{ owner.address }}</td>
-+            <td>{{ owner.city }}</td>
-+            <td>{{ owner.telephone }}</td>
-+            <td>
-+              <div *ngFor="let pet of owner.pets">{{ pet.name }}</div>
-+            </td>
-+          </tr>
-+          </tbody>
-+        </table>
-       </div>
-+      <!-- Outside .table-responsive: on a narrow screen the table scrolls sideways, the paginator does not -->
-+      <mat-paginator [length]="totalElements" [pageIndex]="pageIndex" [pageSize]="pageSize"
-+        [pageSizeOptions]="pageSizeOptions" [showFirstLastButtons]="true"
-+        (page)="onPage($event)"
-+        aria-label="Select page of owners">
-+      </mat-paginator>
-+    </ng-container>
+-      </div>
++    </div>
++    <mat-paginator *ngIf="totalElements > 0"
++      [length]="totalElements" [pageIndex]="pageIndex" [pageSize]="pageSize"
++      [pageSizeOptions]="pageSizes" [showFirstLastButtons]="true"
++      (page)="onPage($event)" aria-label="Owners pages">
++    </mat-paginator>
 +
 +    <div>
-+      <button id="addOwner" class="btn btn-default" routerLink="/owners/add">Add Owner</button>
++      <button id="addOwner" class="btn btn-default" (click)="addOwner()">Add Owner</button>
      </div>
    </div>
  </div>
 diff --git a/petclinic-frontend/src/app/owners/owner-list/owner-list.component.ts b/petclinic-frontend/src/app/owners/owner-list/owner-list.component.ts
-index 11812f80..ab6d7faa 100644
+index 11812f80..a56660a3 100644
 --- a/petclinic-frontend/src/app/owners/owner-list/owner-list.component.ts
 +++ b/petclinic-frontend/src/app/owners/owner-list/owner-list.component.ts
-@@ -1,52 +1,94 @@
+@@ -1,35 +1,67 @@
 -import {Component, OnInit} from '@angular/core';
+-import {OwnerService} from '../owner.service';
+-import {Owner} from '../owner';
 +import {Component, OnDestroy, OnInit} from '@angular/core';
-+import {PageEvent} from '@angular/material/paginator';
-+import {Sort, SortDirection} from '@angular/material/sort';
-+import {Subscription} from 'rxjs';
- import {OwnerService} from '../owner.service';
- import {Owner} from '../owner';
--import {Router} from '@angular/router';
+ import {Router} from '@angular/router';
 -import { finalize } from 'rxjs/operators';
--import {Subscription} from 'rxjs';
-+import {OwnerSort} from '../owner-page';
++import {PageEvent} from '@angular/material/paginator';
++import {Sort} from '@angular/material/sort';
+ import {Subscription} from 'rxjs';
++import {OwnerService} from '../owner.service';
++import {Owner} from '../owner';
++import {OwnerPage, OwnerPageSize, OwnerSort} from '../owner-page';
 +
 +type OwnerSortKey = 'name' | 'city';
  
@@ -508,16 +506,16 @@ index 11812f80..ab6d7faa 100644
 -  isOwnersDataReceived: boolean = false;
 -  private load: Subscription;
 +export class OwnerListComponent implements OnInit, OnDestroy {
-+  readonly pageSizeOptions = [5, 10, 20];
++  readonly pageSizes: OwnerPageSize[] = [5, 10, 20];
  
 -  constructor(private router: Router, private ownerService: OwnerService) {
-+  /** What is typed in the search box; only a submit makes it the filter. */
++  /** What is typed in the search box; only a submitted search reaches the query. */
 +  lastName = '';
 +  submittedLastName = '';
 +  pageIndex = 0;
-+  pageSize = 10;
++  pageSize: OwnerPageSize = 10;
 +  sortKey: OwnerSortKey = 'name';
-+  sortDirection: SortDirection = 'asc';
++  sortDirection: 'asc' | 'desc' = 'asc';
  
 +  owners: Owner[] = [];
 +  totalElements = 0;
@@ -527,7 +525,7 @@ index 11812f80..ab6d7faa 100644
 +
 +  private request?: Subscription;
 +
-+  constructor(private ownerService: OwnerService) {
++  constructor(private router: Router, private ownerService: OwnerService) {
    }
  
    ngOnInit() {
@@ -553,24 +551,21 @@ index 11812f80..ab6d7faa 100644
 +
 +  onPage(event: PageEvent) {
 +    const sizeChanged = event.pageSize !== this.pageSize;
-+    this.pageSize = event.pageSize;
++    this.pageSize = event.pageSize as OwnerPageSize;
 +    this.pageIndex = sizeChanged ? 0 : event.pageIndex;
 +    this.loadPage();
-   }
- 
--  onSelect(owner: Owner) {
--    this.router.navigate(['/owners', owner.id]);
++  }
++
 +  onSort(sort: Sort) {
 +    this.sortKey = sort.active as OwnerSortKey;
-+    this.sortDirection = sort.direction;
++    this.sortDirection = sort.direction || 'asc'; // matSortDisableClear: never '' in practice
 +    this.pageIndex = 0;
 +    this.loadPage();
    }
  
--  addOwner() {
--    this.router.navigate(['/owners/add']);
-+  get noOwnersFound(): boolean {
-+    return this.loaded && !this.errorMessage && this.totalElements === 0;
+   onSelect(owner: Owner) {
+@@ -40,13 +72,37 @@ export class OwnerListComponent implements OnInit {
+     this.router.navigate(['/owners/add']);
    }
  
 -  // Only the latest query may answer: a search sent while the initial load is still in
@@ -581,33 +576,42 @@ index 11812f80..ab6d7faa 100644
 -    this.load = owners$.subscribe(
 -      owners => this.owners = owners,
 -      () => this.owners = null);
-+  // Unsubscribing first is what makes the latest request the only one that answers:
-+  // an earlier one can no longer set rows, total, loading or error once it is dropped.
++  get noMatches(): boolean {
++    return this.loaded && !this.errorMessage && this.totalElements === 0;
++  }
++
++  // Cancelling the previous request first means only the latest one may answer:
++  // an unsubscribed observer gets no next, error or complete.
 +  private loadPage() {
 +    this.request?.unsubscribe();
 +    this.loading = true;
-+    this.errorMessage = null;
-+    this.request = this.ownerService.getOwners({
++    this.request = this.ownerService.getOwnerPage({
 +      lastName: this.submittedLastName,
 +      page: this.pageIndex,
 +      size: this.pageSize,
 +      sort: `${this.sortKey},${this.sortDirection}` as OwnerSort
-+    }).subscribe(
-+      page => {
-+        this.owners = page.content;
-+        this.totalElements = page.totalElements;
-+        this.loaded = true;
-+        this.loading = false;
-+      },
-+      error => {
-+        this.owners = [];
-+        this.errorMessage = String(error);
-+        this.loading = false;
-+      });
++    }).subscribe({
++      next: page => this.show(page),
++      error: error => this.fail(error)
++    });
++  }
++
++  private show(page: OwnerPage) {
++    this.owners = page.content;
++    this.totalElements = page.totalElements;
++    this.errorMessage = null;
++    this.loaded = true;
++    this.loading = false;
++  }
++
++  private fail(error: unknown) {
++    this.owners = [];
++    this.errorMessage = String(error);
++    this.loading = false;
    }
  }
 diff --git a/petclinic-frontend/src/app/owners/owner-page.ts b/petclinic-frontend/src/app/owners/owner-page.ts
-index 6b90fb7a..d71474a5 100644
+index 6b90fb7a..8df8c196 100644
 --- a/petclinic-frontend/src/app/owners/owner-page.ts
 +++ b/petclinic-frontend/src/app/owners/owner-page.ts
 @@ -1,9 +1,10 @@
@@ -624,47 +628,55 @@ index 6b90fb7a..d71474a5 100644
 -}
 +};
 +
-+export type OwnerListQuery = NonNullable<operations['listOwners']['parameters']['query']>;
-+
-+export type OwnerSort = NonNullable<OwnerListQuery['sort']>;
++export type OwnerPageQuery = NonNullable<operations['listOwners']['parameters']['query']>;
++export type OwnerPageSize = NonNullable<OwnerPageQuery['size']>;
++export type OwnerSort = NonNullable<OwnerPageQuery['sort']>;
 diff --git a/petclinic-frontend/src/app/owners/owner.service.ts b/petclinic-frontend/src/app/owners/owner.service.ts
-index b65e57e5..14181896 100644
+index b65e57e5..066d679e 100644
 --- a/petclinic-frontend/src/app/owners/owner.service.ts
 +++ b/petclinic-frontend/src/app/owners/owner.service.ts
-@@ -2,9 +2,10 @@ import { Injectable } from '@angular/core';
+@@ -2,9 +2,18 @@ import { Injectable } from '@angular/core';
  import { Owner } from './owner';
  import { Observable } from 'rxjs';
  import { environment } from '../../environments/environment';
 -import { HttpClient } from '@angular/common/http';
-+import { HttpClient, HttpParams } from '@angular/common/http';
++import { HttpClient, HttpParameterCodec, HttpParams } from '@angular/common/http';
  import { catchError } from 'rxjs/operators';
  import { HandleError, HttpErrorHandler } from '../error.service';
-+import { OwnerListQuery, OwnerPage } from './owner-page';
++import { OwnerPage, OwnerPageQuery } from './owner-page';
++
++/** Angular's default codec leaves '+' raw, which the server decodes as a space: "A+B" would search "A B". */
++class StrictQueryEncoder implements HttpParameterCodec {
++  encodeKey = (key: string) => encodeURIComponent(key);
++  encodeValue = (value: string) => encodeURIComponent(value).replace(/%2C/g, ',');
++  decodeKey = (key: string) => decodeURIComponent(key);
++  decodeValue = (value: string) => decodeURIComponent(value);
++}
  
  @Injectable()
  export class OwnerService {
-@@ -19,10 +20,17 @@ export class OwnerService {
+@@ -19,10 +28,17 @@ export class OwnerService {
      this.handlerError = httpErrorHandler.createHandleError('OwnerService');
    }
  
 -  getOwners(): Observable<Owner[]> {
-+  /** Parameters left out take the API defaults: first page, 10 owners, sorted by name. */
-+  getOwners(query: OwnerListQuery = {}): Observable<OwnerPage> {
-+    let params = new HttpParams();
++  /** Omitted query fields fall back to the server defaults: page 0 of 10, sorted by name ascending. */
++  getOwnerPage(query: OwnerPageQuery = {}): Observable<OwnerPage> {
++    let params = new HttpParams({encoder: new StrictQueryEncoder()});
 +    for (const [name, value] of Object.entries(query)) {
-+      if (value !== undefined) {
++      if (value !== undefined && value !== null) {
 +        params = params.set(name, value);
 +      }
 +    }
      return this.http
 -      .get<Owner[]>(this.entityUrl)
 -      .pipe(catchError(this.handlerError('getOwners', [])));
-+      .get<OwnerPage>(this.entityUrl, { params })
-+      .pipe(catchError(this.handlerError<OwnerPage>('getOwners')));
++      .get<OwnerPage>(this.entityUrl, {params})
++      .pipe(catchError(this.handlerError<OwnerPage>('getOwnerPage')));
    }
  
    getOwnerById(ownerId: number): Observable<Owner> {
-@@ -49,14 +57,4 @@ export class OwnerService {
+@@ -49,14 +65,4 @@ export class OwnerService {
        .delete<Owner>(this.entityUrl + '/' + ownerId)
        .pipe(catchError(this.handlerError('deleteOwner', [ownerId])));
    }
@@ -703,148 +715,153 @@ index 52d30ae4..563946b3 100644
    declarations: [
      OwnerListComponent,
 diff --git a/petclinic-test/src/add-visit.dsl.ts b/petclinic-test/src/add-visit.dsl.ts
-index 08afefff..d664f17b 100644
+index 08afefff..3aa4b375 100644
 --- a/petclinic-test/src/add-visit.dsl.ts
 +++ b/petclinic-test/src/add-visit.dsl.ts
-@@ -1,20 +1,17 @@
+@@ -1,5 +1,5 @@
  import {expect, Page} from '@playwright/test';
 -import axios from 'axios';
-+import {findOwner} from './support/owners-api';
++import {ApiClient} from './support/api-client';
  
  // The sentences of add-visit.spec.ts, as plain functions: named for what the
  // reader of a scenario wants to see, not for the widget being clicked. The
- // selectors live here so the spec never mentions one.
- 
--const API_BASE = process.env.API_BASE_URL || 'http://localhost:8080/api';
--
- export interface OwnerWithPet {
-   ownerId: number;
-   petId: number;
+@@ -13,8 +13,7 @@ export interface OwnerWithPet {
  }
  
  export async function an_owner_with_at_least_one_pet_exists(): Promise<OwnerWithPet> {
 -  const {data: owners} = await axios.get(`${API_BASE}/owners`, {timeout: 10_000});
 -  const ownerWithPet = owners.find((o: any) => Array.isArray(o.pets) && o.pets.length > 0);
-+  const ownerWithPet = await findOwner((o) => Array.isArray(o.pets) && o.pets.length > 0);
++  const ownerWithPet = await new ApiClient(API_BASE).findOwner((o) => o.pets.length > 0);
    if (!ownerWithPet) {
      throw new Error('No owner with a pet found in the system; cannot run add-visit scenario');
    }
 diff --git a/petclinic-test/src/owner-search.feature.glue.ts b/petclinic-test/src/owner-search.feature.glue.ts
-index b8b21f31..df7a6e63 100644
+index b8b21f31..a87988a7 100644
 --- a/petclinic-test/src/owner-search.feature.glue.ts
 +++ b/petclinic-test/src/owner-search.feature.glue.ts
-@@ -1,7 +1,7 @@
- import {DataTable, Given, When, Then} from '@cucumber/cucumber';
+@@ -2,6 +2,7 @@ import {DataTable, Given, When, Then} from '@cucumber/cucumber';
  import {expect} from '@playwright/test';
--import axios from 'axios';
--import {PlaywrightWorld} from './support/world';
-+import {ListedOwner, PlaywrightWorld} from './support/world';
-+import {everyOwner, ownersPage} from './support/owners-api';
+ import axios from 'axios';
+ import {PlaywrightWorld} from './support/world';
++import {ApiClient, OwnerDto, OwnerPage} from './support/api-client';
  
  // Gherkin, bound directly: the steps do the work themselves, with no DSL layer
  // underneath — the .feature is the readable artefact here, and a second naming
-@@ -9,19 +9,44 @@ import {PlaywrightWorld} from './support/world';
+@@ -9,50 +10,130 @@ import {PlaywrightWorld} from './support/world';
  // opposite case: no Gherkin, sentences as a DSL in add-visit.dsl.ts.)
  //
  // Nothing below decides anything: the Background states the data, the Examples
 -// table states the search term and the expected result set.
-+// table states the search term and the expected result set, and the API says
-+// in which order a sorted page lists them.
++// table states the search term and the expected result set. Expected orderings come
++// from the API itself, so the database's collation decides them in both places.
  
--const API_BASE = process.env.API_BASE_URL || 'http://localhost:8080/api';
-+interface OwnerDto {id: number; firstName: string; lastName: string}
+ const API_BASE = process.env.API_BASE_URL || 'http://localhost:8080/api';
  
++
  const fullName = (o: {firstName: string; lastName: string}) => `${o.firstName} ${o.lastName}`;
-+const listed = (o: OwnerDto): ListedOwner => ({id: o.id, name: fullName(o)});
  const namesIn = (cell: string) => cell.split(',').map((n) => n.trim()).filter(Boolean);
  
-+async function rowsOnScreen(world: PlaywrightWorld): Promise<ListedOwner[]> {
-+  return world.page.locator('#ownersTable td.ownerFullName a').evaluateAll((links) =>
-+    links.map((a) => ({
-+      id: Number(a.getAttribute('href')?.split('/').pop()),
-+      name: (a.textContent || '').trim().replace(/\s+/g, ' '),
-+    })));
++async function ownerPage(params: {page?: number; size?: number; sort?: string}): Promise<OwnerPage> {
++  const {data} = await axios.get<OwnerPage>(`${API_BASE}/owners`, {params, timeout: 10_000});
++  return data;
 +}
 +
-+/**
-+ * Does `action`, then waits until the table shows exactly the page the API answered with.
-+ * The paginator moves its range label on the click, before the answer arrives, so the label
-+ * alone cannot tell a settled page from one still loading.
-+ */
-+async function andWaitForThePage(world: PlaywrightWorld, action: () => Promise<unknown>): Promise<void> {
-+  const answer = world.page.waitForResponse((r) =>
-+    new URL(r.url()).pathname.endsWith('/api/owners') && r.request().method() === 'GET', {timeout: 10_000});
-+  await action();
-+  const {content} = (await (await answer).json()) as {content: OwnerDto[]};
-+  await expect.poll(() => rowsOnScreen(world), {timeout: 10_000}).toEqual(content.map(listed));
++/** Every owner, page after page, failing on an owner seen twice or one never reached. */
++async function everyOwnerByName(): Promise<OwnerDto[]> {
++  const owners: OwnerDto[] = [];
++  let total = 0;
++  for await (const {content, totalElements} of new ApiClient(API_BASE).ownerPages('name,asc')) {
++    owners.push(...content);
++    total = totalElements;
++  }
++  expect(new Set(owners.map((o) => o.id)).size, 'distinct owner ids across pages').toBe(owners.length);
++  expect(owners.length, 'owners reached by paging').toBe(total);
++  return owners;
 +}
++
++const listedNames = async (world: PlaywrightWorld) =>
++  (await world.page.locator('#ownersTable td.ownerFullName').allTextContents()).map((t) => t.trim()).filter(Boolean);
 +
  /** Polls until the table has settled on exactly `expected` — order-insensitive. */
  async function expectOwnersListed(world: PlaywrightWorld, expected: string[]): Promise<void> {
 -  const cells = world.page.locator('#ownersTable td.ownerFullName');
 -  const listed = async () => (await cells.allTextContents()).map((t) => t.trim()).filter(Boolean).sort();
-+  const names = async () => (await rowsOnScreen(world)).map((o) => o.name).sort();
-+  await expect.poll(names, {timeout: 10_000}).toEqual([...expected].sort());
++  await expect.poll(async () => (await listedNames(world)).sort(), {timeout: 10_000}).toEqual([...expected].sort());
 +}
  
 -  await expect.poll(listed, {timeout: 10_000}).toEqual([...expected].sort());
-+async function expectPaginatorToRead(world: PlaywrightWorld, label: string): Promise<void> {
-+  await expect(world.page.locator('mat-paginator .mat-mdc-paginator-range-label')).toHaveText(label);
++/**
++ * Runs a UI action that loads a page of owners, and returns once that page is on screen.
++ * The table is aria-busy from the click until its response is rendered, in the same change
++ * detection that draws the rows, so "not busy after the response" means "rows are current".
++ */
++async function loadingOwners(world: PlaywrightWorld, action: () => Promise<unknown>): Promise<void> {
++  const response = world.page.waitForResponse((r) =>
++    new URL(r.url()).pathname.endsWith('/api/owners') && r.request().method() === 'GET');
++  await action();
++  await response;
++  await expect(world.page.locator('#ownersTable[aria-busy="false"], #noOwners, #ownersError').first())
++    .toBeVisible({timeout: 10_000});
  }
  
++const rangeLabel = (world: PlaywrightWorld) => world.page.locator('.mat-mdc-paginator-range-label');
++const nextPage = (world: PlaywrightWorld) => world.page.locator('button.mat-mdc-paginator-navigation-next');
++
  /**
-@@ -30,29 +55,71 @@ async function expectOwnersListed(world: PlaywrightWorld, expected: string[]): P
+- * Remembers every owner the clinic holds, after checking that the ones the
++ * Remembers every owner the clinic holds, by name, after checking that the ones the
+  * Background names are among them — so a changed seed (Flyway's
   * db/seed/R__seed.sql) fails on the Given instead of looking like a broken search.
   */
  Given('the clinic has these owners', async function (this: PlaywrightWorld, owners: DataTable) {
 -  const {data} = await axios.get(`${API_BASE}/owners`, {timeout: 10_000});
 -  if (!Array.isArray(data) || data.length === 0) {
-+  const all = (await everyOwner()).map(listed);
++  const all = await everyOwnerByName();
 +  if (all.length === 0) {
      throw new Error('The API returned no owners — is the backend up and the DB seeded by Flyway?');
    }
 -  const names: string[] = data.map(fullName);
--  expect(names).toEqual(expect.arrayContaining(owners.raw().map(([name]) => name.trim())));
--  this.allOwnerNames = names;
-+  expect(all.map((o) => o.name)).toEqual(expect.arrayContaining(owners.raw().map(([name]) => name.trim())));
-+  this.allOwners = all;
++  const names = all.map(fullName);
+   expect(names).toEqual(expect.arrayContaining(owners.raw().map(([name]) => name.trim())));
+   this.allOwnerNames = names;
  });
  
  When('I open the owners page', async function (this: PlaywrightWorld) {
 -  await this.page.goto('/owners');
 -  await this.page.locator('h2:has-text("Owners")').waitFor({state: 'visible', timeout: 10_000});
-+  await andWaitForThePage(this, () => this.page.goto('/owners'));
-+  this.pagedOwners.push(...await rowsOnScreen(this));
++  await loadingOwners(this, () => this.page.goto('/owners'));
  });
  
  When('I search owners for {string}', async function (this: PlaywrightWorld, search: string) {
    await this.page.locator('#lastName').fill(search);
 -  await this.page.locator('#search-owner-form button[type="submit"]').click();
-+  await andWaitForThePage(this, () => this.page.locator('#search-owner-form button[type="submit"]').click());
-+});
-+
-+When('I go to the next page', async function (this: PlaywrightWorld) {
-+  await andWaitForThePage(this, () => this.page.getByRole('button', {name: 'Next page'}).click());
++  await loadingOwners(this, () => this.page.locator('#search-owner-form button[type="submit"]').click());
 +});
 +
 +When('I show {int} owners per page', async function (this: PlaywrightWorld, size: number) {
 +  await this.page.locator('mat-paginator mat-select').click();
-+  await andWaitForThePage(this, () =>
-+    this.page.getByRole('option', {name: String(size), exact: true}).click());
-+  this.pagedOwners = await rowsOnScreen(this);
++  await loadingOwners(this, () => this.page.getByRole('option', {name: String(size), exact: true}).click());
 +});
 +
-+When('I page through to the last page', async function (this: PlaywrightWorld) {
-+  const next = this.page.getByRole('button', {name: 'Next page'});
-+  while (await next.isEnabled()) {
-+    await andWaitForThePage(this, () => next.click());
-+    this.pagedOwners.push(...await rowsOnScreen(this));
++When('I go to the next page', async function (this: PlaywrightWorld) {
++  await loadingOwners(this, () => nextPage(this).click());
++});
++
++When('I page forward to the last page', async function (this: PlaywrightWorld) {
++  const listed = await listedNames(this);
++  while (await nextPage(this).isEnabled()) {
++    await loadingOwners(this, () => nextPage(this).click());
++    listed.push(...await listedNames(this));
 +  }
++  this.listedAcrossPages = listed;
 +});
 +
-+When('I sort the owners by {string}', async function (this: PlaywrightWorld, column: string) {
-+  await andWaitForThePage(this, () =>
-+    this.page.locator('#ownersTable th[mat-sort-header]', {hasText: column}).click());
++When('I sort owners by {string} {string}', async function (this: PlaywrightWorld, column: string, direction: string) {
++  const header = this.page.locator(`#ownersTable th[mat-sort-header]:has-text("${column}")`);
++  for (let clicks = 0; (await header.getAttribute('aria-sort')) !== direction; clicks++) {
++    expect(clicks, `clicks on ${column} to sort ${direction}`).toBeLessThan(2);
++    await loadingOwners(this, () => header.click());
++  }
  });
  
  Then('exactly these owners are listed: {string}', async function (this: PlaywrightWorld, owners: string) {
@@ -853,154 +870,143 @@ index b8b21f31..df7a6e63 100644
  
 -Then('every owner in the clinic is listed', async function (this: PlaywrightWorld) {
 -  await expectOwnersListed(this, this.requireAllOwnerNames());
-+Then('the first {int} owners by name are listed, out of every owner in the clinic',
-+  async function (this: PlaywrightWorld, count: number) {
-+    const all = this.requireAllOwners();
-+    expect(await rowsOnScreen(this)).toEqual(all.slice(0, count));
-+    await expectPaginatorToRead(this, `1 – ${count} of ${all.length}`);
-+  });
-+
-+Then('the first {int} owners by {string} are listed', async function (this: PlaywrightWorld, count: number, sort: string) {
-+  const {content} = await ownersPage(0, count, sort);
-+  expect(await rowsOnScreen(this)).toEqual(content.map(listed));
++Then('these owners are listed in order: {string}', async function (this: PlaywrightWorld, owners: string) {
++  expect(await listedNames(this)).toEqual(namesIn(owners));
 +});
 +
-+Then('every owner in the clinic was listed once, in name order', async function (this: PlaywrightWorld) {
-+  const all = this.requireAllOwners();
-+  expect(all.length).toBeGreaterThan(20);
-+  expect(new Set(this.pagedOwners.map((o) => o.id)).size).toBe(this.pagedOwners.length);
-+  expect(this.pagedOwners).toEqual(all);
++Then('the first {int} owners by {string} are listed in order', async function (
++  this: PlaywrightWorld, size: number, sort: string) {
++  const {content} = await ownerPage({page: 0, size, sort});
++  expect(await listedNames(this)).toEqual(content.map(fullName));
 +});
 +
-+Then('the paginator reads {string}', async function (this: PlaywrightWorld, label: string) {
-+  await expectPaginatorToRead(this, label);
++Then('every owner was listed exactly once, by name', async function (this: PlaywrightWorld) {
++  expect(this.listedAcrossPages).toEqual(this.requireAllOwnerNames());
++});
++
++Then('the range reads {string} of every owner', async function (this: PlaywrightWorld, range: string) {
++  await expect(rangeLabel(this)).toHaveText(`${range} of ${this.requireAllOwnerNames().length}`);
++});
++
++Then('the range reads {string}', async function (this: PlaywrightWorld, range: string) {
++  await expect(rangeLabel(this)).toHaveText(range);
  });
-diff --git a/petclinic-test/src/support/owners-api.ts b/petclinic-test/src/support/owners-api.ts
-new file mode 100644
-index 00000000..1755b69c
---- /dev/null
-+++ b/petclinic-test/src/support/owners-api.ts
-@@ -0,0 +1,41 @@
-+import axios from 'axios';
+diff --git a/petclinic-test/src/support/api-client.ts b/petclinic-test/src/support/api-client.ts
+index 3bfdc422..57591a77 100644
+--- a/petclinic-test/src/support/api-client.ts
++++ b/petclinic-test/src/support/api-client.ts
+@@ -11,6 +11,24 @@ export interface VisitDto {
+   ownerLastName?: string;
+ }
+ 
++export interface PetDto {
++  id: number;
++  name: string;
++  birthDate: string;
++}
 +
-+// GET /api/owners answers one page at a time ({content, totalElements}), never the whole list.
-+
-+const API_BASE = process.env.API_BASE_URL || 'http://localhost:8080/api';
++export interface OwnerDto {
++  id: number;
++  firstName: string;
++  lastName: string;
++  pets: PetDto[];
++}
 +
 +export interface OwnerPage {
-+  content: any[];
++  content: OwnerDto[];
 +  totalElements: number;
 +}
 +
-+export async function ownersPage(page: number, size: number, sort = 'name,asc'): Promise<OwnerPage> {
-+  const {data} = await axios.get(`${API_BASE}/owners`, {params: {page, size, sort}, timeout: 10_000});
-+  if (!Array.isArray(data?.content) || typeof data.totalElements !== 'number') {
-+    throw new Error(`The API did not answer with a page of owners: ${JSON.stringify(data).slice(0, 200)}`);
-+  }
-+  return data;
-+}
-+
-+/** Every owner, in name order, collected page by page. */
-+export async function everyOwner(): Promise<any[]> {
-+  const owners: any[] = [];
-+  for (let page = 0; ; page++) {
-+    const {content, totalElements} = await ownersPage(page, 20);
-+    owners.push(...content);
-+    if (content.length === 0 || owners.length >= totalElements) {
-+      return owners;
+ export class ApiClient {
+   private client: AxiosInstance;
+ 
+@@ -28,6 +46,28 @@ export class ApiClient {
+     return response.data;
+   }
+ 
++  /** GET /api/owners is paged: walks it 20 owners at a time, from the first page to the last. */
++  async *ownerPages(sort = 'name,asc'): AsyncGenerator<OwnerPage> {
++    for (let page = 0, seen = 0; ; page++) {
++      const {data} = await this.client.get<OwnerPage>('/owners', {params: {page, size: 20, sort}});
++      yield data;
++      seen += data.content.length;
++      if (data.content.length === 0 || seen >= data.totalElements) {
++        return;
++      }
 +    }
 +  }
-+}
 +
-+/** The first owner, in name order, that matches — reading only as many pages as it takes. */
-+export async function findOwner(matches: (owner: any) => boolean): Promise<any | undefined> {
-+  for (let page = 0; ; page++) {
-+    const {content} = await ownersPage(page, 20);
-+    const found = content.find(matches);
-+    if (found || content.length === 0) {
-+      return found;
++  async findOwner(matches: (owner: OwnerDto) => boolean): Promise<OwnerDto | undefined> {
++    for await (const {content} of this.ownerPages()) {
++      const owner = content.find(matches);
++      if (owner) {
++        return owner;
++      }
 +    }
++    return undefined;
 +  }
-+}
++
+   static sortedByDate<T extends {date: string}>(rows: T[]): T[] {
+     return [...rows].sort((a, b) => a.date.localeCompare(b.date));
+   }
 diff --git a/petclinic-test/src/support/world.ts b/petclinic-test/src/support/world.ts
-index b8aee086..da58beec 100644
+index b8aee086..2c5e6352 100644
 --- a/petclinic-test/src/support/world.ts
 +++ b/petclinic-test/src/support/world.ts
-@@ -39,6 +39,11 @@ const VIDEO_SIZE = {width: 1280, height: 800};
- const PRE_PAD_MS = 1_000;
- const POST_PAD_MS = 5_000;
- 
-+export interface ListedOwner {
-+  id: number;
-+  name: string;
-+}
-+
- export class PlaywrightWorld extends World {
-   browser!: Browser;
-   context!: BrowserContext;
-@@ -47,8 +52,10 @@ export class PlaywrightWorld extends World {
+@@ -47,8 +47,10 @@ export class PlaywrightWorld extends World {
    petId?: number;
    petName?: string;
    visitDescription?: string;
 -  // Set by the owner-search scenarios: every owner the API knows, by full name.
--  allOwnerNames?: string[];
-+  // Set by the owner-search scenarios: every owner the API knows, in name order.
-+  allOwners?: ListedOwner[];
-+  // The owners seen on each page, in the order the pages were visited.
-+  pagedOwners: ListedOwner[] = [];
++  // Set by the owner-search scenarios: every owner the API knows, by full name, in name order.
+   allOwnerNames?: string[];
++  // The names the grid showed while paging forward through it, in the order shown.
++  listedAcrossPages?: string[];
    // Set only for @generate_sequence scenarios: the title + start of the Tempo
    // search window whose traces become a sequence diagram.
    traceTitle?: string;
-@@ -66,11 +73,11 @@ export class PlaywrightWorld extends World {
-     super(options);
-   }
- 
--  requireAllOwnerNames(): string[] {
--    if (!this.allOwnerNames) {
-+  requireAllOwners(): ListedOwner[] {
-+    if (!this.allOwners) {
-       throw new Error('Expected the sample owners to have been loaded earlier in the scenario');
-     }
--    return this.allOwnerNames;
-+    return this.allOwners;
-   }
- }
- 
 diff --git a/petclinic-test/src/visit-date-range.feature.glue.ts b/petclinic-test/src/visit-date-range.feature.glue.ts
-index 23a3f422..d296fd37 100644
+index 23a3f422..0619e5aa 100644
 --- a/petclinic-test/src/visit-date-range.feature.glue.ts
 +++ b/petclinic-test/src/visit-date-range.feature.glue.ts
 @@ -2,6 +2,7 @@ import {Given, Then, When} from '@cucumber/cucumber';
  import {expect} from '@playwright/test';
  import axios from 'axios';
  import {PlaywrightWorld} from './support/world';
-+import {findOwner} from './support/owners-api';
++import {ApiClient} from './support/api-client';
  
  // Bound directly, like owner-search.feature.glue.ts. "Today" is the browser's clock only:
  // the form refuses the date before any request leaves, so the backend's own clock never
-@@ -15,8 +16,7 @@ Given('today is {word}', async function (this: PlaywrightWorld, isoDate: string)
+@@ -15,12 +16,11 @@ Given('today is {word}', async function (this: PlaywrightWorld, isoDate: string)
  
  /** Found in the seed (Flyway's db/seed/R__seed.sql), so a changed seed fails here, not in a Then. */
  Given('a pet born on {word}', async function (this: PlaywrightWorld, birthDate: string) {
 -  const {data: owners} = await axios.get(`${API_BASE}/owners`, {timeout: 10_000});
 -  const owner = owners.find((o: any) => o.pets.some((p: any) => p.birthDate === birthDate));
-+  const owner = await findOwner((o) => o.pets.some((p: any) => p.birthDate === birthDate));
++  const owner = await new ApiClient(API_BASE).findOwner((o) => o.pets.some((p) => p.birthDate === birthDate));
    if (!owner) {
      throw new Error(`No seeded pet born on ${birthDate} — did db/seed/R__seed.sql change?`);
    }
+-  const pet = owner.pets.find((p: any) => p.birthDate === birthDate);
++  const pet = owner.pets.find((p) => p.birthDate === birthDate)!;
+   this.ownerId = owner.id;
+   this.petId = pet.id;
+   this.petName = pet.name;
 diff --git a/user-manual/manual.md b/user-manual/manual.md
-index 503e7483..da4ac718 100644
+index 503e7483..afe6e95e 100644
 --- a/user-manual/manual.md
 +++ b/user-manual/manual.md
-@@ -43,7 +43,11 @@ The Owners area is where you keep records for the people who bring pets to the c
+@@ -43,7 +43,13 @@ The Owners area is where you keep records for the people who bring pets to the c
  
  ![](screenshots/owners-list.png)
  
 -The list shows every registered owner. Each row includes the address, city, telephone, and the names of the pets associated with that owner. Above the table is a *Last name* search box — type a last name (or any prefix) and click *Find Owner* to narrow the list to matching owners. Click an owner's name in the *Name* column to open their full record. The *Add Owner* button at the bottom of the list opens the new-owner form.
-+The list shows registered owners one page at a time, 10 per page to start with. Each row includes the address, city, telephone, and the names of the pets associated with that owner. Above the table is a *Last name* search box — type the beginning of a last name (upper and lower case count) and click *Find Owner* to narrow the list to matching owners.
++The list shows registered owners one page at a time, 10 per page to start with. Each row includes the address, city, telephone, and the names of the pets associated with that owner. Below the table, *Items per page* switches between 5, 10, and 20 rows, the counter shows which owners you are looking at out of how many (for example *1 – 10 of 26*), and the arrow buttons go to the first, previous, next, and last page.
 +
-+Owners are sorted by *Name* — last name first — in alphabetical order. Click the *Name* or *City* header to sort by that column; click it again to reverse the order. The other columns cannot be sorted. Below the table, *Items per page* switches between 5, 10, and 20 rows, the counter shows which owners you are looking at out of how many match (for example *1 – 10 of 26*), and the arrow buttons go to the first, previous, next, and last page. A new search, a different sort, or a different page size always starts again from the first page; a new search keeps the sort you chose.
++The list starts sorted by *Name* — last name first, then first name. Click the *Name* or *City* header to sort by that column; click it again to reverse the order. The arrow next to the header shows the current direction. Address, Telephone, and Pets cannot be sorted.
 +
-+When no owner matches the search, the list says so instead of showing an empty table. If the list cannot be loaded, an error message appears instead. Click an owner's name in the *Name* column to open their full record. The *Add Owner* button below the list opens the new-owner form.
++Above the table is a *Last name* search box — type the beginning of a last name and click *Find Owner* (or press Enter) to narrow the list to matching owners. The search is case-sensitive: *Pot* finds Potter, *pot* does not. Searching, changing the page size, or changing the sort always takes you back to the first page; searching keeps the sort you chose. If nothing matches, the screen says so; if the owners cannot be loaded, an error message appears instead.
++
++Click an owner's name in the *Name* column to open their full record. The *Add Owner* button at the bottom of the list opens the new-owner form.
  
  ### Creating a new owner

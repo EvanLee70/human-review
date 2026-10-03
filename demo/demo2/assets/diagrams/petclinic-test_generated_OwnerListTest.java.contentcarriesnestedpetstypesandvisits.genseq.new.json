@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "details": {
+    "1eq2662": {
+      "title": "OwnerRepository.findByLastNameStartingWith",
+      "steps": [
+        {
+          "label": "",
+          "text": "SELECT o1_0.id, o1_0.address, o1_0.city, o1_0.first_name, o1_0.last_name, o1_0.telephone\nFROM owners o1_0\nWHERE o1_0.last_name like ? escape '\\'\nORDER BY o1_0.last_name, o1_0.first_name, o1_0.id\nFETCH FIRST ? rows only",
+          "alternate": {
+            "label": "",
+            "text": "SELECT o1_0.id, o1_0.address, o1_0.city, o1_0.first_name, o1_0.last_name, o1_0.telephone\nFROM owners o1_0\nWHERE o1_0.last_name like 'Liddell%' escape '\\'\nORDER BY o1_0.last_name, o1_0.first_name, o1_0.id\nFETCH FIRST 10 rows only"
+          }
+        }
+      ]
+    },
+    "0qb96t9": {
+      "title": "SELECT DISTINCT o FROM Owner o LEFT JOIN FETCH o.pets p LEFT JOIN FETCH …",
+      "steps": [
+        {
+          "label": "",
+          "text": "SELECT distinct o1_0.id, o1_0.address, o1_0.city, o1_0.first_name, o1_0.last_name, p1_0.owner_id, p1_0.id, p1_0.birth_date, p1_0.name, t1_0.id, t1_0.name, v1_0.pet_id, v1_0.id, v1_0.visit_date, v1_0.description, v1_0.visit_time, o1_0.telephone\nFROM owners o1_0\nLEFT JOIN pets p1_0\nON o1_0.id=p1_0.owner_id\nLEFT JOIN types t1_0\nON t1_0.id=p1_0.type_id\nLEFT JOIN visits v1_0\nON p1_0.id=v1_0.pet_id\nWHERE o1_0.id in (?)",
+          "alternate": {
+            "label": "",
+            "text": "SELECT distinct o1_0.id, o1_0.address, o1_0.city, o1_0.first_name, o1_0.last_name, p1_0.owner_id, p1_0.id, p1_0.birth_date, p1_0.name, t1_0.id, t1_0.name, v1_0.pet_id, v1_0.id, v1_0.visit_date, v1_0.description, v1_0.visit_time, o1_0.telephone\nFROM owners o1_0\nLEFT JOIN pets p1_0\nON o1_0.id=p1_0.owner_id\nLEFT JOIN types t1_0\nON t1_0.id=p1_0.type_id\nLEFT JOIN visits v1_0\nON p1_0.id=v1_0.pet_id\nWHERE o1_0.id in (8)"
+          }
+        }
+      ]
+    }
+  }
+}

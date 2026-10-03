@@ -1,6 +1,6 @@
   * logging -> logging
     $ git merge-base eb6a0d1f58053105682bba4325dcc66f808b29f5 HEAD
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/logextract.py petclinic-backend --repo . --since eb6a0d1f58053105682bba4325dcc66f808b29f5 --json .human-review/assets/logging.json
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/2846de95968e/skills/human-review/scripts/logextract.py petclinic-backend --repo . --since eb6a0d1f58053105682bba4325dcc66f808b29f5 --json .human-review/assets/logging.json
 1 logging statement(s) on added/modified lines
   petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java:90:9  [WARN ] log.warn  (SLF4J, declared)  added
-        log.warn("Invalid value for parameter '{}'", ex.getName());
+        log.warn("Validation failed: {}", detail);
