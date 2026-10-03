@@ -604,15 +604,11 @@ def coverage_note(new_rels: list[str], old_rels: list[str]) -> str:
     both = set(new_rels) & set(old_rels)
     if set(new_rels) == set(old_rels) or not old_rels:
         return ""
-    n, o, b = len(set(new_rels)), len(set(old_rels)), len(both)
-    head = (f"Op counts are of the calls in {n} traced test{'s' if n != 1 else ''} here and "
-            f"{o} on the base.")
+    b = len(both)
+    # Copy pass (3 Oct 2026): one clause, the fact that changes how the numbers read.
     if not b:
-        return head + (" No test was traced on both sides, so no count is compared — a "
-                       "number that differs from the base's says which tests were traced, "
-                       "not what the code calls.")
-    return head + (f" A count is compared only over the {b} traced on both sides, so a test "
-                   "traced on one side alone moves no number.")
+        return "No test was traced on both sides, so no count is compared."
+    return f"Op counts compare only the {b} test{'s' if b != 1 else ''} traced on both sides."
 
 
 def is_datastore_edge(e: dict) -> bool:
@@ -1035,7 +1031,7 @@ def main(argv=None) -> int:
     # came from — and no count. How many tests each side was traced from goes in the line
     # under the card instead (`coverage_note`), and only when the two differ: that is when
     # the ops counts on the lines mean something other than they appear to.
-    title = (f"[[{C4_URL}{{What a container diagram is, on Simon Brown's own site}} "
+    title = (f"[[{C4_URL}{{What is a C2 diagram?}} "
              f"{title}]]")
     caption = "Diagram generated from sequence diagrams of the test traces"
 

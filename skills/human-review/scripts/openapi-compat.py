@@ -698,8 +698,7 @@ def report_link(which: str, assets: Path | None, prefix: str) -> str:
     parentheses stay outside the anchor so only the word underlines."""
     if assets is None or not (assets / REPORTS[which]).is_file():
         return ""
-    return (f' (<a class="rep" href="{html.escape(prefix + REPORTS[which])}"'
-            f' data-tip="Open this differ&#39;s full report in a new tab">'
+    return (f' (<a class="rep" href="{html.escape(prefix + REPORTS[which])}">'
             f'report&nbsp;&#8599;</a>)')
 
 

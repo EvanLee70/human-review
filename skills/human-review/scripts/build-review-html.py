@@ -544,7 +544,7 @@ def _main(argv=None) -> int:
             f'<h2 id="codecity">{html.escape(heading)}</h2>\n'
             f'<a class="city" href="{html.escape(city["href"])}"'
             f' target="_blank" rel="noopener"'
-            f' data-tip="Open the interactive Code City in a new tab">'
+            f' data-tip="Open interactive">'
             f'<img src="{html.escape(city["png"])}" alt="Code City with the branch change set highlighted"></a>\n'
             # Only when there is one: the empty <p> still took a paragraph's margin under
             # the picture, on every page that never wrote a caption.
@@ -664,13 +664,12 @@ def _main(argv=None) -> int:
                 #
                 # The model that reviewed opens the hover: the face says only `Review`,
                 # so the name has one home and it is here.
-                "tip": review_chip_key(open_n, refuted_n, fixed, assumed) + " "
-                + (f"{reviewed}. " if reviewed else "")
-                + raised_by_reviewer(spec.get("findings", []) + spec.get("autofixes", []),
-                                     total)
-                + (f'. {assumed} assumption{"" if assumed == 1 else "s"} the coding agent '
-                   "recorded while implementing — listed under the Review tab"
-                   if assumed else ""),
+                # Copy pass (3 Oct 2026): the per-reviewer split (`raised_by_reviewer`)
+                # and "N assumptions the coding agent recorded while implementing" went:
+                # the face counts them, the Review tab lists them, and neither changes
+                # what a reviewer does next. Who reviewed is the one fact left.
+                "tip": review_chip_key(open_n, refuted_n, fixed, assumed)
+                + (f" {reviewed}." if reviewed else ""),
             }
             c = {**computed, **{k: v for k, v in c.items() if k != "auto"}}
         # A chip that has to be kept up to date by hand is a chip that will be wrong. The
@@ -1263,7 +1262,7 @@ def _main(argv=None) -> int:
             '<div class="allbar">'
             '<button type="button" class="allbtn" aria-pressed="false" '
             'data-label-off="show single page" data-label-on="back to one tab at a time" '
-            'data-tip="Every tab on one page. Makes \u2318F search all of it.">'
+            'data-tip="All tabs on one page (for \u2318F)">'
             "show single page</button></div>"
         )
         body_html = "\n".join(panels)

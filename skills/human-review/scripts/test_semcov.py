@@ -572,10 +572,10 @@ def test_the_spec_requirements_are_numbered_under_the_issue_and_paired_too(tmp_p
     assert first["requirement"] == "Paging inputs"
     assert first["scenarios"] == ["Invalid size: WHEN a user supplies size=7 THEN the API "
                                   "returns HTTP 400"]
-    # The issue still comes first, and the provenance line says both, in plain words.
+    # The issue still comes first; the requirements follow under their own heading.
     assert g["sentences"][0]["text"] == "Booking a visit lets you leave the vet unassigned."
-    assert g["ticket"]["origin"].endswith(
-        "then the 2 requirements of the OpenSpec change paginate-owners")
+    assert "OpenSpec" not in (g["ticket"]["origin"] or ""), "the heading over them says it"
+    assert any(b["kind"] == "h" for b in g["blocks"])
     asked = S.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"],
                           g["decisions"])
     by_req = [x for x in asked["sentences"] if x.get("requirement") == "Paging inputs"]
@@ -617,7 +617,9 @@ def test_every_test_says_why_it_is_listed_and_the_ones_about_the_change_come_fir
     assert data["tests"]["test/VisitTest.java:3"]["why"].startswith("its coverage ran")
     assert set(data["ranks"]) == {"0", "1", "2", "3"}
     js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
-    assert "rank(a)-rank(b)" in js and "rm-tgroup" in js and "t.why" in js
+    assert "rank(a)-rank(b)" in js and "rm-tgroup" in js
+    # Copy pass (3 Oct 2026): the coverage lines stay in the data, out of the stamp's hover.
+    assert "esc(t.why)" not in js
 
 
 def test_the_untouched_and_unpaired_groups_start_folded_behind_a_count(tmp_path):

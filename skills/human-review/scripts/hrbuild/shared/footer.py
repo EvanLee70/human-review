@@ -85,13 +85,9 @@ ISSUES_URL = f"{HOME_URL}/issues/new/choose"
 TAKEAWAY = (
     '<span class="takeaway">'
     f'Built by <a href="{HOME_URL}" target="_blank" rel="noopener">{HOME_URL}</a>. '
-    f'Browse it <a href="{DEMO_PAGES_URL}" target="_blank" rel="noopener" '
-    'data-tip="The demo report on GitHub Pages — the live page, diagrams, '
-    'Code City and the feature video. Nothing to install.">here</a> online. '
+    f'Browse it <a href="{DEMO_PAGES_URL}" target="_blank" rel="noopener">here</a> online. '
     'Adopt what you like in your project. Bug or idea → '
-    f'<a href="{ISSUES_URL}" target="_blank" rel="noopener" '
-    'data-tip="Anyone with a GitHub account can open one — a bug, an idea, a question. '
-    'No need to have installed it.">Open an issue</a>.'
+    f'<a href="{ISSUES_URL}" target="_blank" rel="noopener">Open an issue</a>.'
     '</span>'
 )
 

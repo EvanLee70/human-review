@@ -671,7 +671,7 @@ def test_the_four_rows_explain_only_the_prices_on_screen():
     ], "usd": 21.82, "aic": 0.0}
     out = cost.components_html(comp)
     assert "Copilot" not in out and "AI credit" not in out
-    assert "Claude is priced at API list price" in out
+    assert "Claude at API list price" in out
     assert '<span class="costnum">&nbsp;&middot;&nbsp;$0.16</span>' in out
     assert "claude -p on Haiku 4.5" in out and ".model-runs.json" not in out
     assert "film script" not in out, "the hint names no step the run did not take"

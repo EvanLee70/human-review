@@ -103,12 +103,11 @@ def outside_badge(state: dict | None) -> str:
         return ""
     n = len(other)
     tip = (f"{n} earlier commit{'' if n == 1 else 's'} on this branch "
-           f"{_outside_where(state)}, not counted by the chips beside it." if n else "")
+           f"{_outside_where(state)}." if n else "")
     if specs:
-        tip += ((" " if tip else "") + f"Also before the review: the spec this change was "
-                f"built against ({', '.join(c['sha'][:8] for c in specs)}) — not counted, it "
-                "is not code.")
-    tip += " Click to list them."
+        tip += ((" Plus" if tip else "Before the review:") + " the spec this change was "
+                f"built against ({', '.join(c['sha'][:8] for c in specs)}).")
+    tip += " Click to list."
     # The face counts only the commits nobody reviewed; a branch whose only earlier commit
     # is its spec shows `spec`, not a `+1` that would read as one more unreviewed change.
     face, label = ((f"+{n}", f"{n} earlier commits {_outside_where(state)}") if n
@@ -193,7 +192,7 @@ def ref_badges(spec: dict, state: dict | None = None) -> str:
         if not repo:
             return name
         href = html.escape(f"{repo}/tree/{urllib.parse.quote(ref)}")
-        return (f'<a class="refl" href="{href}" data-tip="Open in GitHub" '
+        return (f'<a class="refl" href="{href}" data-tip="Open on GitHub" '
                 f'target="_blank" rel="noopener">{name}</a>')
 
     branch, base = pr.get("branch"), pr.get("base")

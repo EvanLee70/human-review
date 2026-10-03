@@ -95,9 +95,7 @@
       // Nothing to copy — the only offers left in this state are the ones whose command
       // lives in a fold beside them. The line that gets the reader to served mode is
       // already on the badge in the title row, so this points at it.
-      flash('This copy of the report is static, so nothing in it can run. Serve the page '
-        + '\u2014 the "Serve" badge at the top copies the line that does \u2014 and this '
-        + 'will re-render the diagram and reload.');
+      flash('Static copy. Click \uD83D\uDCCB Serve at the top to enable.');
       return;
     }
     // The Serve badge copies a different kind of line: not one that changes this page

@@ -256,7 +256,7 @@ def test_only_generated_files_make_the_band_grey(tmp_path):
     assert "rband-warn" in out and "rband-alert" not in out
     assert "every file in them is generated" in out
     # The grey is explained where it is read, so nobody "fixes" it in the prose.
-    assert "which is why this band is grey" in out
+    assert "Regenerated output only." in out
 
 
 def test_a_branch_the_agent_left_alone_gets_no_band(tmp_path):
@@ -277,7 +277,9 @@ def test_the_band_is_folded_to_its_count(tmp_path):
     assert out.startswith('<details class="rband ') and " open" not in out.split(">", 1)[0]
     summary = re.search(r"<summary>(.*?)</summary>", out, re.S).group(1)
     assert "1 commit, 19 lines changed since the agent finished" in summary
-    assert "<code>git log</code>" in summary and "ce56d912" in summary
+    # Copy pass (3 Oct 2026): "— read from git log after ce56d912: every commit since,
+    # with its message" left the line; the count is the news.
+    assert "<code>git log</code>" not in summary and "ce56d912" in out
     # The explanation and the rows are inside the fold, not on the line.
     assert "landed afterwards" not in summary and "Review-Points:" not in summary
 

@@ -220,29 +220,26 @@ def tab_steps(skill_dir: Path) -> dict[str, list[str]]:
 #: other press on this page — commits and pushes, because a review commit on the branch is
 #: the only thing that clears the aftermath band. The price is in the sentence, since the
 #: probe's figure is the matrix's and says nothing about this run.
+#: Each entry is `(kind, tooltip, confirmation)`. The tooltip is read in passing and says
+#: only the verb (and, where the probe cannot quote one, the price); the confirmation is
+#: read at the moment of spending, and carries what the press will do to the branch.
 TAB_AI = {
-    "requirements": ("model", "Rewrites this tab's requirements↔tests matrix and the "
-                              "per-test catalogue with a model, then re-derives the test "
-                              "manifest and rebuilds the page."),
-    "review": ("review", "About $15–$40 on Opus. Re-runs a /code-review high review over "
-                         "the whole PR — every commit since the merge base, re-read against "
-                         "the code as it is now — applies the fixes it accepts as [auto-fix] "
-                         "commits, writes a fresh review-points.md and PR comments, then "
-                         "commits review-points.md with its Review-Points, Implements and "
-                         "Claude-Session trailers and pushes all of it to this branch "
-                         "(git push origin HEAD:<branch>). That new review commit is what "
-                         "clears the red band of commits made since the review. It refuses, "
-                         "before spending anything, while anything is staged; the record it "
-                         "replaces is kept in .human-review/.model-prev/."),
+    "requirements": ("model", "AI redoes the requirements↔tests map.",
+                     "AI redoes the requirements↔tests map. The current map is replaced."),
+    "review": ("review", "About $15–$40 on Opus. New AI review of the whole PR; commits "
+                         "and pushes its fixes.",
+               "About $15–$40 on Opus. A new /code-review high pass over the whole PR "
+               "applies the fixes it accepts as [auto-fix] commits, rewrites "
+               "review-points.md and pushes — which clears the red band. It refuses while "
+               "anything is staged; the old record goes to .human-review/.model-prev/."),
     # The Demo tab's: the film's script is the second model-written artifact, owned like
     # the matrix — `rerun-film.py` rewrites it, then the tab's own refresh (`--steps video`)
     # records the film from it.
-    "behaviour": ("film", "Rewrites the Demo film's script (.human-review/feature-script.js) "
-                          "with a model — the screens derived from the diff, every one the "
-                          "change touched visited, what is new said on each — then records "
-                          "the film again from it, which needs the app up and takes "
-                          "minutes. The script it replaces is kept in "
-                          ".human-review/.model-prev/."),
+    "behaviour": ("film", "AI rewrites the film script, then re-records it (minutes, needs "
+                          "the app).",
+                  "AI rewrites the film script (.human-review/feature-script.js) from the "
+                  "diff, then re-records the film — minutes, needs the app. The old script "
+                  "goes to .human-review/.model-prev/."),
 }
 
 #: Which program a paid press runs in front of the tab's refresh, and whether the refresh
@@ -262,8 +259,7 @@ PRICED = ("model", "film")
 #: nothing else: the findings and the assumptions are a model's, and only a new review pass
 #: moves them. Said on the button, so a reader does not press it hoping for a new review.
 TAB_TIPS = {
-    "review": "Regenerate (scripted, free) \u2014 the commits made since the review, from "
-              "git. It does not re-run the review: the findings stay as they were written.",
+    "review": "Free. Refreshes the commit list; findings unchanged.",
 }
 
 
@@ -314,7 +310,8 @@ def declare_tab_reruns(root: Path, out_dir: Path, skill_dir: Path,
                            else ("Rewrite the film's script with a model, then film it "
                                  "again") if how[0] == "film"
                            else f"Re-derive the {tab} tab with a model")
-            info.update(ai=True, aiTip=how[1], priced=how[0] in PRICED, price=how[0])
+            info.update(ai=True, aiTip=how[1], aiConfirm=how[2], priced=how[0] in PRICED,
+                        price=how[0])
         out[tab] = info
     return out
 

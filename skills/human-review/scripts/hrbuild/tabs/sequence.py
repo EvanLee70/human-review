@@ -154,7 +154,7 @@ def _cat_chip(cat: str | None, test_rel: str = "") -> str:
     label, what = TEST_CATS[cat]
     runner = _pair_runner(test_rel)
     face = f"{label} \u00b7 {runner[0]}" if runner else label
-    tip = f"{face} \u2014 {what}" + (f", {runner[1]}" if runner else "")
+    tip = what + (f", {runner[1]}" if runner else "")
     return (f'<span class="testcat" data-cat="{cat}"'
             + (f' data-runner="{html.escape(runner[0].lower(), quote=True)}"' if runner else "")
             + f' data-tip="{html.escape(tip, quote=True)}">{html.escape(face)}</span>')
@@ -170,13 +170,9 @@ SEQ_SELECTION = "assets/sequence.selection.json"
 #: those tests, nor that the branch's own paging and sorting scenarios carried no tag —
 #: which was the whole reason they had none.
 SEQ_WHY = {
-    "tagged": ("tagged", "Traced because the test carries the tracing tag "
-                         "(@generate_sequence / @GenerateSequence)"),
-    "added": ("new test", "Traced because this branch wrote this test. It carries no "
-                          "tracing tag: the Sequence step traces the branch's own tests too"),
-    "modified": ("edited test", "Traced because this branch edited this test. It carries no "
-                                "tracing tag: the Sequence step traces the branch's own tests "
-                                "too"),
+    "tagged": ("tagged", "Has the tracing tag"),
+    "added": ("new test", "No tracing tag; traced because it is new"),
+    "modified": ("edited test", "No tracing tag; traced because it was edited"),
 }
 
 
@@ -294,9 +290,7 @@ def selection_note_html(selection: dict | None, drew: set[int]) -> str:
     if picked:
         # Why they carry no tag, and which rows they are, is the lead's hover: said inline
         # it pushed the counts onto a second line.
-        items.append(f'<span class="seqsel-k" data-tip="Untagged: the Sequence step traces '
-                     "the branch's own tests too. Their rows are marked new test or edited "
-                     f'test."><b>Also traced: {len(picked)} '
+        items.append(f'<span class="seqsel-k"><b>Also traced: {len(picked)} '
                      f"test{'s' if len(picked) != 1 else ''} this branch wrote or edited</b>"
                      "</span>")
         missed = [t for i, t in enumerate(picked) if i not in drew]
@@ -360,7 +354,7 @@ FILE_PENCIL = ('<path class="fm-mark" d="M8.65 13.65 13.65 8.65 15.55 10.55 10.5
 #: `<span class="code-badge" data-diff="new" data-tip="…">new file</span>` — the words
 #: `srcbar_html` prints at the end of a source bar.
 CODE_BADGE = re.compile(
-    r'<span class="code-badge"[^>]*data-tip="(?P<tip>[^"]*)"[^>]*>(?P<label>[^<]*)</span>')
+    r'<span class="code-badge"[^>]*?(?: data-tip="(?P<tip>[^"]*)")?>(?P<label>[^<]*)</span>')
 
 
 def _badge_as_glyph(bar: str) -> str:
@@ -381,10 +375,10 @@ def _badge_as_glyph(bar: str) -> str:
         kind = ("new" if label.startswith("new file")
                 else "unchanged" if label.startswith("unchanged") else "edited")
         mark = {"new": FILE_PLUS, "edited": FILE_PENCIL, "unchanged": ""}[kind]
-        tip = m["tip"]
+        tip = m["tip"] or ""
         return (f'<span class="filemark" data-kind="{kind}" role="img"'
                 f' aria-label="{html.escape(label, quote=True)}"'
-                f' data-tip="{label[:1].upper()}{label[1:]} &mdash; {tip}">'
+                f' data-tip="{label[:1].upper()}{label[1:]}{" &mdash; " + tip if tip else ""}">'
                 f'<svg viewBox="0 0 16 16" aria-hidden="true">{FILE_PAGE}{mark}</svg></span>')
 
     return CODE_BADGE.sub(swap, bar, count=1)

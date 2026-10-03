@@ -70,7 +70,7 @@
       a.textContent = '\uD83D\uDD75\uFE0F';
       a.href = '#' + entry.pair;
       a.setAttribute('aria-label', 'open the sequence this test drew');
-      a.setAttribute('data-tip', 'Trace it: the calls this test made, on the Sequence tab');
+      a.setAttribute('data-tip', 'Sequence diagram');
       a.addEventListener('click', function (ev) {
         ev.preventDefault(); ev.stopPropagation();
         jump(entry.pair);

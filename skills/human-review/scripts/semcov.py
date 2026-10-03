@@ -75,24 +75,22 @@ CAT_KEY = ('<p class="rm-cats"><span><span class="rm-cat" data-cat="e2e">UI</spa
            'screen</span><span><span class="rm-cat" data-cat="api">API</span>REST/MCP</span>'
            '<span><span class="rm-cat" data-cat="unit">unit</span>one isolated component'
            '</span></p>')
+# Copy pass (3 Oct 2026): only `executed` keeps a hover — "fully covered", "partially",
+# "missing" and "N/A" say themselves.
 LEGEND = ('<div class="rm-legend"><span class="rm-lgt">Legend:</span>'
-          '<span class="rm-lg" data-cov="covered" data-tip="Every claim it makes is asserted '
-          'by a test">fully covered</span>'
-          '<span class="rm-lg" data-cov="partly" data-tip="Only part of this claim is covered '
-          'by tests">partially</span>'
-          '<span class="rm-lg" data-cov="exercised" data-tip="A test runs through this but '
-          'never checks it">executed</span>'
-          '<span class="rm-lg" data-cov="missing" data-tip="No test asserts this, or even '
-          'reaches it">missing</span>'
-          '<span class="rm-lg" data-cov="none" data-tip="Not a claim, so nothing to cover">'
-          'N/A</span></div>')
+          '<span class="rm-lg" data-cov="covered">fully covered</span>'
+          '<span class="rm-lg" data-cov="partly">partially</span>'
+          '<span class="rm-lg" data-cov="exercised" data-tip="Run by a test, never '
+          'asserted">executed</span>'
+          '<span class="rm-lg" data-cov="missing">missing</span>'
+          '<span class="rm-lg" data-cov="none">N/A</span></div>')
 #: The two states only some matrices use, added to the legend when one of them is on it:
 #: a scripted pairing no model has confirmed, and a sentence a recorded decision narrowed.
 LEGEND_EXTRA = {
-    "unconfirmed": ('<span class="rm-lg" data-cov="unconfirmed" data-tip="Paired on shared '
-                    'words only; no model has confirmed a test asserts it">unconfirmed</span>'),
-    "narrowed": ('<span class="rm-lg" data-cov="narrowed" data-tip="Not delivered as written: '
-                 'a scope decision the branch recorded narrows it">narrowed</span>')}
+    "unconfirmed": ('<span class="rm-lg" data-cov="unconfirmed" data-tip="Matched by keywords '
+                    'only, unverified">unconfirmed</span>'),
+    "narrowed": ('<span class="rm-lg" data-cov="narrowed" data-tip="Scope narrowed on '
+                 'purpose">narrowed</span>')}
 #: The mapping's coverage word → the renderer's `data-cov` and its hover.
 COV_ATTR = {"covered": "covered", "partial": "partly", "exercised": "exercised",
             "missing": "missing", "n/a": "none", "unmapped": "unmapped",
@@ -433,8 +431,7 @@ def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | 
             return {**got, "source": "github",
                     "via": f"GitHub issue #{got['number']}, named by review-points.md "
                            f"`ticket: {fm_value}`",
-                    "origin": f"From GitHub issue #{got['number']}, which the review "
-                              "record names"}
+                    "origin": ""}
         number = fm_issue[0]
     ref = _tests_tab().ticket_ref(spec, out_dir)
     if ref:
@@ -446,9 +443,7 @@ def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | 
             return {**got, "source": "github",
                     "via": f"GitHub issue #{got['number']}, named by "
                            + ("content.json `pr.ticket`" if declared else "the PR title"),
-                    "origin": f"From GitHub issue #{got['number']}, "
-                              + ("the ticket this review is for" if declared
-                                 else "named in the pull request's title")}
+                    "origin": ""}
         number = number or ref["number"]
     b_issue = branch_issue(branch) if branch else None
     if b_issue is not None:
@@ -456,8 +451,7 @@ def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | 
         if got:
             return {**got, "source": "github",
                     "via": f"GitHub issue #{got['number']}, named by the branch `{branch}`",
-                    "origin": f"From GitHub issue #{got['number']}, named by the branch "
-                              f"{branch}"}
+                    "origin": ""}
         number = number or b_issue
 
     plain = {"number": None, "url": "", "author": "", "avatar": "", "createdAt": ""}
@@ -466,8 +460,7 @@ def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | 
                 "source": "front-matter",
                 "via": "the `ticket:` text in review-points.md's front-matter — not a "
                        "GitHub issue",
-                "origin": "From the ticket text the review record gives — there is no "
-                          "GitHub issue"}
+                "origin": "From the review record's ticket text (no issue)"}
     name, specs = openspec_change(root, branch, number)
     if specs:
         body = "\n\n".join(p.read_text(encoding="utf-8") for p in specs)
@@ -475,7 +468,7 @@ def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | 
         return {**plain, "title": f"OpenSpec change {name}", "body": body,
                 "source": "openspec", "via": f"the OpenSpec change `{name}` ({rel}) — not a "
                                              "GitHub issue",
-                "origin": f"From the OpenSpec change {name} — there is no GitHub issue"}
+                "origin": f"From the OpenSpec change {name} (no issue)"}
     conv = out_dir / IMPL_CONVERSATION
     body = first_request(conv)
     if body:
@@ -488,7 +481,7 @@ def fetch_ticket(spec: dict, out_dir: Path, root: Path | None = None) -> dict | 
                 "via": f"the implementation conversation's first request (`{where}`, "
                        "request 0) — not a GitHub issue",
                 "origin": "From the first request of the conversation that implemented "
-                          "this — there is no GitHub issue"}
+                          "this (no issue)"}
     return None
 
 
@@ -1670,7 +1663,7 @@ def _sentence_html(s: dict, entry: dict) -> str:
 
 
 #: The one line that says a model read the tests — instead of a 🤖 after every sentence.
-AI_NOTE = "🤖 coloured where AI read the tests — hover a sentence to see who paired it"
+AI_NOTE = "🤖 AI-checked; hover a sentence for details"
 
 
 def _ticket_html(ticket: dict, blocks: list[dict], entries: dict) -> str:
@@ -1920,8 +1913,8 @@ def gather(spec: dict, out_dir: Path, root: Path) -> dict | None:
     if reqs:
         ticket = {**ticket, "body": (ticket.get("body") or "").rstrip() + "\n\n"
                   + spec_markdown(name, reqs),
-                  "origin": (ticket.get("origin") or "") + f", then the {len(reqs)} "
-                  f"requirement{'s' if len(reqs) != 1 else ''} of the OpenSpec change {name}",
+                  # No ", then the N requirements of the OpenSpec change X" on the origin
+                  # line any more: the heading over those requirements says it.
                   "spec": {"name": name, "requirements": len(reqs)}}
     blocks = parse_ticket(ticket.get("body") or "")
     if reqs:

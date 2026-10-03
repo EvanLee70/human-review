@@ -986,21 +986,21 @@ def coverage_gaps(doc: dict, root: Path) -> str:
     if j["unmeasurable"]:
         items = []
         for u in j["unmeasurable"]:
-            via = ""
-            if u.get("proxy"):
-                where = ", ".join(f"{Path(f).name}:{_cov_ranges(ls)}" for f, ls in u["proxy"].items())
-                via = (f' — through {html.escape(where)}' + ("" if u["reached"] else
-                       ': <span class="cov-gapn">reached by none</span>'))
+            # Copy pass (3 Oct 2026): the reason's first word (`declaration`, `SQL`,
+            # `annotation`, …) and, only when it matters, that nothing reaches it. The
+            # explanation after the dash and the "through File.java:12" proxy went.
+            via = (' — <span class="cov-gapn">reached by none</span>'
+                   if u.get("proxy") and not u["reached"] else "")
+            why = u["reason"].split(" — ")[0]
             items.append(f'<li>{_cov_files({u["file"]: u["lines"]}, root)} '
                          f'<span class="tloc">{_cov_ranges(u["lines"])}</span> '
-                         f'<span class="cov-why">{html.escape(u["reason"])}</span>{via}</li>')
+                         f'<span class="cov-why">{html.escape(why)}</span>{via}</li>')
         n = sum(len(u["lines"]) for u in j["unmeasurable"])
         blocks.append(f'<details class="cov-unm"><summary>Not measurable <b>{n}</b> changed '
-                      "lines — no probe sees them run</summary><ul>" + "".join(items)
+                      "lines</summary><ul>" + "".join(items)
                       + "</ul></details>")
     else:
-        blocks.append('<p class="cov-unm cov-zero">Not measurable <b>0</b> changed lines — '
-                      "a probe sees every changed line that holds code</p>")
+        blocks.append('<p class="cov-unm cov-zero">Not measurable <b>0</b> changed lines</p>')
     return f'<div class="cov-after">{"".join(blocks)}</div>'
 
 
@@ -1019,8 +1019,7 @@ def coverage_side(side: str, frag: str, spec: dict, out_dir: Path, root: Path,
             return side
         note = COV_NOT_MEASURED_SCRIPTED if generated else COV_NOT_MEASURED
         return side[:span[1]] + f'<p class="cov-none">{note}</p>' + side[span[1]:]
-    head = (f'<div class="rm-tkhead"><span class="rm-av cov-av" '
-            f'data-tip="{html.escape(COVCARD_TIP, quote=True)}" aria-hidden="true">📏</span>'
+    head = (f'<div class="rm-tkhead"><span class="rm-av cov-av" aria-hidden="true">📏</span>'
             f'<span class="rm-who">{covcard_who(spec, out_dir)}</span></div>')
     side = re.sub(r'<div class="rm-tkhead">.*?</div>', lambda _: head, side, count=1, flags=re.S)
     # Last in the column, under the card: what no test reaches is a footnote to it.
@@ -1441,8 +1440,7 @@ def declare_run_tests_rerun(root: Path, out_dir: Path, skill_dir: Path) -> dict 
             f"--dir {shlex.quote(rel)} --steps {shlex.quote(','.join(steps))} --force --no-serve")
     action = declare_action(tab_rerun_id(RUN_TESTS_ACTION, LEDGER_TAB), f"cd {here} && {line}",
                             reload=True, label="Re-run the tests, then re-derive the Tests tab")
-    tip = (f"Re-run the test suites, then re-derive this tab ({', '.join(steps)}). Free, "
-           "but minutes long, and it needs the application stack the suites drive to be up.")
+    tip = "Re-run the tests. Free, takes minutes, needs the app running."
     return {"id": action, "steps": steps, "tip": tip}
 
 

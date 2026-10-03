@@ -300,26 +300,22 @@ def base_warning(state: dict | None) -> str | None:
     ahead = state.get("ahead")
     behind = state.get("localBehind")
     # When the page's counts are taken from a recorded base (`page_base`: the base the
-    # review audited) the chips beside this mark measure from one commit and the mark from
-    # another — eval run 6 had `5a97353e` on every chip and `origin/main` under the ⚠️, in
-    # one row, with nothing saying so. The mark then names both, first.
+    # review audited), the local base being behind changes nothing the page shows, so
+    # it is not said. Which commit the mark measures from (eval run 6's "Measured against
+    # origin/main, not the review base the counts beside it use") was a mechanics
+    # sentence on a hover that exists to say one thing: merge, then rebuild.
     other = (state.get("diffBaseSource") not in (None, "merge-base")
              and state.get("diffBase") and state.get("sha"))
-    if other and (ahead or behind):
-        parts.append(f"Measured against {state['ref']} ({state['sha'][:8]}), not the "
-                     f"review base {state['diffBase'][:8]} the counts beside it use.")
     if ahead:
         parts.append(f"{state['ref']} is {ahead} commit{'s' if ahead != 1 else ''} ahead of "
                      "the fork point. Merge or rebase, then rebuild.")
-    if behind:
+    if behind and not other:
         # Not `git fetch`: the count above was read off the remote-tracking ref, so the
         # fetch has already happened, and it never moves the local branch anyway. What
         # closes this gap is fast-forwarding the local branch onto what was fetched.
-        parts.append((f"Local {state['localRef']} is {behind} behind {state['ref']}. "
-                      if other else
-                      f"Compared against {state['ref']} ({state['sha'][:8]}); local "
-                      f"{state['localRef']} is {behind} behind it. ")
-                     + f"git branch -f {state['localRef']} {state['ref']}.")
+        parts.append(f"Compared against {state['ref']} ({state['sha'][:8]}); local "
+                     f"{state['localRef']} is {behind} behind it. "
+                     f"git branch -f {state['localRef']} {state['ref']}.")
     return " ".join(parts) or None
 
 
@@ -427,7 +423,6 @@ def diffstat_chips(root: Path, state: dict | None, extra: list[str] | None,
         root, "diff", "--name-only", rng, "--", *[f":(glob){p}" for p in REVIEW_BOOKKEEPING])
         or "").splitlines() if ln.strip()})
 
-    where = f"vs {measured_from(state)}"
     # The signs are the page's, not this chip's: `+` added, `-` removed, a pencil for
     # changed, and a zero is dropped rather than printed. A row of chips is read as a row
     # of signed numbers, and `-0` is noise that costs a glance to dismiss.
@@ -456,8 +451,7 @@ def diffstat_chips(root: Path, state: dict | None, extra: list[str] | None,
     if booked:
         # Named, because "1 file of review bookkeeping" is a reason a reader has to take
         # on trust, and `review-points.md` is one they recognise at a glance.
-        skipped += (f"; review bookkeeping left out too ({', '.join(booked_names)}: the "
-                    f"review's own record, not the change)")
+        skipped += f"; review bookkeeping left out ({', '.join(booked_names)})"
     if hidden or booked:
         skipped += f"; with them {fa + fe + fd} files, +{fadds} / −{fdels}."
     else:
@@ -470,13 +464,15 @@ def diffstat_chips(root: Path, state: dict | None, extra: list[str] | None,
     # reader to ignore half of it.
     off_fork = state.get("diffBaseSource") not in (None, "merge-base")
     href = _compare_href(pr, start if off_fork else None)
-    lines_tip = f"+{adds} / −{dels} {where}.{skipped}"
+    # Which base the numbers count from (`measured_from`) went from the hover in the copy
+    # pass of 3 Oct 2026: the face is the count, and the base is the page's business.
+    lines_tip = skipped.strip()
     if href:
-        lines_tip += " Opens the whole diff on github.com."
+        lines_tip += " Click for the full diff on GitHub."
     return [
         {"label": "files",
          "value": files_value,
-         "tip": f"{a} added, {e} edited, {d} deleted {where}.{skipped}"},
+         "tip": f"{a} added, {e} edited, {d} deleted.{skipped}"},
         {"label": "lines",
          "value": lines_value,
          "tip": lines_tip,

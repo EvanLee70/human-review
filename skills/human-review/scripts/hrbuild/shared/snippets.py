@@ -394,7 +394,7 @@ def diff_link_html(rel: str, base: str, root: Path, face: str | None = None,
         f'<a class="srcref diffref{" srcbar-diff" if face else ""}"'
         f' href="vscode://file/{src.resolve()}:{line}:1"{uri}'
         f' data-diff-path="{html.escape(rel)}" data-diff-base="{html.escape(base)}"'
-        f' data-tip="{"Open Diff in VSC" if face else html.escape(f"Open this fix as a diff in VS Code — {short} on the left, the working tree on the right")}"'
+        f' data-tip="{"Diff in VS Code" if face else html.escape(f"Open this fix as a diff in VS Code — {short} on the left, the working tree on the right")}"'
         f'>{face or _icon("VSC") + f" diff vs {html.escape(short)}"}</a>'
     )
 

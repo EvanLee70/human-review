@@ -246,33 +246,24 @@ def pile_intro(kind: str, points: dict | None) -> str:
     The fixed pile names the commit its diffs are measured against, because that is the
     one fact about it a reader cannot see: the left side of every diff below."""
     if kind == "assumptions":
-        return ("Where the ticket was ambiguous, the reading that was taken — and under "
-                "<b>Read the other way</b>, the reading that was not. Nothing here is a "
-                "defect. The code an assumption shaped is quoted under it; the choice "
-                "itself is not in the diff, which is why this is the only pile no pass, "
-                "script or reviewer could reconstruct afterwards.")
+        return "Where the ticket was ambiguous: the reading the coder chose."
     if kind == "findings":
         # "Open", like the chip, the tab's badge and the grade panel that count them: run 6
         # titled this pile "Open review issues" and then called it "closed decisions, not a
         # queue" one line down. The agent decided; the item stays open until a human agrees.
-        return ("Findings the agent read and left in the code, each with its reason. They "
-                "stay open until you agree or disagree with that reason.")
-    src = html.escape((points or {}).get("source") or "review-points.md")
+        return ("Left in the code, each with its reason. They stay open until you agree or "
+                "disagree.")
     impl = ((points or {}).get("provenance") or {}).get("implementation", "")
     against = (f"<code>{html.escape(impl[:8])}</code>, the implementation commit"
                if impl else "the implementation commit")
     # Every commit of the fix range by name (`fix_commits_html`), not "the fix commit"
     # over a range whose last commit only re-anchored one line (eval run 10).
-    commits = (points or {}).get("fixCommits") or []
     named = (points or {}).get("fixCommitsHtml") or "the fix commit"
-    whose = "of the fix commits" if len(commits) > 1 else "of the fix commit"
     warn = "".join(f' <span class="fixwarn">{w}</span>'
                    for w in (points or {}).get("fixWarnings") or [])
-    return (f"Read off <code>{src}</code>, committed with the fixes in {named}. Each one "
-            f"names the reviewer that raised it and shows the hunks {whose} its "
-            f"<code>file:line</code> reaches, against {against} — so what the review "
-            "changed is separable from what the feature changed. Hunks no card reaches "
-            "follow the pile." + warn)
+    # Copy pass (3 Oct 2026): where the pile was read from, and why the diffs are cut the
+    # way they are, went. The left side of every diff below is the one fact kept.
+    return f"Fixed by the review in {named}. Diffs against {against}." + warn
 
 
 def own_review_tab(spec: dict) -> None:
@@ -495,9 +486,9 @@ def _finding_source(f) -> str:
     detail_m = re.search(r"\(([^()]*)\)\s*$", rest)
     detail = detail_m.group(1).strip() if detail_m else ""
     effort = (rest[:detail_m.start()] if detail_m else rest).strip()
-    tip = f"What {name} does, in the Claude Code docs"
+    tip = f"{name} docs"
     if effort:
-        tip += f" — filed at {effort} effort"
+        tip += f" · filed at {effort} effort"
     # The face is the command, which says nothing about where the link goes or how hard
     # the pass looked; the tooltip spends itself on the first, as every other tooltip on
     # this page does, and the detail after the chip spends itself on the second, in plain
@@ -658,20 +649,12 @@ def review_tab_badge(spec) -> dict:
     """
     open_n, fixed_n, assumed_n = pile_numbers(spec)
     refuted_n = refuted_number(spec)
-    # Where each left-out pile is, said by its own place and never by "further down":
-    # eval run 10's hover put the refuted "further down the tab" while they sat inside the
-    # open pile, and the assumptions — the first pile on the tab — are not below anything.
-    rest = "; ".join(x for x in (
-        f"{refuted_n} refuted (listed apart, under the open ones)" if refuted_n else "",
-        f"{fixed_n} auto-fixed (their own pile)" if fixed_n else "",
-        (f'{assumed_n} implementation assumption{"" if assumed_n == 1 else "s"} '
-         "(their own pile)") if assumed_n else "",
-    ) if x)
+    # Copy pass (3 Oct 2026): the badge counts the open pile and says so — nothing more.
+    # Which piles it leaves out, and where they sit, is what the tab itself shows a line
+    # down; listing them here was a paragraph on a two-digit number.
     label = f'{open_n} open review issue{"" if open_n == 1 else "s"}'
     if refuted_n:
         label += f" · {refuted_n} refuted"
-    if rest:
-        label += f". This number leaves out {rest}"
     return {"count": open_n, "label": label}
 
 
@@ -949,9 +932,8 @@ def _ci_signal(out_dir: Path) -> dict | None:
         return sig
     if gate["verdict"] == "green":
         run = next((w for w in runs if w.get("runId")), {})
-        return linked(_signal(
-            "ci-green", f"CI green on {sha}" if sha else "CI green",
-            caveat or f"{run.get('name', 'CI')} run {run.get('runId', '')} passed"), run)
+        # No hover: the face says green and links the run.
+        return linked(_signal("ci-green", f"CI green on {sha}" if sha else "CI green", ""), run)
     if any(w.get("verdict") == "failure" for w in runs) or gate["verdict"] == "failure":
         run = next((w for w in runs if w.get("verdict") == "failure"), None) \
             or next((w for w in runs if w.get("runId")), {})
@@ -977,7 +959,9 @@ def _api_signal(out_dir: Path) -> dict | None:
     n = int(m.group(1)) if m else 0
     short = (f"{n} breaking API change{'' if n == 1 else 's'}" if n
              else "The API contract breaks")
-    return _signal("api-breaking", short, text or short, GRADE_CAPS["api-breaking"])
+    # No hover: the API tab is the detail, and its verdict line restated here named the
+    # two differs — tooling, not a fact about the change.
+    return _signal("api-breaking", short, "", GRADE_CAPS["api-breaking"])
 
 
 def _evidence_signal(spec, out_dir: Path) -> dict | None:
@@ -1041,8 +1025,7 @@ def _after_review_signal(out_dir: Path, root: Path | None, base_ref: str | None)
     n = len(commits)
     return _signal("after-review",
                    f"{n} commit{'' if n == 1 else 's'} landed after the review",
-                   "Code moved after review-points.md was recorded, and the piles have not "
-                   "seen it: " + "; ".join(f"{c.get('short', '')} {c.get('subject', '')}"
+                   "Not reviewed: " + "; ".join(f"{c.get('short', '')} {c.get('subject', '')}"
                                            for c in commits[:4]),
                    GRADE_CAPS["after-review"])
 
@@ -1067,9 +1050,7 @@ def _out_of_range_signal(spec, root: Path | None, base_ref: str | None,
         else "on the branch"
     return _signal("out-of-range",
                    f"{n} commit{'' if n == 1 else 's'} {where} before the reviewed range",
-                   f"The reviewers read {audited[:8]}..{str(prov.get('auditedHead', 'HEAD'))[:8]}"
-                   f"; these sit between {base_ref} and that range and were never reviewed: "
-                   + "; ".join(rows[:5]) + (" …" if n > 5 else ""),
+                   "Never reviewed: " + "; ".join(rows[:3]) + (" …" if n > 3 else ""),
                    GRADE_CAPS["out-of-range"])
 
 
@@ -1247,8 +1228,7 @@ def _pile_signals(spec) -> list[dict]:
         out.append(_signal(
             "open-high" if by.get("high") else "open",
             f"{n} open review issue{'' if n == 1 else 's'}: {split}",
-            "; ".join(_plain_text(f.get("title", "")) for f in findings
-                      if f.get("severity") in ("high", "medium")) or "the open pile below",
+            "",  # no hover: the cards are right below, titles and all
             GRADE_CAPS["open-high"] if by.get("high") else None))
     assumed = [a for a in spec.get("assumptions") or [] if isinstance(a, dict)] \
         if isinstance(spec.get("assumptions"), list) else []
@@ -1260,7 +1240,8 @@ def _pile_signals(spec) -> list[dict]:
             "assumptions",
             f"{n} implementation assumption{'' if n == 1 else 's'} unconfirmed"
             + (f", {unsure} under 70% sure" if unsure else ""),
-            "What the coder guessed at and nobody confirmed — the last pile below"))
+            # No hover. It said "the last pile below" over the tab's FIRST pile.
+            ""))
     return out
 
 
@@ -1459,17 +1440,25 @@ def grade_reasons_html(spec) -> str:
         href, face = at
         return (f' — <a href="{html.escape(href, quote=True)}" target="_blank" '
                 f'rel="noopener">{html.escape(face)}</a>')
+    def rest(short: str, full: str) -> str:
+        # The hover adds what the bullet does not say: a full sentence that opens with the
+        # bullet's own words loses them, and one with nothing left gets no hover at all.
+        head = short.rstrip(" .:;")
+        if full.startswith(head):
+            full = full[len(head):].lstrip(" .:;,—–-")
+        return "" if full.rstrip(" .") == short.rstrip(" .") else full
+
     items = "".join(
-        f'<li data-tip="{html.escape(full, quote=True)}">{html.escape(short)}{link(at)}</li>'
-        if full and full != short else f"<li>{html.escape(short)}{link(at)}</li>"
+        f'<li data-tip="{html.escape(rest(short, full), quote=True)}">{html.escape(short)}{link(at)}</li>'
+        if full and rest(short, full) else f"<li>{html.escape(short)}{link(at)}</li>"
         for short, full, at in reasons)
     was = v.get("modelScore")
-    capped = (f'<span class="gradewhy-was" title="The model graded it {was}/10; the '
-              f'signals marked beside the reasons cap it at {n}">was {was}</span>'
+    capped = (f'<span class="gradewhy-was" title="AI said {was}; capped by the reasons '
+              f'marked">was {was}</span>'
               if was is not None and int(was) != n else "")
     return (f'<aside class="gradewhy {band}" id="grade-why" aria-label="Why graded {n}/10">'
             f'<ul>{items}</ul>'
-            f'<p class="gradewhy-score" title="Why graded {n}/10: the reasons beside it">'
+            f'<p class="gradewhy-score">'
             f'<span class="gradewhy-l">graded</span>'
             f'<span class="gradewhy-n"><b>{n}</b>/10</span>{capped}</p></aside>')
 
@@ -2160,9 +2149,8 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
                          f'{titles} — and is shown once, here.</p>'
                          + diff_html(rel, base, root, None, head, hunks=[idx]))
             for rel, owner in pointers[i]:
-                body += (f'<p class="fixshared">Its change in <code>{html.escape(Path(rel).name)}'
-                         f'</code> shares one hunk with <b>{items[owner]["title"]}</b>, and '
-                         'is shown once, under that card.</p>')
+                body += (f'<p class="fixshared"><code>{html.escape(Path(rel).name)}</code>: '
+                         f'diff shown under <b>{items[owner]["title"]}</b>.</p>')
             f["_fixDiffs"] = body
             drawn = set(mine) | {rel for rel, _, _ in shared[i]} | {rel for rel, _ in pointers[i]}
             if f.get("snippets"):
@@ -2180,10 +2168,9 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
             nf = len(unowned)
             other_html.append(
                 '<details class="fixother">'
-                f'<summary class="fixother-h"><b>Other changes in the {which}</b> · {rng}: '
-                f'{n} hunk{"" if n == 1 else "s"} in {nf} file{"" if nf == 1 else "s"} no '
-                f'card\'s <code>file:line</code> reaches (within {FIX_HUNK_REACH} lines) — '
-                'folded, open to read them.</summary>'
+                f'<summary class="fixother-h"><b>Other changes in the {which}</b>: '
+                f'{n} hunk{"" if n == 1 else "s"} in {nf} file{"" if nf == 1 else "s"}'
+                '</summary>'
                 + "".join(diff_html(p, base, root, None, head, hunks=v)
                           for p, v in unowned.items())
                 + '</details>')
@@ -2566,7 +2553,6 @@ def _regenerate_offer(out_dir: Path, root: Path) -> str:
     return ('<p class="rb-actions"><span class="rb-act">'
             + command_html(entry["command"], RERUN_ACTION,
                            label="Regenerate the report",
-                           tip="Rebuilds this page against the branch as it is now",
                            running="Rebuilding this page…")
             + '</span></p>')
 
@@ -2689,13 +2675,11 @@ def _taken_fold_html(commits: list[dict], takeover: dict | None,
     They used to be a second list, above this band, typed by the agent that wrote the
     takeover note: the same kind of statement as the band, counted from a different commit,
     and frozen at the moment the note was written. Here they are read off `git` with the
-    rest of the band, split from tooling the same way, and the note's heading rides in the
-    hover."""
+    rest of the band, split from tooling the same way."""
     n = len(commits)
     when = html.escape(((takeover or {}).get("when") or "")[:10])
-    tip = html.escape((takeover or {}).get("heading") or "", quote=True)
     items = "".join(_aftermath_commit(c) for c in commits)
-    return (f'<details class="toolcommits takenover" title="{tip}"><summary>'
+    return (f'<details class="toolcommits takenover"><summary>'
             f'<span class="foldlbl">{n} commit{"" if n == 1 else "s"} after '
             f'<code>{html.escape(review_short)}</code> taken over without a new pass'
             + (f' on {when}' if when else '')
@@ -2778,25 +2762,19 @@ def aftermath_html(out_dir: Path, root: Path, base_ref: str | None = None) -> st
         # so the button under the list is not mistaken for the thing that clears it.
         title = (f'<b>{n} commit{plural}, {lines} line'
                  f'{"" if lines == 1 else "s"} changed since {since}</b>')
-        head = ('<p>The findings, the assumptions and the requirements matrix were written '
-                'before them and have not seen them; every measured tab is rebuilt from '
-                'the branch as it is now.</p>')
+        head = ('<p>Findings, assumptions and the tests map have not seen them; the other '
+                'tabs are current.</p>')
         sub = (reviewed + '. '
                + (f'{code["genFiles"]} generated file'
-                  + ("" if code["genFiles"] == 1 else "s")
-                  + ' moved as well and are not counted here. '
-                  if code["genFiles"] else
-                  'None of it is a generated file. ')
-               + 'This list clears when a new review pass lands — a commit carrying a '
-                 '<code>Review-Points:</code> trailer — not when the page is regenerated.')
+                  + ("" if code["genFiles"] == 1 else "s") + ' not counted. '
+                  if code["genFiles"] else '')
+               + 'Clears with a new review pass, not with Regenerate.')
         cls = "rband-alert"
         role = "alert"
     elif n:
         title = f'{n} commit{plural} since {since}, and every file in them is generated'
         head = ''
-        sub = (reviewed + '. '
-               'Regenerated output, not somebody editing the change under review — which '
-               'is why this band is grey.')
+        sub = reviewed + '. Regenerated output only.'
         cls = "rband-warn"
         role = "status"
     elif taken:
@@ -2804,8 +2782,7 @@ def aftermath_html(out_dir: Path, root: Path, base_ref: str | None = None) -> st
         # the piles still describe the reviewed commit, and that is the one thing to say.
         title = (f'{len(taken)} commit{"" if len(taken) == 1 else "s"} taken over '
                  'without a new pass')
-        head = ('<p>The findings, the assumptions and the requirements matrix describe '
-                'the branch as it was reviewed.</p>')
+        head = ''
         sub = reviewed + '.'
         cls = "rband-warn"
         role = "status"
@@ -2820,11 +2797,8 @@ def aftermath_html(out_dir: Path, root: Path, base_ref: str | None = None) -> st
         role = "status"
     # Folded to its one line. The count is the news; the commits behind it are there to
     # check, and a band that lists them open pushes the piles it qualifies off the screen.
-    how = ('read from <code>git log</code> after <code>'
-           + html.escape(doc.get("review_short", "")) + '</code>: every commit since, '
-           'with its message')
     return (f'<details class="rband aftermath {cls}" role="{role}"><summary>{title}'
-            f' <span class="rb-how">\u2014 {how}</span></summary>' + head
+            '</summary>' + head
             + f'<p class="rb-sub">{sub}</p>'
             + ('<ul>' + "".join(_aftermath_commit(c) for c in branch_only) + '</ul>'
                if branch_only else '')
@@ -3119,7 +3093,7 @@ def gh_comment_link(f) -> str:
     if not url:
         return ""
     return (f' <a class="f-gh" href="{html.escape(url, quote=True)}" target="_blank" '
-            'rel="noopener" data-tip="This item\'s comment on the pull request">on GitHub ↗</a>')
+            'rel="noopener" data-tip="PR comment">on GitHub ↗</a>')
 
 
 # Run on DOMContentLoaded, not inline: this sits in the Review tab, far above the page's
@@ -3169,13 +3143,11 @@ def push_pr_button(spec) -> str:
     # One label whether or not it was pushed before — Victor's wording; the tooltip says
     # when it last went out and that a second press updates rather than duplicates.
     face = "Publish comment on GitHub PR"
-    tip = (f"{c['fixed']} auto-fixed · {c['ignored']} open · {c['assumption']} "
-           "assumptions, each as an inline comment on its line of the PR's diff — the "
-           "calls the reviewing agent prepared in .human-review/pr-comments.json, sent "
-           "unchanged. You see the exact calls (a dry run) before anything is posted. "
-           + (f"Last pushed {pp['pushedAt'][:16].replace('T', ' ')}; pushing again updates "
-              "those comments, it never duplicates them." if again and pp.get("pushedAt")
-              else "Re-pushing later updates the same comments instead of duplicating."))
+    n = c['fixed'] + c['ignored'] + c['assumption']
+    tip = (f"{n} inline PR comment{'' if n == 1 else 's'}. Preview first; re-push updates, "
+           "never duplicates."
+           + (f" Last pushed {pp['pushedAt'][:16].replace('T', ' ')}."
+              if again and pp.get("pushedAt") else ""))
     return (f' <button type="button" class="pr-push" hidden '
             f'data-dry="{PUSH_PR_DRY_ACTION}" data-push="{PUSH_PR_ACTION}" '
             f'data-tip="{html.escape(tip, quote=True)}">{html.escape(face)}</button>')
@@ -3184,8 +3156,7 @@ def push_pr_button(spec) -> str:
 #: Said once, muted, where the publish button would be, when the branch has no pull
 #: request: run 6 simply had no button and no `on GitHub ↗` links, and a reader comparing
 #: it with a page that had them saw controls missing with no reason given.
-NO_PR_LINE = ("No pull request yet — GitHub links and publishing appear once one is "
-              "opened.")
+NO_PR_LINE = "No pull request yet — no GitHub links or publishing."
 
 
 def no_pr_line(spec) -> str:

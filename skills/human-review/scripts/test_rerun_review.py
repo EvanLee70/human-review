@@ -381,7 +381,7 @@ def test_the_review_tab_paid_press_says_what_it_costs_and_what_it_commits(tmp_pa
                   "pushes", "clears the red band", "refuses", ".model-prev"):
         assert words in confirm, words
     # The free ↺ beside it still says it does *not* re-run the review.
-    assert "does not re-run the review" in face
+    assert "findings unchanged" in face
 
 
 def test_the_confirmation_does_not_borrow_the_matrix_invoice():

@@ -709,8 +709,7 @@ def test_end_to_end_writes_a_manifest_the_page_can_read(tmp_path):
     puml = (out / "C2-Containers.diff.puml").read_text()
     title_line = next(l for l in puml.splitlines() if l.startswith("title "))
     caption_line = next(l for l in puml.splitlines() if l.startswith("caption "))
-    assert title_line == f"title [[{c2.C4_URL}{{What a container diagram is, on Simon " \
-                          "Brown's own site} C2 Containers]]"
+    assert title_line == f"title [[{c2.C4_URL}{{What is a C2 diagram?}} C2 Containers]]"
     assert caption_line == "caption Diagram generated from sequence diagrams of the test traces"
 
 
@@ -834,9 +833,7 @@ def test_a_count_moved_only_by_which_tests_were_traced_is_no_change(tmp_path):
     assert fields["status"] == "unchanged"
     diff = (root / ".human-review/assets/c2/C2-Containers.diff.puml").read_text()
     assert '"2 ops"' in diff and "was" not in diff, "two ops drawn, none compared as moved"
-    assert fields["note"] == ("Op counts are of the calls in 2 traced tests here and 1 on the "
-                              "base. A count is compared only over the 1 traced on both "
-                              "sides, so a test traced on one side alone moves no number.")
+    assert fields["note"] == "Op counts compare only the 1 test traced on both sides."
     model = json.loads((root / ".human-review/assets/c2/C2-Containers.json").read_text())
     assert model["diff"]["compared"] == {
         "both": ["test/a.spec.ts.flow.genseq.puml"],

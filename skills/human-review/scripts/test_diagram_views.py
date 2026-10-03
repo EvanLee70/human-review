@@ -1253,7 +1253,7 @@ def test_the_hover_says_where_the_layout_goes_before_it_is_clicked(tmp_path):
     # the one a reader opens to read a line before pasting it.
     tip = re.search(r'data-action="drawio-redraw:conceptual"[^>]*? data-tip="([^"]*)"',
                     out).group(1)
-    assert "stash" in tip and "server" in tip
+    assert "stash" in tip, "where the layout goes, said before the click"
     assert REDRAW["base"] not in tip, "the base is in the command, not in a three-line hover"
     copy_tip = re.search(r'data-copy="[^"]*" data-cmd="[^"]*" data-tip="([^"]*)"',
                          out).group(1)
@@ -1462,7 +1462,7 @@ def test_an_index_and_a_collation_the_erd_cannot_draw_are_named_under_it(tmp_pat
     schema dump shows that the picture cannot."""
     base = _schema_repo(tmp_path)
     note = build.schema_unseen_note("docs/DB.puml", tmp_path, base)
-    assert note.startswith("Not drawn on the diagram — DB.sql changed: ")
+    assert note.startswith("Also changed, not drawn: ")
     assert "indexes added on owners (city, id)" in note
     assert "collation changed on owners.first_name" in note
     assert "owners.city" not in note and "pets" not in note
@@ -1493,7 +1493,7 @@ def test_a_picture_unchanged_over_a_schema_that_changed_wears_its_own_badge(tmp_
     plain card; the badge says which half changed."""
     row = dict(build.unchanged_row("DB", "docs/DB.puml"),
                new_svg=_svg(tmp_path / "db.new.svg", "whole current picture"),
-               _unseen="Not drawn on the diagram — DB.sql changed: indexes added on owners.")
+               _unseen="Also changed, not drawn: indexes added on owners.")
     (tmp_path / "M.tsv").write_text("")
     out = build.render_diagrams({"manifest": "M.tsv"}, tmp_path, tmp_path, [row])
     assert ">schema only</span>" in out and 'class="badge sev-med"' in out

@@ -668,9 +668,7 @@ def audit_side(snapshot: dict, registry: dict, side: str) -> list[dict]:
         out.append(_finding(
             side, n, "bare", role,
             f'not the design-system component — a plain '
-            f'<code>&lt;{n["tag"]}&gt;</code> where {owners} belongs. Nothing above it '
-            f'carries a <code>[data-ds]</code> marker, so the screen renders the '
-            "browser’s own control instead of the one the design system ships"))
+            f'<code>&lt;{n["tag"]}&gt;</code> where {owners} belongs'))
     return out
 
 
@@ -695,8 +693,7 @@ def _kit_finding(side, n, kit, covered, claimed, nodes) -> dict:
         return _finding(
             side, n, "bare", role,
             f"not the design-system component — {tag}, an {what}, where {owners} "
-            f"belongs. It fills <code>{html.escape(kit_role)}</code>, the role {owners} "
-            "covers, and nothing above it carries a <code>[data-ds]</code> marker")
+            "belongs")
     inner = [m for m in nodes if _kit_host(m) == n.get("kit")
              and KIT_CONTROLS.get(m.get("kit") or "", (None, None))[1] in covered]
     parts = "".join(
@@ -706,10 +703,8 @@ def _kit_finding(side, n, kit, covered, claimed, nodes) -> dict:
         for m in inner)
     return _finding(
         side, n, "foreign", None,
-        f"not from the design system — {tag} is an {what}. The registry knows {claimed} "
-        f"and no component for a <code>{html.escape(kit_role)}</code>, so this control "
-        f"comes from another library{parts}. Register a design-system component for it "
-        "(<code>data-ds</code>) or accept it on purpose",
+        f"not from the design system — {tag} is an {what}, and the design system has "
+        f"no component for a <code>{html.escape(kit_role)}</code>{parts}",
         role_name=kit_role)
 
 
@@ -1290,8 +1285,7 @@ def shot_html(png_rel: str, page: dict, marks: list[dict],
         style = (f'left:{_pct(fr["x"], w)};top:{_pct(fr["y"], h)};'
                  f'width:{_pct(fr["w"], w)};height:{_pct(fr["h"], h)}')
         label = "" if fr.get("insert") else frame_label(fr, marks)
-        tip = ("the change goes in here \u2014 the other side has it"
-               if fr.get("insert") else f"changed on this branch: {label}")
+        tip = "Inserted here" if fr.get("insert") else label
         chip = ""
         if not fr.get("insert"):
             n = len(caps) + 1
@@ -1503,15 +1497,13 @@ def delta_parts(counts: dict, *, long: bool = False, gap_tip: str = "") -> list[
         kind = f"native control{plural} where a design-system component belongs"
     if reg:
         word = f'{_n(reg, "gap")} — {kind}' if long else _n(reg, "gap")
-        tip = gap_tip or ("a native control this branch added where a design-system "
-                          "component belongs, or a component it replaced with one")
+        tip = gap_tip or "Control outside the design system"
         parts.append(f'<span class="dsa-gap" data-tip-html="{html.escape(tip, quote=True)}">'
                      f'{"\u26a0 " if long else ""}+{word}</span>')
     if d:
         sign = "+" if d > 0 else "\u2212"
         what = "design-system component" if long else "component"
-        tip = (f'design-system components rendered here: {counts["old"]["ds"]} on the base, '
-               f'{counts["new"]["ds"]} on this branch')
+        tip = f'{counts["old"]["ds"]} → {counts["new"]["ds"]} design-system components'
         parts.append(f'<span class="dsa-comp" data-tip="{html.escape(tip, quote=True)}">'
                      f'{sign}{_n(abs(d), what)}</span>')
     if fixed:
@@ -1564,13 +1556,10 @@ def render_screen(screen: dict, assets_prefix: str, build) -> str:
             continue
         st = f.get("delta", {})
         if st.get("status") in ("added", "changed", "restyled"):
-            c = st.get("pixel_churn")
-            churn_txt = "not comparable (no counterpart)" if c is None else f"{c:.0%}"
             delta_marks.append({
                 "id": f["id"] + ":d", "cls": "new", "box": f["box"],
                 "badge": f'{st["status"]}: {element_name(f)}',
-                "tip": f'the DOM says {st["dom"]}; pixels differ over {churn_txt} '
-                       "of the element\u2019s own box"})
+                "tip": ""})  # the badge says it: `added: app-combo`
     # Order is the control's, not the reader's: Diff is always the first button. Which
     # one *opens* is a separate question, and here the answer is New — see the call to
     # `dgm_views_html` at the bottom of this function.
@@ -1657,8 +1646,7 @@ def render_screen(screen: dict, assets_prefix: str, build) -> str:
             f'{table}{considered}</details></div>')
 
 
-FRAME_TOGGLE = ('<label class="dsa-frametoggle" data-tip="draw a frame around each place '
-                'this branch changed the screen, on every view">'
+FRAME_TOGGLE = ('<label class="dsa-frametoggle">'
                 '<input type="checkbox" class="dsa-frameon" checked> frame the changes</label>')
 
 
@@ -1698,9 +1686,8 @@ def regression_tip(result: dict) -> str:
                 rows.append(f'{html.escape(sc["screen"])}: {html.escape(tag)} where '
                             f'{html.escape(where)} belongs'
                             + (" (a DS component on the base)" if was else ""))
-    return ('<p class="tipfoot">Gaps this branch is to blame for \u2014 a native control it '
-            'added bare, or a design-system component it replaced with one. Gaps already '
-            'bare on the base are not counted.</p><ul class="tiplist">'
+    return ('<p class="tipfoot">New controls outside the design system:</p>'
+            '<ul class="tiplist">'
             + "".join(f"<li>{r}</li>" for r in rows) + "</ul>")
 
 

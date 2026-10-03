@@ -156,8 +156,7 @@ def test_the_play_says_what_it_does_in_one_line_and_does_not_repeat_the_command(
     tip = html.unescape(re.search(r'class="runhere cmd-run[^"]*"[^>]*data-tip="([^"]*)"',
                         build.command_html("make all", "a", label="Update the report",
                                            tip="")).group(1))
-    assert tip == "Update the report \u2014 runs on the server serving this page"
-    assert "make all" not in tip
+    assert tip == "", "copy pass: the label under the pointer is the whole explanation"
     # And a caller with something a label cannot carry — that a press throws work away —
     # says it here instead, still in one line.
     other = html.unescape(re.search(r'class="runhere cmd-run[^"]*"[^>]*data-tip="([^"]*)"',

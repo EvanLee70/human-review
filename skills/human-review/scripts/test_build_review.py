@@ -2134,8 +2134,7 @@ def test_a_sourced_effort_and_detail_split_off_the_chip():
         "source": "/code-review high (the PUT-clears-the-vet scenario)"}])
     assert ">/code-review</a>" in out
     assert "high (the PUT-clears-the-vet scenario)" not in out.split(">/code-review</a>")[0]
-    assert 'data-tip="What /code-review does, in the Claude Code docs — filed at high ' \
-           'effort"' in out
+    assert 'data-tip="/code-review docs · filed at high effort"' in out
     assert '<span class="f-src-detail">(the PUT-clears-the-vet scenario)</span>' in out
 
 
@@ -2454,7 +2453,7 @@ def test_the_line_count_opens_the_compare_page_the_two_numbers_describe(tmp_path
     files, lines = build.diffstat_chips(r, build.base_state(r, "main"), None, pr)
     assert lines["href"] == "https://github.com/victorrentea/petclinic/compare/main...test-pr", \
         "`origin/` names a remote in this checkout; github.com has never heard of it"
-    assert "github.com" in lines["tip"], "a chip that links says where the click goes"
+    assert "GitHub" in lines["tip"], "a chip that links says where the click goes"
     assert "href" not in files, \
         "two identical-looking links to the same page teach the reader to ignore half the row"
     assert 'class="chip chip-link"' in build.chip_html(lines)
@@ -2595,7 +2594,7 @@ def test_the_page_measures_from_the_base_the_review_audited(tmp_path):
     assert f"{build.PENCIL}1" in files["value"]                   # plan.md, edited
     assert "Visit.java" not in files["tip"] and "1 added, 1 edited" in files["tip"], \
         "VetPicker.java and Visit.java changed before the review: not this page's to count"
-    assert f"vs {plan[:8]} (the base the review audited)" in lines["tip"]
+    assert plan[:8] not in lines["tip"], "which base it counts from is not the hover's business"
 
 
 def test_the_commits_before_the_audited_base_are_named_under_the_chips(tmp_path):
@@ -2662,17 +2661,18 @@ def test_the_earlier_commits_fold_never_lies_over_the_tab_strip():
     assert ".scopenote[hidden] { display:none; }" in css
 
 
-def test_the_drift_mark_says_it_measures_against_another_base_than_the_chips(tmp_path):
+def test_the_drift_mark_says_only_the_gap_and_the_fix(tmp_path):
     """Eval run 6: the chips counted from the audited base 5a97353e, the ⚠️ beside them
     from origin/main, and nothing in the row said the two were different yardsticks."""
     r, review, plan = _reviewed_repo(tmp_path)
     st = build.page_base(r, review, "main")
     warning = build.base_warning({**st, "ahead": 14})
-    assert warning.startswith(f"Measured against origin/main ({st['sha'][:8]}), not the "
-                              f"review base {plan[:8]} the counts beside it use.")
-    assert "14 commits ahead of the fork point" in warning
-    plain = build.base_warning({**st, "ahead": 1, "diffBaseSource": "merge-base"})
-    assert not plain.startswith("Measured against"), "one base on the page: nothing to tell apart"
+    # Copy pass (3 Oct 2026): which commit the mark measures from was mechanics; the
+    # hover keeps only the gap and the fix.
+    assert warning == "origin/main is 14 commits ahead of the fork point. Merge or rebase, then rebuild."
+    assert "Measured against" not in warning and plan[:8] not in warning
+    assert build.base_warning({**st, "localBehind": 3}) is None, \
+        "a stale local base changes nothing a page counted off the review base"
 
 
 def test_the_lines_chip_opens_the_range_it_counted(tmp_path):
@@ -2689,7 +2689,7 @@ def test_with_no_review_record_the_page_measures_from_the_fork_point(tmp_path):
     st = build.page_base(r, review, "main")
     assert st["diffBaseSource"] == "merge-base" and st["diffBase"] == st["mergeBase"]
     assert st["outside"] == [] and build.outside_note(st) == ""
-    assert "vs origin/main" in build.diffstat_chips(r, st, None)[1]["tip"]
+    assert "generated" in build.diffstat_chips(r, st, None)[1]["tip"]
 
 
 def test_an_audited_base_that_is_not_on_the_branch_is_not_believed(tmp_path):
@@ -2730,7 +2730,8 @@ def test_a_snippet_badge_measures_from_the_page_base(tmp_path):
         assert status["diff"] == "changed", "one line of three was edited after the plan"
         quiet = ext.block_status("docs/plan.md", r, [(1, 2)],
                                  (r / "docs/plan.md").read_text().splitlines())
-        assert f"(diffed against {plan[:12]})" in quiet["tip"], "a sha is named short"
+        assert quiet["diff"] == "unchanged" and quiet["tip"] == "", \
+            "copy pass: the badge's word is the whole message"
     finally:
         snippets.set_diff_base(held)
 
@@ -2785,9 +2786,10 @@ def test_the_review_chip_leads_with_what_is_left_to_do(tmp_path):
     assert "auto-fixed" not in page[page.index('<header class="masthead">'):
                                     page.index("</header>")], \
         "the long word stays on the counts line under the tab, which has room for it"
-    assert "12 raised" in page, "the total is in the hover, not on the face"
-    assert "9 by /code-review, 3 by /simplify" in page, \
-        "the hover splits the total by the pass that raised each item"
+    # Copy pass (3 Oct 2026): the hover spells out the face and names the reviewer; the
+    # per-pass split of the total left it.
+    assert "Review: 9 open · 3 fixed." in page
+    assert "12 raised" not in page
 
 
 def test_the_review_chip_names_the_model_instead_of_a_second_chip_beside_it(tmp_path):
@@ -3179,9 +3181,8 @@ def test_the_merge_that_brought_the_base_in_is_not_a_commit_of_its_own(tmp_path)
     assert "1 commit, 1 line changed since the agent finished" in out
     # Truthful after a *Regenerate*: the measured tabs are current, the model's half is
     # not, and the list is cleared by a review pass, never by the button under it.
-    assert "were written before them and have not seen them" in out
-    assert "every measured tab is rebuilt from the branch as it is now" in out
-    assert "clears when a new review pass lands" in out
+    assert "have not seen them; the other tabs are current" in out
+    assert "Clears with a new review pass, not with Regenerate." in out
     assert "describes the branch as it was" not in out
 
 
@@ -3331,7 +3332,6 @@ def test_the_assumptions_intro_does_not_deny_the_code_quoted_under_it():
     the code it shaped is, and is quoted."""
     intro = build.pile_intro("assumptions", None)
     assert "nothing here is in the diff" not in intro
-    assert "The code an assumption shaped is quoted under it" in intro
 
 
 def test_the_lede_lands_on_the_pile_that_opens_the_list_whichever_it_is(tmp_path):
@@ -3809,7 +3809,7 @@ def test_a_trace_row_is_addressed_by_its_test_and_the_header_says_which_page_thi
     assert "querySelectorAll('.rm-t[data-id]')" in page
     # Served, the 📺 is a link into the viewer in a new window; off disk it copies the
     # show-trace line. The page carries no trace list, no frame, no rows.
-    assert "'Open test replay in a new window'" in page
+    assert "'Open test replay'" in page
     assert "tv.target = '_blank'" in page and "copy(t.cmd)" in page
     assert "traceview" not in page and 'class="traces"' not in page
 
@@ -3927,7 +3927,7 @@ def test_a_pair_says_what_kind_of_test_drew_it(tmp_path):
     assert ">UI · Gherkin</span>remembers the vet</summary>" in out, "it leads the sentence"
     # The tip is now composed, so it is escaped as one string: a literal em dash, not the
     # `&mdash;` entity that used to be concatenated in after the escaping.
-    assert "UI · Gherkin — clicks the screen" in out, "the legend is on the hover"
+    assert 'data-tip="clicks the screen' in out, "the legend is on the hover"
     # The same three words the requirements map's legend uses, and no fourth.
     assert [c[0] for c in build.TEST_CATS.values()] == ["UI", "API", "unit"]
     # Same three colours as the evidence cards a few hundred lines up the stylesheet.
@@ -4503,7 +4503,7 @@ def test_a_picture_says_whether_it_is_there_by_tag_or_because_the_branch_wrote_t
     by_title = {("Sorting" in p): p for p in pairs}
     assert 'data-why="added"' in by_title[True] and ">new test</span>" in by_title[True]
     assert 'data-why="tagged"' in by_title[False] and ">tagged</span>" in by_title[False]
-    assert "carries no tracing tag" in by_title[True]
+    assert "No tracing tag" in by_title[True]
     # The branch's own scenario is quoted beside its picture, not left "not excerpted here".
     sorting = out[out.index(f'id="{build.pair_anchor(picked)}"'):]
     sorting = sorting.split('<details class="testpair"')[0]
@@ -4568,7 +4568,7 @@ def test_a_struck_tab_says_why_it_is_struck(tmp_path):
     assert '<button type="button" class="tab quiet" role="tab" id="tabbtn-packages"' in page
     panel = page[page.index('<section class="panel" id="packages"'):]
     panel = panel[:panel.index("</section>")]
-    assert 'class="quietline"' in panel and "nothing on this tab changed" in panel
+    assert 'class="quietline"' in panel and "Nothing on this tab changed" in panel
     # A tab that did change is not told it did not.
     other = page[page.index('<section class="panel" id="other"'):]
     assert 'class="quietline"' not in other[:other.index("</section>")] or \
@@ -4884,8 +4884,8 @@ def test_the_chip_carries_the_coders_assumptions_as_its_own_sentence(tmp_path):
         "every count bold with its noun, the coder's first"
     assert "Coding agent: 7 unsure. Review: 6 open · 3 fixed." in page, \
         "the hover's first sentence spells out what the face abbreviates"
-    assert "7 assumptions the coding agent recorded while implementing" in page, \
-        "the hover says who recorded them and where they are; the pill has no room to"
+    assert "recorded while implementing" not in page, \
+        "copy pass: the face counts them and the Review tab lists them"
     # Singular, so the chip reads as a sentence rather than as a field with a value in it.
     assert build.scope_chip_face({"findings": [], "autofixes": [],
                                   "assumptions": [{"title": "s"}]}) == \
@@ -5181,7 +5181,7 @@ def test_the_grade_reasons_are_computed_from_what_the_page_measured(tmp_path):
     assert build.cap_grade(spec) == 7
     assert spec["verdict"] == {"score": 7, "modelScore": 8}
     reasons = dict(build.grade_reasons(spec))
-    assert reasons["CI green on 0746abc5"] == "green: CI (run 37) for 0746abc56242"
+    assert reasons["CI green on 0746abc5"] == "CI green on 0746abc5", "no hover: the face links the run"
     assert "1 breaking API change (caps the grade at 7)" in reasons
     seq = next(full for short, full in reasons.items() if short.startswith("One tab carries"))
     assert "Sequence: not re-traced" in seq and "C2 view on Structure" in seq
@@ -5339,7 +5339,7 @@ def test_a_hunk_two_fixed_cards_share_is_drawn_once_with_both_titles(tmp_path):
     assert both.count("line 3 fixed") == 1, "one hunk, drawn once"
     assert "line 3 fixed" in first["_fixDiffs"]
     assert "<b>first fix</b> and <b>second fix</b>" in first["_fixDiffs"]
-    assert "shown once, under that card" in second["_fixDiffs"]
+    assert "diff shown under <b>first fix</b>" in second["_fixDiffs"]
     assert "<b>first fix</b>" in second["_fixDiffs"]
     assert second["snippets"] == [], "its lines are on the page already, in the shared hunk"
 
@@ -5384,8 +5384,7 @@ def test_the_review_pill_hover_says_where_the_left_out_piles_are_without_lying()
     label = build.review_tab_badge(spec)["label"]
     assert label.startswith("1 open review issue · 1 refuted")
     assert "further down" not in label
-    assert "1 refuted (listed apart, under the open ones)" in label
-    assert "2 implementation assumptions" in label and "1 auto-fixed" in label
+    assert label == "1 open review issue · 1 refuted", "copy pass: the count, nothing else"
 
 
 def _three_fix_commits(tmp_path):
@@ -5501,7 +5500,7 @@ def test_generated_files_are_not_drawn_as_fixes_and_the_rest_is_folded(tmp_path)
     assert 'data-tip="docs/s.genseq.json"' in other
     assert other.startswith('<details class="fixother"><summary'), "folded by default"
     assert "<details class=\"fixother\" open" not in other
-    assert "1 hunk in 1 file no card" in other and "x = 2" in other
+    assert "1 hunk in 1 file</summary>" in other and "x = 2" in other
     assert "review-cost.json" not in other.split("generated file")[0]
 
 
@@ -5769,8 +5768,7 @@ def test_without_a_pull_request_the_page_says_so_once(tmp_path):
     spec = {"pr": {"branch": "hr-claude-6"}}
     build.prepare_pr_push(spec, tmp_path, tmp_path, HERE)
     line = build.no_pr_line(spec)
-    assert line == ('<p class="sub nopr">No pull request yet — GitHub links and publishing '
-                    'appear once one is opened.</p>')
+    assert line == '<p class="sub nopr">No pull request yet — no GitHub links or publishing.</p>'
     spec = {"pr": {"number": 49}}
     build.prepare_pr_push(spec, tmp_path, tmp_path, HERE)
     assert build.no_pr_line(spec) == ""

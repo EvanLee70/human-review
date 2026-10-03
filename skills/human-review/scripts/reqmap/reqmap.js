@@ -104,34 +104,31 @@
          +'<g transform="matrix(2 0 0 2 -17 -17)">',
       // [glyph, hover, name — and the name is also the `data-st` the colour hangs off,
       // so a status added here cannot end up wearing another one's badge colour.]
-      STAMP={new:[BIG+PLUS+'</g></svg>','a test this branch wrote','new test','new'],
+      STAMP={new:[BIG+PLUS+'</g></svg>','New test','new test','new'],
              changed:[BIG+PENCIL+'</g></svg>',
-                      'it existed before - this branch changed it','edited test','edited'],
+                      'Edited test','edited test','edited'],
              // semcov: its own lines are as they were, but it calls a helper in the same
              // file that this branch rewrote - so the run exercises different code. The
              // pencil and the edited colour (`data-st` is `edited`: it is counted with
              // them); the hover says which helper, from `t.via`.
              helper:[BIG+PENCIL+'</g></svg>',
-                     'edited via helper - its own lines are unchanged',
+                     'Edited via a helper',
                      'edited via helper','edited'],
              deleted:[BIG+CROSS+'</g></svg>',
-                      'this branch removed it - nothing asserts what it asserted',
-                      'deleted test','deleted'],
+                      'Deleted test','deleted test','deleted'],
              // The one state where the subject IS a file, untouched: the page glyph with no
              // badge on it, same as the excerpt badge one level down says "unchanged".
              // Not blown up like the others - there is nothing in its corner to read.
              unchanged:[ICON+'</svg>',
-                        'unchanged - this branch did not touch this test; it is listed '
-                        +'because it runs through code the change set edited',
-                        'unchanged test','unchanged']};
+                        'Unchanged test','unchanged test','unchanged']};
   function stamp(t){
     // The manifest is the authority on what the branch did to a TEST; a part's own diff
     // only knows what happened inside the lines quoted, which is not the same question -
     // a test edited three lines above the excerpt reads as untouched otherwise.
     var st=STAMP[t.status]||STAMP.unchanged;
-    // semcov: and why it is on this card at all - the changed lines its coverage ran.
-    var tip=st[1]+(t.via?' \u2014 '+esc(t.via).replace(/"/g,'&quot;'):'')
-      +(t.why?' \u2014 '+esc(t.why).replace(/"/g,'&quot;'):'');
+    // Copy pass (3 Oct 2026): the changed lines its coverage ran (`t.why`) went from the
+    // hover; the helper's name (`t.via`) is the one detail kept.
+    var tip=st[1]+(t.via?' \u2014 '+esc(t.via).replace(/"/g,'&quot;'):'');
     // The word is gone from the page but not from the accessibility tree: a screen reader
     // reading this row still gets "new test", which is what the glyph is for.
     return '<span class="rm-st" data-st="'+st[3]
@@ -149,7 +146,7 @@
     // was already on it: the glyph narrows what is said, it does not delete it.
     return '<span class="rm-fbadge" data-kind="'+kind+'" role="img" aria-label="'
       +esc(p.badge)+'" data-tip="'+esc(p.badge[0].toUpperCase()+p.badge.slice(1))
-      +' \u2014 '+esc(p.tip).replace(/"/g,'&quot;')+'">'+ICON+mark+'</svg></span>';
+      +(p.tip?' \u2014 '+esc(p.tip).replace(/"/g,'&quot;'):'')+'">'+ICON+mark+'</svg></span>';
   }
 
   function partsHtml(tid){
@@ -166,7 +163,7 @@
       // github.com link for work github.com has not seen.
       var d=p.diff_link?'<a class="srcref rm-diff" href="'+p.diff_link.href+'"'
         +' data-diff-uri="'+p.diff_link.uri+'" data-diff-path="'+esc(p.diff_link.path)+'"'
-        +' data-diff-base="'+esc(p.diff_link.base)+'" data-tip="Open Diff in VSC"'
+        +' data-diff-base="'+esc(p.diff_link.base)+'" data-tip="Diff in VS Code"'
         +' aria-label="open as a diff in VS Code" target="_blank" rel="noopener">'+VSCMARK+'</a>':'';
       if(p.gh_link)d+='<a class="srcref rm-diff" href="'+p.gh_link.href+'" target="_blank"'
         +' rel="noopener" data-tip="GitHub"'
@@ -248,8 +245,7 @@
       // test pins, and nothing else on the row does.
       +'<button class="rm-link" type="button" aria-pressed="false"'
       +(pins?'':' disabled')
-      +' data-tip="Outline the '+pins+' sentence'+(pins===1?'':'s')
-      +' this test pins \u2014 click again to release"'
+      +(pins?' data-tip="Show the '+pins+' sentence'+(pins===1?'':'s')+' it covers"':'')
       +' aria-label="outline the sentences this test pins">'
       +'<svg class="rm-fan" viewBox="0 0 12 14" aria-hidden="true">'
       +'<path d="M7 7H11.2"/><path d="M7 7H1.2"/>'
@@ -507,7 +503,7 @@
            :'<span class="rm-do">no test \u00B7 click for what is missing</span>';
     // semcov: who paired it, after the badges - the script's evidence or a model's reading.
     tip+=s.cov==='unmapped'?'<span class="rm-do"> not paired yet \u00B7 run the 🤖</span>'
-        :s.cov==='unconfirmed'?'<span class="rm-do"> \u00B7 shared words only, not confirmed \u00B7 run the 🤖</span>'
+        :s.cov==='unconfirmed'?'<span class="rm-do"> \u00B7 unconfirmed \u00B7 run the 🤖</span>'
         :s.cov==='narrowed'?'<span class="rm-do"> \u00B7 narrowed by '
           +(s.decisionName?esc(s.decisionName):'a recorded decision')+'</span>'
         :'<span class="rm-do"> \u00B7 '+(s.by==='model'?'🤖 checked by AI':'paired by script')+'</span>';

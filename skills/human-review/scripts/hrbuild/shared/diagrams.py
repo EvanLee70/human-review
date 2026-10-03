@@ -64,16 +64,12 @@ def dgm_views_html(panes, initial: str = "diff") -> str:
         initial = "diff"
     buttons = ['<button type="button" class="dgm-diff" data-go="diff" '
                f'aria-pressed="{str(initial == "diff").lower()}" '
-               'data-tip="the delta &mdash; green for what this branch added, '
-               'red and struck through for what it removed">Diff</button>']
+               'data-tip="Green added, red removed">Diff</button>']
     if pair:
         buttons.append(
             '<button type="button" class="dgm-newold" data-go="newold" '
             f'aria-pressed="{str(initial != "diff").lower()}" '
-            'data-tip="the diagram itself, undiffed. Click again to swap sides. '
-            'Worth reaching for whenever the delta looks wrong: a generated sequence '
-            'diagram reorders concurrent calls between runs, and the differ reports that '
-            'as a change.">'
+            'data-tip="The diagram without diff. Click again to swap.">'
             + "/".join(f'<u data-view="{v}"{' class="on"' if v == initial else ""}>'
                        f'{VIEW_WORDS[v]}</u>' for v in pair)
             + "</button>")
@@ -407,9 +403,8 @@ UNCHANGED_BADGE = f'<span class="badge sev-info">{UNCHANGED}</span>'
 #: two judges of eval run 5 read the pair as the page contradicting itself. Its own word,
 #: in the amber a finding-to-look-at wears, and the hover says what the two halves mean.
 SCHEMA_ONLY = "schema only"
-SCHEMA_ONLY_BADGE = (f'<span class="badge sev-med" data-tip="The diagram is unchanged; the '
-                     f'schema changed in what the diagram cannot draw — the line under it '
-                     f'says what">{SCHEMA_ONLY}</span>')
+SCHEMA_ONLY_BADGE = (f'<span class="badge sev-med" data-tip="Schema changed outside the '
+                     f'diagram, see below">{SCHEMA_ONLY}</span>')
 
 
 def _unchanged_body(row, assets: Path, root: Path, out_dir: Path) -> str:
@@ -524,7 +519,7 @@ def schema_unseen_note(rel: str, root: Path, merge_base: str | None,
             said.append("definition changed on " + ", ".join(other))
     if not said:
         return ""
-    return f"Not drawn on the diagram — {sql.name} changed: " + "; ".join(said) + "."
+    return "Also changed, not drawn: " + "; ".join(said) + "."
 
 
 def render_diagrams(spec, root: Path, out_dir: Path, rows=None, bare: str = "") -> str:

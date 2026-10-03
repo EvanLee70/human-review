@@ -188,8 +188,7 @@
   // the name is.
   function resetTip(el) {
     var name = el && el.dataset.fixture, about = el && el.dataset.about;
-    if (!name) return 'Empty the demo database and restore the seed — the data the '
-                      + 'app starts with';
+    if (!name) return 'Back to the starting data';
     return 'Restore the seed, then load the “' + name + '” fixture on top of it'
            + (about ? ': ' + about : ' — a named set of extra demo rows this '
                                      + 'environment ships');

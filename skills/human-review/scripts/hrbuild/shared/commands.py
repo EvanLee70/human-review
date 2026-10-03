@@ -73,8 +73,7 @@ RERUN_CHIP = ('<button type="button" class="chip chip-rerun chip-served" id="hr-
               'aria-label="Regenerate this report" '
               # Brief, since the `Served` badge beside it now carries what serving means:
               # what the press does, what it leaves alone, and the price.
-              'data-tip="Regenerate the report: re-derive the evidence and rebuild the '
-              f'page. Not the findings, and not the film. Free.">'
+              'data-tip="Rebuild the page. Free. Not the findings, not the film.">'
               f'<span class="rr-ico">{CMD_RUN}</span></button>')
 
 # The same button with the model's half in front of it, and the only control on this page
@@ -100,12 +99,10 @@ RERUN_AI_CHIP = ('<button type="button" class="chip chip-rerun chip-rerun-ai" '
                  # from what this page's own paid runs have really cost. The rendered
                  # `data-tip` carries the range as its fallback, because the markup is
                  # built once and read by a static copy too, where nothing fills anything.
-                 'data-tip-fmt="costs money: {price} on Sonnet. Rewrites the '
-                 'requirements↔tests matrix and the per-test catalogue with a model, then '
-                 're-derives the evidence and rebuilds the page." '
-                 'data-tip="costs money: ~$5\u2013$10 on Sonnet. Rewrites the '
-                 'requirements↔tests matrix and the per-test catalogue with a model, then '
-                 're-derives the evidence and rebuilds the page.">'
+                 'data-tip-fmt="costs money: {price} on Sonnet. AI redoes the '
+                 'requirements↔tests map." '
+                 'data-tip="costs money: ~$5\u2013$10 on Sonnet. AI redoes the '
+                 'requirements↔tests map.">'
                  # One mark: the model. It used to be the free one's arrow plus this,
                  # and before that a `+` and a banknote too; each refresh mode now has one
                  # mark of its own (↺ regenerate, ↺⏳ re-run tests, 🤖 re-evaluate). The `+` and the flying banknote that used to sit
@@ -178,10 +175,11 @@ def tab_rerun_html(tab_id: str, label: str, info: dict | None) -> str:
     out += info.get("extra") or ""
     if info.get("ai"):
         tip = html.escape(info.get("aiTip") or "", quote=True)
+        confirm = html.escape(info.get("aiConfirm") or info.get("aiTip") or "", quote=True)
         out += ('<button type="button" class="chip chip-rerun chip-rerun-ai tabrerun" hidden '
                 f'aria-disabled="true" data-rerun="__rerun_ai__" data-tab="{tid}" '
                 f'data-steps="{steps}" aria-label="Rerun the {name} tab with AI \u2014 costs money" '
-                f'data-confirm="{tip}" '
+                f'data-confirm="{confirm}" '
                 # The probe quotes each paid program out of its own ledger: the matrix's
                 # (the Tests tab) and the film script's (the Demo tab). `data-price` names
                 # which — absent means the matrix's, as it always did. The re-review is
@@ -217,23 +215,16 @@ RERUN_AI_CONFIRM = (
     # about to spend needs to know that pressing may not even start anything of theirs.
     # Filled and raised by RERUN_JS off `/__run_status__`; absent from every static copy.
     '<p class="hrconfirm-busy" hidden></p>'
-    '<p class="hrconfirm-b">Rerun&nbsp;+&nbsp;AI rewrites the requirements↔tests matrix '
-    'and the per-test catalogue by asking a model — <b class="hrconfirm-price">about '
-    '$5–$10 on Sonnet</b> — and then '
-    're-derives the evidence and rebuilds the page. The matrix you are looking at is '
-    'replaced, not confirmed: a second pass over the same diff words and ranks it '
-    'differently. The copy being replaced is kept in '
-    '<code>.human-review/.model-prev/</code>.</p>'
+    '<p class="hrconfirm-b">AI redoes the requirements↔tests map — '
+    '<b class="hrconfirm-price">about $5–$10 on Sonnet</b>. The current map is replaced.</p>'
     # The last real invoice, where the decision is made. An average is what a reader
     # budgets with; the figure that makes them believe it is what the last press actually
     # cost, and a tooltip they may never open is the wrong place for it.
     '<p class="hrconfirm-b hrconfirm-last" hidden></p>'
-    '<p class="hrconfirm-b hrconfirm-alt">Plain <b>Rerun</b> does everything except the '
-    'model half, and costs nothing.</p>'
+    '<p class="hrconfirm-b hrconfirm-alt">The plain ↺ is free.</p>'
     '<div class="hrconfirm-row">'
-    '<button type="button" class="hrconfirm-no" data-tip="Nothing is spent">Cancel</button>'
-    '<button type="button" class="hrconfirm-yes" '
-    'data-tip="Runs the model step, then rebuilds">Spend it, rerun with AI</button>'
+    '<button type="button" class="hrconfirm-no">Cancel</button>'
+    '<button type="button" class="hrconfirm-yes">Spend it, rerun with AI</button>'
     '</div></div></div>')
 
 # Under the masthead rather than inside it: the header is a block that never scrolls, and
@@ -345,9 +336,7 @@ def drawio_open_html(app_url: str, web_url: str = "") -> str:
 # itself rather than being absent from one copy of the report and present in the other.
 # `data-tip-served` is what the same button says where it actually works; the probe swaps
 # them, so the two readings live next to each other here instead of in the script.
-STATIC_RUN_TIP = ("This copy of the report is static, so nothing here can run: serve the "
-                  "page — the static badge at the top copies the line that does — and "
-                  "this button does the job.")
+STATIC_RUN_TIP = "Static copy. Click 📋 Serve at the top to enable."
 
 
 def reveal_html(reveal: dict | None, name: str, capital: bool = False) -> str:
@@ -489,9 +478,9 @@ def command_html(cmd: str, action_id: str | None = None, *, tip: str = "",
         # line, which put a two-hundred-character absolute path in a hover over a button
         # whose label already says what it does — and it is the *clipboard* whose hover a
         # reader opens to read a command, because that is the face that hands them one.
-        play_tip = html.escape(
-            tip or f"{label or 'Run it'} \u2014 runs on the server serving this page",
-            quote=True)
+        # A labelled button needs no hover: its words are under the pointer (copy pass,
+        # 3 Oct 2026 — "runs on the server serving this page" was mechanics).
+        play_tip = html.escape(tip or ("" if label else "Run it"), quote=True)
         run_aria = f"{label} \u2014 run this command" if label else "Run this command"
         out.append(f'<button type="button" class="runhere cmd-run{wordy}" hidden '
                    f'data-action="{html.escape(action_id, quote=True)}" '
@@ -558,8 +547,7 @@ def regenerate_html(redraw: dict | None, rerun: dict, rebuild: str,
     # rest of what the old three-line tooltip said — which file, which base, what the
     # script draws — is what the *command* says, and the command is one hover away on the
     # clipboard face of the same control.
-    served = ("Revert the diagram \u2014 runs on the server serving this page; your "
-              "layout is banked with git stash")
+    served = "Your layout is saved in git stash"
     return (command_html(line, aid, label="Revert the diagram", tip=served,
                          running="Putting automation's drawing back…"), aid)
 
@@ -622,7 +610,7 @@ def rerun_html(rerun: dict | None, rebuild: str, name: str = "",
     if name:
         aid = declare_action(f"drawio:{name}", line, reload=True,
                              label=f"Re-render {name} and rebuild this page")
-    served = "Update the report \u2014 runs on the server serving this page"
+    served = ""
     again, _ = regenerate_html(redraw, rerun, rebuild, name)
     # The status line, under the buttons and empty until something is running. This is the
     # whole of the answer to the complaint that produced it: the command behind *Update the
@@ -750,12 +738,11 @@ def runtime_html(rt, tail: str = "") -> str:
     if cmd:
         verbs.append(("start", command_html(
             cmd, "demo-env", label="Start App in Docker", run_face=CMD_PLAY,
-            tip="Starts the app and fills the address in from what it prints",
             running="Starting the app\u2026")))
     if rt.get("stop"):
         verbs.append(("stop", command_html(
             rt["stop"], "demo-env-stop", label="Stop", run_face=CMD_STOP,
-            tip="Stops the app and frees its port", running="Stopping\u2026")))
+            running="Stopping\u2026")))
     # `urlCommand` has no control of its own. It was a Where button, and a reader could not
     # tell what it would do; served, APP_ENV_JS now runs it by itself when nothing answers
     # at the remembered address, and off disk nobody needs a line to paste to find out.
@@ -777,13 +764,10 @@ def runtime_html(rt, tail: str = "") -> str:
         # The lead words carry the one sentence that makes the buttons after them legible:
         # eval run 6's "Reset DB to: default | green" left "green" unexplained.
         controls += ('<span class="appenv-resets">'
-                     '<span class="appenv-resets-to" hidden data-tip="Empties the demo '
-                     'database and restores it: &ldquo;seed&rdquo; is the data the app '
-                     'starts with; each other button is a fixture, a named set of extra '
-                     'demo rows loaded on top of the seed">Reset DB to:</span>'
+                     '<span class="appenv-resets-to" hidden data-tip="Wipe the demo DB, then '
+                     'load the seed, or the seed plus a fixture">Reset DB to:</span>'
                      '<button type="button" class="appenv-reset" data-fixture="" hidden'
-                     ' aria-disabled="true" data-tip="Empty the demo database and restore '
-                     'the seed &mdash; the data the app starts with">'
+                     ' aria-disabled="true" data-tip="Back to the starting data">'
                      'Reset DB</button></span>')
 
     return (f'<div class="appenv" data-fallback="{html.escape(fallback)}"'

@@ -814,7 +814,7 @@ def test_the_button_says_what_it_will_not_do():
     """The part a reader cannot see, and the part they are right to worry about: the
     findings are a judgement bought once, and the film costs minutes and a running app."""
     tip = re.search(r'data-tip="([^"]*)"', build.RERUN_CHIP).group(1)
-    assert "Not the findings" in tip and "not the film" in tip
+    assert "Not the findings" in tip and "not the film" in tip and "Free" in tip
 
 
 def test_the_served_badge_replaces_static_and_the_rerun_chip_keeps_a_brief_hover():
@@ -823,7 +823,7 @@ def test_the_served_badge_replaces_static_and_the_rerun_chip_keeps_a_brief_hover
     assert build.CMD_RUN in build.RERUN_CHIP
     assert "chip-served" in build.RERUN_CHIP
     tip = re.search(r'data-tip="([^"]*)"', build.RERUN_CHIP).group(1)
-    assert tip.startswith("Regenerate the report") and "rebuild the page" in tip
+    assert tip.startswith("Rebuild the page")
     assert "Served by the review server" not in tip
     assert "mode.hidden = true" not in build.RERUN_JS, "the badge stays beside the ↺"
     assert "chip.textContent = 'Served';" in build.SERVER_JS
@@ -1517,9 +1517,8 @@ def test_the_review_tab_rerun_says_it_rebuilds_the_commit_list_not_the_review(tm
     (tmp_path / "out").mkdir()
     got = build.declare_tab_reruns(tmp_path, tmp_path / "out", HERE, ["review"])
     face = build.tab_rerun_html("review", "Review", got["review"])
-    assert "Regenerate (scripted, free)" in face
-    assert "commits made since the review, from git" in face
-    assert "does not re-run the review" in face
+    # Copy pass (3 Oct 2026): the price, the verb and what it leaves alone, in one line.
+    assert 'data-tip="Free. Refreshes the commit list; findings unchanged."' in face
 
 
 def test_the_rerun_endpoint_takes_a_tab_and_only_a_declared_one(tmp_path):

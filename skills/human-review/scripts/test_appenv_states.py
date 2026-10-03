@@ -209,13 +209,12 @@ def test_a_fixture_the_environment_describes_carries_its_description(row):
                                                        "busy-day", "bare"]})
     tips = row.page.evaluate("""() => [...document.querySelectorAll('.appenv-reset')]
         .map(b => [b.textContent, b.getAttribute('data-tip')])""")
-    assert tips[0] == ["seed", "Empty the demo database and restore the seed \u2014 the "
-                               "data the app starts with"]
+    assert tips[0] == ["seed", "Back to the starting data"]
     assert tips[1][0] == "seed + green" and tips[1][1].endswith(": the Weasley household")
     assert tips[2][1].endswith(": 40 visits today")
     assert "a named set of extra demo rows" in tips[3][1]
     lead = row.page.evaluate("document.querySelector('.appenv-resets-to').dataset.tip")
-    assert "fixture, a named set of extra demo rows loaded on top of the seed" in lead
+    assert "the seed plus a fixture" in lead
 
 
 def test_fixture_buttons_leave_with_the_app(row):

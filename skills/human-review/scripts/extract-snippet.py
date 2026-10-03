@@ -302,20 +302,17 @@ def block_status(rel: str, root: Path, spans, lines: list[str], noun: str = "cod
         # row green says nothing the badge has not already said. Said once, not painted.
         return {"diff": "new", "file_new": True, "label": f"new file",
                 "added": len(real), "total": len(real),
-                "tip": f"Every line here is new: {rel} does not exist before this branch."}
+                "tip": ""}
     if not hit:
         return {"diff": "unchanged", "label": "unchanged", "added": 0, "total": len(real),
-                "tip": f"No line in this window was touched on this branch "
-                       f"(diffed against {_base_face()})."}
+                "tip": ""}
     if real and len(hit) / len(real) >= NEW_BLOCK_RATIO:
         return {"diff": "new", "label": f"new {noun}", "added": len(hit), "total": len(real),
-                "tip": f"{len(hit)} of {len(real)} lines in this window are new on this "
-                       f"branch - read it as newly written code."}
+                "tip": (f"{len(hit)} of {len(real)} lines new" if len(hit) < len(real)
+                        else "")}
     return {"diff": "changed", "label": f"{len(hit)} line{'' if len(hit) == 1 else 's'} changed",
             "added": len(hit), "total": len(real),
-            "tip": f"{len(hit)} of {len(real)} lines were added or rewritten on this branch "
-                   f"(git counts a rewritten line as an addition); the rest is context and "
-                   f"is dimmed."}
+            "tip": f"{len(hit)} of {len(real)} lines"}
 
 
 # The marks of the two places a handle can take you, drawn rather than abbreviated.
@@ -348,8 +345,10 @@ ICON_VSC = ('<svg class="ico ico-vsc" viewBox="0 0 24 24" aria-hidden="true" foc
 def diff_badge(status) -> str:
     if not status:
         return ""
-    return (f'<span class="code-badge" data-diff="{status["diff"]}" '
-            f'data-tip="{html.escape(status["tip"], quote=True)}">'
+    # The badge's words are its own explanation; a hover only where it adds a count.
+    tip = (f' data-tip="{html.escape(status["tip"], quote=True)}"' if status.get("tip")
+           else "")
+    return (f'<span class="code-badge" data-diff="{status["diff"]}"{tip}>'
             f'{html.escape(status["label"])}</span>')
 
 

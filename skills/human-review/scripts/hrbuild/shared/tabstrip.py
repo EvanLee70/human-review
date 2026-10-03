@@ -17,9 +17,7 @@ TAB_COUNT_TOKEN = "{{tabcount}}"
 #: usually reads as "not produced", a reader saw a tab contradicting itself. The pill gets
 #: no hover hint (see the strip in build-review-html.py: unfindable on a pill), so the
 #: reason is said where the reader lands after clicking the struck label.
-QUIET_LINE = ('<p class="quietline">Struck through in the tab strip because nothing on this '
-              'tab changed on this branch — what is below is the current state, shown as '
-              'context.</p>')
+QUIET_LINE = '<p class="quietline">Nothing on this tab changed on this branch. Shown for context.</p>'
 NUMBER_WORDS = ("Zero One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve "
                 "Thirteen Fourteen Fifteen Sixteen Seventeen Eighteen Nineteen Twenty").split()
 

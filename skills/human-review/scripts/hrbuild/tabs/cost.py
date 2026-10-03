@@ -559,9 +559,7 @@ def guide_breakdown_html(led: dict, tabs: list[dict]) -> str:
             + (f'<span class="costsub">{sub}</span>' if sub else "")
             + f'</td><td>{_cost_tokens(tokens)}</td><td>{_cost_money(total)}</td></tr>')
     return ('<table class="costtab costledger">'
-            '<caption>Where the &ldquo;this guide&rdquo; row went: each turn of the run that '
-            'built this page, placed in the tab it was producing, and each model step it '
-            'called, on the tab it wrote.</caption>'
+
             '<thead><tr><th scope="col">tab</th><th scope="col">tokens</th>'
             '<th scope="col">cost</th></tr></thead>'
             f'<tbody>{body}</tbody><tfoot>{foot}</tfoot></table>')
@@ -763,8 +761,7 @@ def _cost_tab_rows(costs: dict, tabs: list[dict]) -> str:
                 f'<td>{_cost_money(part.get("cost") or 0.0)}</td></tr>'
                 for label, part in shown)
         else:
-            out += ("<tr class=\"costquiet\"><td>not one tab's — assembling the guide "
-                    "itself, plus any step whose window did not cover it</td>"
+            out += ("<tr class=\"costquiet\"><td>not one tab's</td>"
                     f'<td>{_cost_tokens(resid.get("tokens") or 0)}</td>'
                     f'<td>{_cost_money(resid.get("cost") or 0.0)}</td></tr>')
     return out
@@ -832,13 +829,12 @@ def _entry_line(e: dict) -> str:
 
 
 COMPONENT_HINTS = {
-    "implementation": "writing the code, up to /record-review",
-    "review": "the reviewers finding — prepare → reviewers done",
-    "autofix": "taking the review's advice — the [auto-fix] commit, every CI round",
+    "implementation": "writing the code",
+    "review": "the review",
+    "autofix": "applying the fixes, CI rounds",
     # The parts are the entry lines under it, each named for what it was: listing "the film
     # script" here printed it on a run that wrote none (eval run 6).
-    "guide": "this page's own model work — the run that built it, and every model step it "
-             "called",
+    "guide": "building this page",
 }
 
 
@@ -899,12 +895,9 @@ def components_html(comp: dict | None) -> str:
         if ext:
             lines.append(ext)
         if r.get("source") == "derived":
-            lines.append("derived — the run recorded no report-cost.json"
-                         if r.get("key") == "guide" else
-                         f"derived from the session stores — {r['derivedBecause']}"
-                         if r.get("derivedBecause") else
-                         "derived from the session stores — this branch predates the "
-                         "record")
+            # Copy pass (3 Oct 2026): which record file was missing is the pipeline's
+            # business; the reader needs to know the number is an estimate.
+            lines.append("estimated from session logs")
         sub = "".join(f'<span class="costsub">{l}</span>' for l in [html.escape(hint)] + lines
                       if l)
         models: dict = {}
@@ -938,13 +931,10 @@ def components_html(comp: dict | None) -> str:
     has_copilot = any(r.get("aic") is not None for r in priced)
     units = []
     if has_claude:
-        units.append("Claude is priced at API list price — nobody on a subscription is "
-                     "billed it")
+        units.append("Claude at API list price (no subscription is billed this)")
     if has_copilot:
-        units.append("Copilot in AI credits, its own unit, with what GitHub bills for them")
-    caption = ("What this change cost, in four parts"
-               + (", whichever harness ran each" if has_claude and has_copilot else "")
-               + ". " + "; ".join(units) + ("." if units else ""))
+        units.append("Copilot in AI credits, at what GitHub bills for them")
+    caption = "; ".join(units) + ("." if units else "")
     # A partial bill says so before its first row, in the words the pill's name uses:
     # which parts are missing and that the total is only the rest.
     missing = [r for r in rows if not r.get("measured")]

@@ -287,7 +287,7 @@ def test_the_bare_one_beside_it_is():
     assert bare["expected_ds"] == ["combo"]
     # The verdict in words, not left to be inferred from the evidence for it.
     assert bare["message"].startswith("not the design-system component")
-    assert "[data-ds]" in bare["message"]
+    assert "where <b>combo</b> belongs" in bare["message"]
 
 
 def test_a_control_in_a_role_nobody_claims_is_recorded_and_never_drawn():

@@ -286,10 +286,9 @@ def _lines(hits) -> str:
     for h in hits:
         target = (repo_root() / h["file"]).resolve()
         deep = f' (1 + {h["inc"] - 1} nesting)' if h["inc"] > 1 else ""
-        tip = WHY_TIP.format(why=h["why"], inc=h["inc"], deep=deep,
-                             file=h["file"], line=h["line"])
-        if h.get("new"):
-            tip += "\nNew on this branch."
+        # The face shows the line and its `+N`; the green row marks it new. The hover
+        # adds the file and line it opens, and the nesting that made a `+2`.
+        tip = WHY_TIP.format(name=Path(h["file"]).name, line=h["line"], deep=deep)
         out.append(
             f'<a class="cx-why-line{" cx-why-new" if h.get("new") else ""}"'
             f' href="vscode://file/{target}:{h["line"]}:1"{_tip(tip)}>'
@@ -309,11 +308,8 @@ def _node(n, group=None) -> str:
     mark = " cg-add" if d > 0 else " cg-cut" if d < 0 else ""
     zero = " cg-zero" if not cog and not d else ""
     hits = (group or {}).get("hits") or []
-    tip = (f'{n["display"]}\ncognitive complexity {cog}'
-           + (f"\n+{d} added by this branch" if d > 0 else "")
-           + (f"\n−{-d} removed by this branch" if d < 0 else ""))
-    tip += (f"\nClick for the {len(hits)} line{'s' if len(hits) > 1 else ''} it is charged for"
-            if hits else "")
+    tip = (f'complexity {cog}' + (f" (+{d})" if d > 0 else f" (−{-d})" if d < 0 else "")
+           + (". Click for its lines" if hits else ""))
     found = entry_source(n["method"])
     go = (f'<a class="cg-go" href="vscode://file/{found[0]}:{found[1]}:1"'
           f'{_tip("Open " + n["display"] + " in VS Code")} aria-label="Open in VS Code">↗</a>'
@@ -335,7 +331,7 @@ def _node(n, group=None) -> str:
 WHY_EMPTY = ("Nothing counted: every method behind this entry point is straight-line code. "
              "Cognitive complexity charges for branching, loops and boolean runs, and there "
              "are none here.")
-WHY_TIP = "{why} — +{inc}{deep}. {file}:{line} — open in VS Code"
+WHY_TIP = "{name}:{line}{deep}"
 
 
 def _why_panel(r) -> str:
@@ -405,17 +401,15 @@ def _path_cell(r) -> str:
 # of being an estimate. It is not: the same extractor read it off the source at the
 # merge-base. `{base}` is the real base branch, never the word "main" hardcoded — half the
 # repositories this runs in do not have one.
-TIP_BASELINE = ("{baseline} on {base} before this branch. Measured, not estimated — the "
-                "same extractor read the merge-base's own source for this number.")
-TIP_UP = "+{delta} added by this branch — {baseline} → {total}."
+# Copy pass (3 Oct 2026): the numbers and nothing else. "Measured, not estimated — the
+# same extractor read the merge-base's own source" was the method, not the finding.
+TIP_BASELINE = "{baseline} on {base}"
+TIP_UP = "+{delta} by this branch"
 TIP_DOWN = "−{delta}: this branch made the flow simpler — {baseline} → {total}."
-TIP_BAR = ("Whole-flow complexity behind this entry point: {baseline} on {base} "
-           "→ {total} on this branch.")
-TIP_SAME = ("Unchanged at {total} — this branch did not touch this flow. Measured, not "
-            "estimated: the same extractor reads the same number at the merge-base "
-            "with {base}.")
-TIP_NEW = "New on this branch — {total}, none of it inherited: there was no such entry point on {base}."
-TIP_GONE = "Removed by this branch — {baseline} on {base}, gone here."
+TIP_BAR = "{baseline} on {base} → {total} here"
+TIP_SAME = "Unchanged ({total})"
+TIP_NEW = "New on this branch ({total})"
+TIP_GONE = "Removed by this branch (was {baseline})"
 
 
 def _tip(attr: str) -> str:
@@ -522,6 +516,10 @@ def base_branch() -> str:
 
 
 def render(rows, base="main") -> str:
+    # A base handed in as a commit (eval run 10: the review's audited base) is named by
+    # its short sha in every hover, never by forty hex digits.
+    if re.fullmatch(r"[0-9a-f]{40}", base or ""):
+        base = base[:8]
     # A shrunk bar still draws what was removed past its current end, so the scale must fit
     # the taller of the two snapshots.
     peak = max((max(r["now"], r["was"] or 0) for r in rows), default=1) or 1
