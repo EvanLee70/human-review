@@ -359,10 +359,12 @@ def base_warning(state: dict | None) -> str | None:
              and state.get("diffBase") and state.get("sha"))
     picked = state.get("aheadPicked") or 0
     if ahead:
-        parts.append(f"{state['ref']} is {ahead} commit{'s' if ahead != 1 else ''} ahead of "
+        # `ahead` leaves out the branch's own commits main took by cherry-pick; git counts
+        # them, so the total is what `git rev-list` says (eval runs 14-18: "12" against 18).
+        total = ahead + picked
+        parts.append(f"{state['ref']} is {total} commit{'s' if total != 1 else ''} ahead of "
                      "the fork point"
-                     + (f" (and has {picked} of this branch's commits, cherry-picked)"
-                        if picked else "")
+                     + (f", {picked} of them this branch's own, cherry-picked" if picked else "")
                      + ". Merge or rebase, then rebuild.")
     if behind and not other:
         # Not `git fetch`: the count above was read off the remote-tracking ref, so the

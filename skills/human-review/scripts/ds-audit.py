@@ -1948,9 +1948,12 @@ def build_screen(name, old_snap, new_snap, registry, *, sides_meta, delta,
             regressions.append(f["id"])
         elif was is None:
             f["severity"] = "high"
-            f["history"] = ("new on this branch: added from outside the design system"
+            # Not "new"/"added": the element's delta column says that, and an element the
+            # base already had (a <table> that gains matSort) reads "changed" there —
+            # eval runs 14-18 flagged "changed" beside "new on this branch: added".
+            f["history"] = ("brought in by this branch, from outside the design system"
                             if f["verdict"] == "foreign" else
-                            "new on this branch: it shipped bare, it was never migrated")
+                            "this branch shipped it bare, never migrated")
             regressions.append(f["id"])
         else:
             f["severity"] = "medium"

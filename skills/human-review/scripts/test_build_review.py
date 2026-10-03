@@ -2796,10 +2796,13 @@ def test_without_a_pr_number_the_title_names_the_ticket():
     ticket is the only number that says which request this answers."""
     ticket = {"number": 25, "title": "Add pagination", "url": "https://x/issues/25"}
     out = build.page_title({"title": "Owners grid", "pr": {"ticket": ticket}})
+    nopr = out[:out.index("Owners grid")]
+    assert ">no PR</span> " in nopr, "where PR#N would stand, the page says there is none"
+    out = out[len(nopr):]
     assert out.startswith("Owners grid (<a class=\"prref ticketref\" href=\"https://x/issues/25\"")
     assert out.endswith(">#25</a>)")
     assert build.page_title({"title": "Owners grid (#25)", "pr": {"ticket": ticket}}) \
-        == "Owners grid (#25)", "a title that already names it is not told twice"
+        .endswith("</span> Owners grid (#25)"), "a title that already names it is not told twice"
     assert build.page_title({"title": "Owners grid"}) == "Owners grid"
 
 
@@ -6227,8 +6230,9 @@ RUN11_FINDINGS = [
 
 def test_the_grade_panel_holds_six_lines_computed_first(capsys):
     """Run 11: nine bullets against the reference's five. Computed lines first, the
-    informational ones (the spec commit, then a narrowed sentence) dropped past six, and
-    the model's lines only in what room is left."""
+    informational ones (the spec commit, then a narrowed sentence) dropped past six — and
+    the grader's own reason always keeps one line (runs 15, 17, 18 lost it to six computed
+    lines, and with it the one risk behind the grade)."""
     sig = build._signal
     spec = {"verdict": {"score": 7, "bullets": ["<code>OwnerPageRequest</code> parses page=abc."]},
             "findings": RUN11_FINDINGS, "assumptions": [{"title": "x", "confidence": .5}],
@@ -6240,8 +6244,8 @@ def test_the_grade_panel_holds_six_lines_computed_first(capsys):
     short = [s for s, _ in build.grade_reasons(spec)]
     assert len(short) == build.GRADE_LINES_MAX == 6
     assert short[0].startswith("CI green") and "Built against the spec in b12c9bdb" not in short
-    assert short[-1].startswith("Ticket narrowed"), "a narrowed sentence outranks the spec commit"
-    assert not any("OwnerPageRequest" in s for s in short), "no room left for the model"
+    assert short[-1] == "OwnerPageRequest parses page=abc", "the model keeps one line"
+    assert not any(s.startswith("Ticket narrowed") for s in short), "informational lines go first"
     spec["_gradeSignals"] = spec["_gradeSignals"][:2]
     assert [s for s, _ in build.grade_reasons(spec)][-1] == "OwnerPageRequest parses page=abc"
 

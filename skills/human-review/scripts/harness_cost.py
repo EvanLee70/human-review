@@ -311,7 +311,13 @@ def claude_entry(session: str | None, lo, hi, what: str) -> dict | None:
             n_agents += 1
             spans += claude_model_spans(Path(agent), lo, hi)
             sub_models += [m for m in transcript_models(Path(agent)) if m not in sub_models]
-    out = entry(CLAUDE, session, what, (lo, hi), data["tokens"], data.get("models"),
+    # The window shown is when the session was active in it, not the bounds asked for: the
+    # lower bound is the fork, a commit time, and eval runs 17-18 printed "12:21 → 23:19"
+    # for a session that started at 22:40.
+    first, last = rc().agent_span([path])
+    shown = (max([x for x in (lo, first) if x], default=None),
+             min([x for x in (hi, last) if x], default=None))
+    out = entry(CLAUDE, session, what, shown, data["tokens"], data.get("models"),
                 usd=data["cost"], calls=data["messages"],
                 model_seconds=_intervals_union(spans), subagent_models=sub_models)
     if n_agents:
@@ -782,7 +788,10 @@ def measure_implementation(root: Path, base: str, lo, hi,
            f"({iso(lo) or 'undated'}) and {iso(hi) or 'an undated implementation commit'}")
     if CLAUDE in harnesses and vouched:
         why += "; " + _missing_claude(vouched, "implementation")
-    return component("implementation", [e for e in out if e], window=(lo, hi), reason=why)
+    found = [e for e in out if e]
+    starts = [parse(e["window"][0]) for e in found if e.get("window") and e["window"][0]]
+    return component("implementation", found, window=(min(starts) if starts else lo, hi),
+                     reason=why)
 
 
 def measure_review_fixes(root: Path, harness: str, sessions: list[str], t_prep, t_done,

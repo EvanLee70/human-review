@@ -72,6 +72,8 @@
 .chip.refchip.drifted { border-color:var(--drift); }
 h1 .prref { text-decoration:none; }
 h1 .prref:hover { text-decoration:underline; }
+h1 .nopr { font-size:.55em; font-weight:600; vertical-align:middle; color:var(--muted);
+  border:1px solid var(--line); border-radius:999px; padding:1px 7px; cursor:help; }
 /* One size, and it is the size of the badge it sits next to. A 1.5rem `6` against a .8rem
    `/10` made the numerator the loudest thing in the masthead and the denominator its
    footnote — two halves of one fraction, set as if they were two facts. The pill keeps its

@@ -1363,9 +1363,19 @@ def _grade_rows(spec) -> list[tuple[str, str, tuple[str, str] | None]]:
     measured = [s for s in spec.get("_gradeSignals") or [] if s["key"] not in PILE_SIGNALS]
     signals = ([s for s in measured if s["key"].startswith("ci-")] + _pile_signals(spec)
                + [s for s in measured if not s["key"].startswith("ci-")])
-    if len(signals) > GRADE_LINES_MAX:
+    def head(b: str) -> str:
+        # A `why` line is written to be short and kept whole unless it runs long; a
+        # `bullet` is a paragraph, and its first clause is the claim.
+        return (_first_clause(b) if not v.get("why") or len(_plain_text(b)) > 80
+                else _plain_text(b))
+    own = [b for b in (v.get("why") or v.get("bullets") or [])
+           if not _drop_model_line(b, spec, head(b))]
+    # The grader's own reason keeps one line: eval runs 15, 17 and 18 dropped it to fit
+    # six computed lines, and the one risk behind the grade was missing from its box.
+    budget = GRADE_LINES_MAX - (1 if own else 0)
+    if len(signals) > budget:
         spare = [s for s in signals if s["key"] in SPARE_SIGNALS]
-        room = max(0, GRADE_LINES_MAX - (len(signals) - len(spare)))
+        room = max(0, budget - (len(signals) - len(spare)))
         spare.sort(key=lambda s: SPARE_SIGNALS.index(s["key"]))
         cut = spare[room:]
         signals = [s for s in signals if not any(s is c for c in cut)]
@@ -1377,14 +1387,7 @@ def _grade_rows(spec) -> list[tuple[str, str, tuple[str, str] | None]]:
             short += f" (caps the grade at {s['cap']})"
         link = (s["href"], s.get("linkText") or "source") if s.get("href") else None
         out.append((short, s.get("full") or short, link))
-    def head(b: str) -> str:
-        # A `why` line is written to be short and kept whole unless it runs long; a
-        # `bullet` is a paragraph, and its first clause is the claim.
-        return (_first_clause(b) if not v.get("why") or len(_plain_text(b)) > 80
-                else _plain_text(b))
-    own = [b for b in (v.get("why") or v.get("bullets") or [])
-           if not _drop_model_line(b, spec, head(b))]
-    room = max(0, min(MODEL_GRADE_LINES, GRADE_LINES_MAX - len(out)))
+    room = max(1 if own else 0, min(MODEL_GRADE_LINES, GRADE_LINES_MAX - len(out)))
     if len(own) > room:
         print(f"[review] verdict carries {len(own)} lines of its own; the grade panel shows "
               f"the first {room} — the rest of its reasons are computed", file=sys.stderr)

@@ -47,7 +47,13 @@ def page_title(spec: dict) -> str:
                    f'{num}</a>')
         return f'{num} {html.escape(pr["title"])}' + title_ticket_ref(pr, pr["title"])
     title = spec.get("title", "Review guide")
-    return html.escape(title) + title_ticket_ref(pr, title)
+    # Where `PR#37` would stand, two muted words: every judge of eval runs 13-18 read the
+    # missing publish button and GitHub links as a silent omission — the hover on the
+    # counts line was not enough. A `/pull/` URL alone still counts as a PR.
+    nopr = ("" if not pr or "/pull/" in str(pr.get("url") or "") else
+            '<span class="nopr" data-tip="No pull request yet — no GitHub links or '
+            'publishing.">no PR</span> ')
+    return nopr + html.escape(title) + title_ticket_ref(pr, title)
 
 
 def title_ticket_ref(pr: dict, title: str) -> str:
