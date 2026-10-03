@@ -1747,6 +1747,36 @@ def test_the_tab_split_reads_the_conversation_only_as_far_as_the_guide_row_did()
     assert rc.guide_run_end({"rows": []}, "s1") is None
 
 
+def test_the_tab_split_starts_where_the_guide_row_starts_not_at_dot_started(tmp_path,
+                                                                          monkeypatch):
+    """Eval run 10: the guide row opens on the prompt that started the run, 31 s before
+    `.started`; the fold began at `.started`, missed the run's first four turns ($0.48) and
+    came out $1.10 under a $1.58 row — under a footnote saying it read the WIDER window."""
+    comp = _guide_component(_RUN, _MAPPING)
+    assert rc.guide_run_start(comp, "s1") == _ts("2026-10-02T23:50:53+00:00")
+    assert rc.guide_run_start(comp, "another-session") is None
+    session = tmp_path / "s1.jsonl"
+    session.write_text("".join(json.dumps(_assistant(mid, when)) + "\n" for mid, when in [
+        ("early", "2026-10-02T23:50:55Z"),       # the skill load, before `.started`
+        ("mid", "2026-10-02T23:55:00Z"),
+        ("late", "2026-10-03T00:10:00Z"),        # after the row's end: not the run's
+    ]), encoding="utf-8")
+    steps = tmp_path / ".steps.json"
+    steps.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(rc, "transcript", lambda s: session)
+    monkeypatch.setattr(rc, "subagent_transcripts", lambda path: [])
+    monkeypatch.setattr(rc, "four_components", lambda *a, **k: comp)
+    monkeypatch.setattr(rc, "pass_costs", lambda *a, **k: {"measured": False, "groups": {}})
+    monkeypatch.setattr(rc, "authoring_cost", lambda *a, **k: {"measured": False,
+                                                               "cost": 0.0, "tokens": 0})
+    got = rc.ledger("s1", _ts("2026-10-02T23:51:20+00:00"), steps, ["review"],
+                    "origin/main", tmp_path)
+    tabs = got["tabs"]
+    assert tabs["residual"]["messages"] == 2, "the early turn and the middle one, not the late"
+    assert tabs["window"] == ["2026-10-02T23:50:53+00:00", "2026-10-03T00:03:59+00:00"]
+    assert got["run"]["messages"] == 2, "the run's own total still reads from `.started`"
+
+
 def _rerun_model():
     spec = importlib.util.spec_from_file_location("rerun_model_rc", HERE / "rerun-model.py")
     mod = importlib.util.module_from_spec(spec)

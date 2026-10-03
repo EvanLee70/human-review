@@ -102,21 +102,26 @@ a.titlescore:hover { filter:brightness(1.06); box-shadow:0 0 0 1px currentColor 
    the edge that used to be the masthead's: a shadow under the border, only while it is
    actually pinned, so content passing beneath it reads as passing *under* something. */
 .tabstrip.pinned, .masthead.pinned { box-shadow:0 2px 6px rgba(0,0,0,.13); }
-/* The branch's commits the scope bar does not count (`outside_note`): one short muted line
-   under the chips, as quiet as a caption — "6 earlier commits outside the review ▸". Opened,
-   the list (sha + subject) sits IN FLOW under the chips and pushes the tab strip down for as
-   long as it is open. It used to drop over the page instead, and eval run 8 found it
-   covering 11 of 13 tabs with no way to dismiss it but finding the summary again: a list
-   that blocks the strip is worse than one that moves it. tabs.js closes it on Esc and on a
-   click anywhere outside it, so a tab click both closes it and lands. */
-details.scopenote { position:relative; margin:.05rem 0 .3rem; font-size:.78rem;
-              color:var(--muted); line-height:1.35; }
-details.scopenote > summary { list-style:none; cursor:pointer; display:inline-block; }
-details.scopenote > summary::-webkit-details-marker { display:none; }
-details.scopenote > summary:hover { color:var(--fg); }
-.scopenote .sn-caret { display:inline-block; transition:transform .12s ease; }
-details.scopenote[open] .sn-caret { transform:rotate(90deg); }
-.scopenote .sn-list { position:static; margin:.25rem 0 0;
+/* The branch's commits the scope bar does not count. Their count is a small badge on the
+   branch chip (`outside_badge`), `+8 ▸`, quiet as a caption: it used to be a line of its own
+   under the chips, and eval run 10 measured that line plus a wrapped chip row at 164px of
+   sticky header against the reference's 108px. Clicked, the list (sha + subject) opens IN
+   FLOW at the foot of the masthead, under the tab strip -- never over it (eval run 8 found an
+   overlay covering 11 of 13 tabs) and never above it, where it would move every tab out from
+   under the pointer. tabs.js closes it on Esc and on a click anywhere outside it. */
+.chip.refchip .sn-badge { margin-left:.35rem; padding:0 .3rem; font:inherit; font-size:.78em;
+              line-height:1.35; color:var(--muted); background:transparent;
+              border:1px solid var(--line); border-radius:999px; cursor:pointer;
+              vertical-align:baseline; }
+.chip.refchip .sn-badge:hover, .chip.refchip .sn-badge[aria-expanded="true"] {
+              color:var(--fg); border-color:var(--muted); }
+.sn-badge .sn-caret { display:inline-block; margin-left:.1rem; transition:transform .12s ease; }
+.sn-badge[aria-expanded="true"] .sn-caret { transform:rotate(90deg); }
+.scopenote { margin:.3rem 0 .4rem; font-size:.78rem; color:var(--muted); line-height:1.35; }
+.scopenote[hidden] { display:none; }
+.scopenote .sn-head { margin:0 0 .2rem; }
+.scopenote .sn-head.sn-spec { margin-top:.45rem; }
+.scopenote .sn-list { position:static; margin:0;
               padding:.4rem .8rem .4rem 1.6rem; background:var(--card); color:var(--fg);
               border:1px solid var(--line); border-radius:6px; max-width:min(56rem, 100%);
               max-height:12rem; overflow:auto; }

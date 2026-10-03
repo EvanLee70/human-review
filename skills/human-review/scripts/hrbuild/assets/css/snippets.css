@@ -30,6 +30,11 @@ pre.code code { white-space:pre-wrap; overflow-wrap:anywhere; }
 pre.code .ln-row { display:inline-block; width:100%; box-sizing:border-box; vertical-align:top;
                    padding-left:calc(5.5em + 3px); text-indent:calc(-5.5em - 3px); }
 pre.code .ln-row .ln, pre.code .ln-row .dm { text-indent:0; }
+/* `text-indent` is inherited, and every inline-block inside the row is a block container
+   of its own that applies it again: eval run 10's inlay `.typehint` took the row's −5.5em
+   and painted its `::before` ~72px left, over `log.warn` ("Ştoingarn(…"). Nothing in a row
+   but the row itself hangs; on an inline element the reset is a no-op. */
+pre.code .ln-row * { text-indent:0; }
 .ln { display:inline-block; width:3.4em; padding-right:.9em; text-align:right; color:var(--muted);
       user-select:none; opacity:.65; }
 #genseq-panel .genseq-handler .srcref { margin-bottom:0; }

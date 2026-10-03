@@ -65,6 +65,8 @@ ul.req-tests li { list-style:none; }
   .tsilenced { color:#e0a458; } .tback { color:#8fd39c; }
 }
 .tnote { color:var(--muted); font-size:.86rem; }
+/* Edited only through a same-file helper it calls: the hover names the helper. */
+.tnote.tvia { color:var(--drift); cursor:help; border-bottom:1px dotted currentColor; }
 /* The ledger: the same rows as the requirement lists, grouped by what happened instead
    of by what they pin. One column, because the groups are wildly uneven — twenty-two new
    beside one that stopped running — and a grid would give the one that matters most the
@@ -96,6 +98,8 @@ ul.req-tests li { list-style:none; }
 .cov-gaps ul, .cov-unm ul { margin:.2rem 0 0; padding-left:1.05rem; display:grid; gap:.2rem;
         font-size:.82rem; }
 .cov-gapn { color:#c62828; }
+/* A zero is still said (coverage_gaps): muted, not red, and nothing to unfold. */
+.cov-zero { color:var(--muted); }
 .cov-why { color:var(--muted); }
 .cov-none { margin:6px 12px; font-size:.82rem; color:var(--drift); }
 .cov-more { color:var(--muted); cursor:help; border-bottom:1px dotted currentColor; }

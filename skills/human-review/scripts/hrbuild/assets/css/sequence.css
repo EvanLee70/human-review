@@ -113,9 +113,31 @@ details.testpair > summary:hover > .testcat { color:var(--tc); }
 .seqwhy { flex:0 0 auto; align-self:center; padding:1px 6px; border-radius:999px;
   font:600 .62rem/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em;
   --sw:var(--muted); color:var(--sw); border:1px solid currentColor; }
-.seqwhy[data-why=added], .seqwhy[data-why=modified] { --sw:#2e6b2e; }
+.seqwhy[data-why=added], .seqwhy[data-why=modified],
+.seqwhy[data-status] { --sw:#2e6b2e; }
 details.testpair > summary:hover > .seqwhy { color:var(--sw); }
 @media (prefers-color-scheme: dark) {
-  .seqwhy[data-why=added], .seqwhy[data-why=modified] { --sw:#8fd18f; }
+  .seqwhy[data-why=added], .seqwhy[data-why=modified],
+  .seqwhy[data-status] { --sw:#8fd18f; }
 }
-.seqsel { font-size:.9rem; line-height:1.6; margin:.3rem 0 .8rem; }
+/* The selection line: one fact per item, run together with a muted dot, each list longer
+   than two names folded under its own count. An open fold takes the whole width, so its
+   names drop onto their own block instead of pushing the line sideways. */
+.seqsel { display:flex; flex-wrap:wrap; align-items:baseline; column-gap:.2rem; row-gap:.15rem;
+  font-size:.86rem; line-height:1.55; margin:.3rem 0 .8rem; color:var(--muted); }
+.seqsel b { color:var(--fg); font-weight:600; }
+.seqsel-k + .seqsel-k::before { content:"\00b7"; margin:0 .45rem 0 .25rem; color:var(--muted); }
+details.seqsel-k { display:inline; }
+details.seqsel-k > summary { display:inline; cursor:pointer; color:var(--link);
+  border-bottom:1px dotted currentColor; list-style:none; }
+details.seqsel-k > summary::-webkit-details-marker { display:none; }
+details.seqsel-k > summary::after { content:" \25B8\FE0E"; font-size:.8em; }
+details.seqsel-k[open] { flex-basis:100%; }
+/* An open fold starts its own line, and so does whatever follows it: no dot to lead them. */
+details.seqsel-k[open]::before, details.seqsel-k[open] + .seqsel-k::before { content:none; }
+details.seqsel-k[open] > summary::after { content:" \25BE\FE0E"; }
+details.seqsel-k > ul { margin:.3rem 0 .2rem; padding:.4rem .6rem .4rem 1.6rem; columns:2 22rem;
+  column-gap:1.6rem; background:var(--code-bg); border-radius:6px; font-size:.82rem; }
+details.seqsel-k > ul > li { break-inside:avoid; }
+.seqsel code { font-size:.92em; overflow-wrap:anywhere; }
+.seqsel-f { color:var(--muted); font-size:.92em; }

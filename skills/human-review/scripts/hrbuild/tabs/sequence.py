@@ -208,12 +208,43 @@ def picked_for(test_rel: str, scenarios, selection: dict | None) -> dict | None:
     return None
 
 
-def _why_chip(kind: str | None) -> str:
+#: What the ledger says the branch did to a TAGGED test, said after `tagged` on its chip.
+#: Eval run 10: 'Opening the owners page…' was written by this branch and also tagged, and
+#: its row said only `tagged` while the Tests tab listed it as new — two tabs, two labels.
+SEQ_ALSO = {"added": ("new test", "This branch wrote this test."),
+            "modified": ("edited test", "This branch edited this test.")}
+
+
+def _why_chip(kind: str | None, also: str | None = None) -> str:
     if kind not in SEQ_WHY:
         return ""
     face, tip = SEQ_WHY[kind]
-    return (f'<span class="seqwhy" data-why="{kind}" data-tip="{html.escape(tip, quote=True)}">'
-            f'{html.escape(face)}</span>')
+    extra = SEQ_ALSO.get(also) if kind == "tagged" else None
+    status = ""
+    if extra:
+        face, tip = f"{face} \u00b7 {extra[0]}", f"{tip}. {extra[1]}"
+        status = f' data-status="{also}"'
+    return (f'<span class="seqwhy" data-why="{kind}"{status}'
+            f' data-tip="{html.escape(tip, quote=True)}">{html.escape(face)}</span>')
+
+
+def ledger_status(test_rel: str, scenarios, tests) -> str | None:
+    """`added` / `modified` when the ledger (`test-changes.json`) says the branch wrote or
+    edited one of the scenarios this picture draws — matched by line, or by name the way
+    `picked_for` matches a JUnit display name."""
+    found = None
+    for t in tests or []:
+        if not isinstance(t, dict) or t.get("path") != test_rel:
+            continue
+        if t.get("status") not in SEQ_ALSO:
+            continue
+        name = _slug(t.get("name", ""))
+        for line, title in scenarios:
+            if (t.get("line") and line == t["line"]) or (name and _slug(title).startswith(name)):
+                if t["status"] == "added":
+                    return "added"
+                found = "modified"
+    return found
 
 
 def _names(tests, limit: int = 4) -> str:
@@ -223,9 +254,32 @@ def _names(tests, limit: int = 4) -> str:
     return ", ".join(said) + (f" and {more} more" if more > 0 else "")
 
 
+#: Up to this many names are said inline; a longer list folds under its own count.
+SEL_INLINE = 2
+
+
+def _sel_item(label: str, items: list[str]) -> str:
+    """One fact of the selection line: `label: a, b` when short, a closed fold when not.
+
+    Eval run 10 printed this as one italic run-on paragraph — 'Not traced, over the cap of
+    6: requestedPage_returns… and 22 more. 28 more of the branch's tests…' — a wall of
+    method names standing between the reader and the first picture."""
+    if len(items) <= SEL_INLINE:
+        return (f'<span class="seqsel-k">{label}'
+                + (": " + ", ".join(items) if items else "") + "</span>")
+    return (f'<details class="seqsel-k"><summary>{label}</summary><ul>'
+            + "".join(f"<li>{x}</li>" for x in items) + "</ul></details>")
+
+
+def _sel_name(t: dict) -> str:
+    return (f"<code>{html.escape(str(t.get('name', '')))}</code> "
+            f"<span class=\"seqsel-f\">{html.escape(Path(str(t.get('path', ''))).name)}</span>")
+
+
 def selection_note_html(selection: dict | None, drew: set[int]) -> str:
-    """One paragraph at the top of the tab: which of the branch's own tests were traced, which
-    drew nothing, and which were left out — over the cap, or in files no traced suite runs.
+    """One compact line at the top of the tab: which of the branch's own tests were traced,
+    which drew nothing, and which were left out — over the cap, or in files no traced suite
+    runs. Each fact is a count; a list longer than `SEL_INLINE` folds under it.
 
     `drew` holds the indexes into `picked` that a pair on this tab matched."""
     if not selection:
@@ -236,23 +290,33 @@ def selection_note_html(selection: dict | None, drew: set[int]) -> str:
     nosuite = [t for t in left if not t.get("suite")]
     if not picked and not left:
         return ""
-    parts = []
+    items = []
     if picked:
-        parts.append(f"<b>Also traced: {len(picked)} test{'s' if len(picked) != 1 else ''} "
-                     "this branch wrote or edited</b>, untagged — the rows marked "
-                     "<i>new test</i> or <i>edited test</i>.")
+        # Why they carry no tag, and which rows they are, is the lead's hover: said inline
+        # it pushed the counts onto a second line.
+        items.append(f'<span class="seqsel-k" data-tip="Untagged: the Sequence step traces '
+                     "the branch's own tests too. Their rows are marked new test or edited "
+                     f'test."><b>Also traced: {len(picked)} '
+                     f"test{'s' if len(picked) != 1 else ''} this branch wrote or edited</b>"
+                     "</span>")
         missed = [t for i, t in enumerate(picked) if i not in drew]
         if missed:
-            parts.append(f"{len(missed)} of them came back with no picture: {_names(missed)}.")
+            items.append(_sel_item(f"{len(missed)} of them came back with no picture",
+                                   [_sel_name(t) for t in missed]))
     if capped:
-        parts.append(f"Not traced, over the cap of {int(selection.get('max') or 0)}: "
-                     f"{_names(capped)}.")
+        items.append(_sel_item(
+            f"{len(capped)} not traced, over the cap of {int(selection.get('max') or 0)}",
+            [_sel_name(t) for t in capped]))
     if nosuite:
-        files = list(dict.fromkeys(Path(str(t.get("path", ""))).name for t in nosuite))
-        parts.append(f"{len(nosuite)} more of the branch's tests are in files no traced suite "
-                     "runs (" + ", ".join(html.escape(f) for f in files[:4])
-                     + (f" and {len(files) - 4} more" if len(files) > 4 else "") + ").")
-    return '<p class="seqsel">' + " ".join(parts) + "</p>"
+        per_file: dict[str, int] = {}
+        for t in nosuite:
+            f = Path(str(t.get("path", ""))).name
+            per_file[f] = per_file.get(f, 0) + 1
+        items.append(_sel_item(
+            f"{len(nosuite)} in files no traced suite runs",
+            [f'<span class="seqsel-f">{html.escape(f)}</span> \u00d7{n}'
+             for f, n in per_file.items()]))
+    return '<div class="seqsel">' + "".join(items) + "</div>"
 
 
 def _scenarios_drawn(puml_rel: str, test_rel: str, root: Path) -> list[tuple[int, str]]:
@@ -361,7 +425,8 @@ def _fold_over(quoted: list[str]) -> tuple[str, list[str]]:
 def _folded_pair(puml_rel: str, test_rel: str, pieces: list[str],
                  quoted: list[str] = (),
                  scenarios: list[tuple[int, str]] = (),
-                 cat: str | None = None, why: str | None = None) -> str:
+                 cat: str | None = None, why: str | None = None,
+                 also: str | None = None) -> str:
     """The test and the sequence its run recorded, foldable together — with the quoted
     test folded closed inside it, and the whole pair folded closed too.
 
@@ -403,7 +468,7 @@ def _folded_pair(puml_rel: str, test_rel: str, pieces: list[str],
     return (f'<details class="testpair" open id="{pair_anchor(puml_rel)}"'
             f' data-test="{html.escape(test_rel)}">'
             f'<summary data-tip="{html.escape(test_rel)}">'
-            f'{_cat_chip(cat, test_rel)}{_why_chip(why)}{name}</summary>'
+            f'{_cat_chip(cat, test_rel)}{_why_chip(why, also)}{name}</summary>'
             + src
             + "\n".join(x.strip("\n") for x in pieces)
             + "</details>")
@@ -812,7 +877,8 @@ def _unchanged_sequence(puml_rel: str, test_rel: str, root: Path, out_dir: Path)
             + body + '</div>')
 
 
-def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
+def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path,
+                     test_changes: list | None = None):
     """Each acceptance test next to the sequence its own run recorded.
 
     They used to be two lists on the same tab — a gallery of diagrams, then a list of test
@@ -928,9 +994,10 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
                     tagged = tagged_scenarios(root)
                 why = ("tagged" if any(ln in tagged.get(test_rel, ()) for ln, _ in scenarios)
                        else None)
+            also = ledger_status(test_rel, scenarios, test_changes) if why == "tagged" else None
             parts.append(_folded_pair(puml_rel, test_rel, pieces, quoted, scenarios,
                                       _pair_cat(puml_rel, root,
-                                                authored_cat.get(test_rel)), why))
+                                                authored_cat.get(test_rel)), why, also))
             register(puml_rel, scenarios)
 
     orphaned = [x for x in snippets if id(x) not in used] + undrawn

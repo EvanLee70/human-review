@@ -349,6 +349,34 @@ def test_gaps_and_unmeasurable_changes_fold_under_the_card(tmp_path):
     assert page.index("rm-code") < page.index("cov-after")
 
 
+def test_a_zero_is_said_rather_than_the_block_left_out(tmp_path):
+    """Eval run 10 ran every measurable changed line, and the "Changed lines no test runs"
+    block was simply absent: a reviewer cannot tell "none" from "not computed". Same for
+    "Not measurable"."""
+    doc = _doc()
+    doc["changed"]["F.java"] = [10, 11, 12]
+    doc["executable"]["F.java"] = [1, 10, 11, 12]
+    doc["unmeasurable"] = []
+    page = _with_coverage(tmp_path, doc)
+    assert ('<p class="cov-gaps cov-zero">Changed lines no test runs <b>0</b> — all 4 '
+            "measurable changed lines ran in at least one test</p>") in page
+    assert '<p class="cov-unm cov-zero">Not measurable <b>0</b> changed lines' in page
+    assert "<details" not in page[page.index("cov-after"):]
+    css = (HERE / "hrbuild" / "assets" / "css" / "tests.css").read_text(encoding="utf-8")
+    assert ".cov-zero { color:var(--muted); }" in css, "muted, not the gaps' red"
+
+
+def test_the_card_says_pr_only_over_a_pull_request(tmp_path):
+    """Eval run 10 said "…modified in this PR" on a branch with no pull request."""
+    page = _with_coverage(tmp_path)
+    assert f'<span class="rm-who">{T.COVCARD_WHO}</span>' in page
+    assert "in this PR" not in page
+    (tmp_path / "assets" / "test-coverage.json").write_text(json.dumps(_doc()))
+    with_pr = T.reqmap_layout(FRAG, {"testChanges": "assets/test-changes.json",
+                                     "pr": {"number": 7}}, tmp_path, root=tmp_path)
+    assert f'<span class="rm-who">{T.COVCARD_WHO_PR}</span>' in with_pr
+
+
 def test_without_a_measurement_the_old_card_says_it_is_not_one(tmp_path):
     page = T.reqmap_layout(FRAG, {}, tmp_path, root=tmp_path)
     assert "cov-card" not in page

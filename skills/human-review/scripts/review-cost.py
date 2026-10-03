@@ -2241,12 +2241,31 @@ def ledger(session: str | None, since: "dt.datetime | None", steps_path: Path,
     # ended — and not to whenever this build happens. Eval run 6's conversation went on
     # after its run; read to "now", the fold under the guide row came out $0.74 more than
     # the row it was explaining.
+    #
+    # And from where that row STARTS, not from `.started`. The guide row opens on the prompt
+    # that started the run (`harness_cost.measure_guide`): Step 2 writes `.started` after
+    # the skill was read and the change set resolved, and those turns are the run's too.
+    # Eval run 10's fold began at `.started`, 31 seconds later, missed the run's first four
+    # turns — the skill load and its cache write, $0.48 — and came out $1.10 under a $1.58
+    # row while its footnote said it read the WIDER window.
     end = guide_run_end(components, session)
-    tab_turns = ([t for t in turns if t[4] is None or t[4] <= end]
-                 if turns is not None and end is not None else turns)
-    tabs_report = tab_cost_report(session, since, steps_path, tabs,
+    start = guide_run_start(components, session)
+    tab_all, tab_origin = turns, origin
+    if path is not None and start is not None and since is not None and start < since:
+        tab_origin = {}
+        tab_all, _ = gather_turns(path, start, include_subagents, origin=tab_origin)
+    tab_turns = ([t for t in tab_all if t[4] is None or t[4] <= end]
+                 if tab_all is not None and end is not None else tab_all)
+    tabs_report = tab_cost_report(session, start if tab_all is not turns else since,
+                                  steps_path, tabs,
                                   include_subagents=include_subagents, turns=tab_turns,
-                                  origin=origin if turns is not None else None)
+                                  origin=tab_origin if tab_all is not None else None)
+    if tab_all is not None:
+        # The stretch these rows read, so the fold's footnote can name it rather than
+        # describe it — a description is a claim, and run 10's was false.
+        lo = start if tab_all is not turns else since
+        tabs_report = {**tabs_report, "window": [lo.isoformat() if lo else None,
+                                                 end.isoformat() if end else None]}
     writing = authoring_cost(base, root, exclude=session)
     # Only the part of the passes that predates the run is added; the rest is already
     # inside `run`. See `pass_costs` for why that distinction is kept rather than assumed.
@@ -2286,6 +2305,19 @@ def guide_run_end(components: dict | None, session: str | None) -> "dt.datetime 
         if session and e.get("session") == session:
             win = e.get("window") or []
             return _parse_iso(win[1]) if len(win) == 2 else None
+    return None
+
+
+def guide_run_start(components: dict | None, session: str | None) -> "dt.datetime | None":
+    """Where the "this guide" row started counting `session`'s turns, or None — the
+    prompt that opened the run, which is earlier than `.started` (see `guide_run_end`)."""
+    guide = next((r for r in (components or {}).get("rows") or []
+                  if isinstance(r, dict) and r.get("key") == "guide" and r.get("measured")),
+                 None)
+    for e in (guide or {}).get("entries") or []:
+        if session and e.get("session") == session:
+            win = e.get("window") or []
+            return _parse_iso(win[0]) if len(win) == 2 else None
     return None
 
 

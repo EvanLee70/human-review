@@ -229,10 +229,16 @@ def detect(root: Path, base: str, head: str = "HEAD", rel: str | None = None) ->
         # newest record is the one describing the file as it now stands.
         review = marked[-1]
         if len(marked) > 1:
+            # The page reads `implementation..review` as the fixes and names every commit
+            # in it (eval run 10: 6b14c32b carried the fixes, the two after it only
+            # re-anchored one line, and the page used to call the last "the fix commit").
             warnings.append(
                 f"{len(marked)} commits carry a Review-Points trailer "
-                f"({', '.join(c['sha'][:8] for c in marked)}); taking the last one. Two "
-                "rounds of review on one branch is legitimate, but the page reports one.")
+                f"({', '.join(c['sha'][:8] for c in marked)}); taking the last one as the "
+                "review commit. The fixes are read from the implementation to it, so "
+                "every one of them counts as a fix commit — one round recorded in "
+                f"{len(marked)} commits, or several rounds; record-review's finish now "
+                "amends its own unpushed commit instead.")
     else:
         hits = touching(root, base, head, rel)
         if len(hits) == 1:
@@ -313,6 +319,8 @@ def detect(root: Path, base: str, head: str = "HEAD", rel: str | None = None) ->
         "takeover": takeover if review is not None else None,
         "auto_fixes": [{"sha": c["sha"], "when": c["when"], "subject": c["subject"]}
                        for c in tagged],
+        # Every commit carrying the trailer, oldest first — the last is `review`.
+        "review_commits": [c["sha"] for c in marked] if review is not None else [],
         "warnings": warnings,
     }
 

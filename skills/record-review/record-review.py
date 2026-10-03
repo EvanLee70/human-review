@@ -17,7 +17,9 @@ comments. Every one of those has exactly one right answer, so a program gives it
       .human-review/review-points.json and validates it against
       reference/review-points.schema.json, commits the fixes with it under `[auto-fix]`
       and the trailers (plus any --commit-trailer), then derives and checks the PR
-      comments.
+      comments. Every `file:line` is carried and checked first: one whose line is gone
+      or blank refuses the finish with nothing written or committed. Re-run before
+      the commit was pushed, it amends that commit — one `[auto-fix]` commit per round.
 
   record-review.py ci [--push]
       Waits for CI on HEAD. Run first right after the reviewers — which also stamps the
@@ -36,8 +38,8 @@ What stays with the agent is what only it can do: run the reviewers on the brief
 decline each finding, write the assumptions it made, and edit the code it accepts.
 
 Exit codes: 0 ok · 2 not a git repo / bad base · 3 uncommitted implementation and no
---impl-subject · 4 review-points.md missing, does not parse, or its report does not match
-the schema.
+--impl-subject · 4 review-points.md missing, does not parse, its report does not match
+the schema, or an anchor points at a line that is gone or blank.
 """
 from __future__ import annotations
 
@@ -414,6 +416,16 @@ def reanchor_points(repo: Path, text: str, implementation: str) -> tuple[str, li
             other = prior if first == rp.WORKTREE else rp.WORKTREE
             got = rp.reanchor(repo, ref, [first, other])
             if got["ref"] is None:
+                # Read at the first rev the line is one the fixes removed — but prompt.md
+                # tells the agent to write every line as it reads NOW, fixes on disk, and
+                # eval run 10 did exactly that: `ExceptionControllerAdvice.java:88` was the
+                # handler in the working tree and a removed line at the implementation. Two
+                # extra `[auto-fix]` commits followed, re-pointing it by hand. The other
+                # reading, when it lands on code, is the one the agent meant.
+                alt = rp.reanchor(repo, ref, [other])
+                if alt["ref"] is not None and not alt["blank"]:
+                    got = alt
+            if got["ref"] is None:
                 said.append(f"WARNING {ref}: written at {str(got['from'])[:8]}, and the "
                             "fixes removed that line — point it at the line it means now")
                 continue
@@ -427,6 +439,18 @@ def reanchor_points(repo: Path, text: str, implementation: str) -> tuple[str, li
                             "of the file — anchor it on the statement it is about")
         out.append(line)
     return "".join(out), said
+
+
+def on_remote(sha: str) -> bool:
+    """Whether any remote-tracking branch already holds `sha` — once pushed, a commit is
+    never amended."""
+    out = subprocess.run(["git", "branch", "-r", "--contains", sha],
+                         capture_output=True, text=True).stdout
+    return bool(out.strip())
+
+
+def is_auto_fix_head() -> bool:
+    return git("log", "-1", "--format=%s", "HEAD").lower().startswith("[auto-fix]")
 
 
 def finish(args) -> int:
@@ -445,6 +469,23 @@ def finish(args) -> int:
     head = git("rev-parse", "HEAD")
     implementation = rev(args.implements) or state["implementation"]
     audited_head = state.get("auditedHead") or state["implementation"]
+    # Every ref carried to the tree this commit records, and checked, BEFORE anything is
+    # written or committed. A ref whose line is gone or blank refuses the finish: eval
+    # run 10's first finish committed with such a warning, and the agent then spent two
+    # more `[auto-fix]` commits (1338ed9e, e7b807e8) re-pointing one assumption by hand,
+    # so the page called a one-line re-anchor "the fix commit". Refused here, the agent
+    # fixes the line and re-runs, and the round still ends in one commit.
+    original = points.read_text()
+    text, said = reanchor_points(repo, original, implementation)
+    for line in said:
+        print(f"anchors         {line}")
+    bad = [line for line in said if line.startswith("WARNING")]
+    if bad:
+        print(f"nothing committed — {len(bad)} anchor{'s' if len(bad) != 1 else ''} above "
+              f"cannot be shown on the page. Point each at the line it means as it reads "
+              f"now (fixes on disk), then run finish again; {POINTS} was left as you wrote "
+              "it.")
+        return 4
     # A CI round may run in a new conversation; its session is the auto-fixes' too.
     sid = session_id(args.harness or state.get("harness"))
     if sid and sid not in state.setdefault("sessions", []):
@@ -462,11 +503,6 @@ def finish(args) -> int:
     # fresh, and kept where a rebase keeps it.
     copilot = sorted({e["session"] for c in (cost or {}).get("components", [])[1:]
                       for e in c.get("entries", []) if e.get("harness") == "copilot-cli"})
-    # Every ref carried to the tree this commit records, and checked, before the commit —
-    # never after: once committed, a ref that points at a blank line is the page's problem.
-    text, said = reanchor_points(repo, points.read_text(), implementation)
-    for line in said:
-        print(f"anchors         {line}")
     points.write_text(text)
     # The structured record's provenance: four commits a reviewer must not confuse.
     # `review-commit` is not among them on purpose — this commit cannot name itself; the
@@ -487,21 +523,34 @@ def finish(args) -> int:
     print(report.stdout.strip().splitlines()[0] if report.stdout.strip() else "")
     if report.returncode != 0:
         print(report.stdout + report.stderr)
+        # Back to what the agent wrote: re-anchored and stamped `anchors:`, a second run
+        # would read the assumptions at HEAD instead of the implementation commit.
+        points.write_text(original)
         return 4
 
     stage_all()
-    msg = f"[auto-fix] {args.subject}\n\n" + "\n".join(filter(None, [trailers(**{
+    # One `[auto-fix]` commit per round. A finish re-run before its commit ever left the
+    # machine (no `ci --push` since) is the same round being corrected, so it amends that
+    # commit, keeping its subject, instead of stacking a cosmetic follow-up on it.
+    amend = (state.get("reviewCommit") == head and is_auto_fix_head()
+             and not on_remote(head))
+    subject = git("log", "-1", "--format=%s", "HEAD") if amend else f"[auto-fix] {args.subject}"
+    msg = f"{subject}\n\n" + "\n".join(filter(None, [trailers(**{
         "Review-Points": POINTS, "Implements": implementation,
         "Audited": f"{state['base']}..{audited_head}",
         "Claude-Session": state.get("session", "")}),
         *[f"Copilot-Session: {c}" for c in copilot], *extra]))
-    git("commit", "-q", "-m", msg)
+    git("commit", "-q", *(["--amend"] if amend else []), "-m", msg)
     sha = git("rev-parse", "HEAD")
     state["reviewCommit"] = sha
-    state.setdefault("finishes", []).append((cost or {}).get("recordedAt") or _now())
+    finishes = state.setdefault("finishes", [])
+    if amend and finishes:
+        finishes.pop()
+    finishes.append((cost or {}).get("recordedAt") or _now())
     (repo / WORK).mkdir(parents=True, exist_ok=True)
     (repo / WORK / "state.json").write_text(json.dumps(state, indent=2) + "\n")
-    print(f"committed       {sha[:8]} [auto-fix] {args.subject}")
+    print(f"{'amended' if amend else 'committed'}       {sha[:8]} {subject}"
+          + (f"  (same round: {head[:8]} was not pushed yet)" if amend else ""))
     print(f"provenance      audited {state['base'][:8]}..{audited_head[:8]} · implements "
           f"{implementation[:8]} · head {head[:8]} · recorded in {sha[:8]}")
     print(f"report          {REPORT} (validated against review-points.schema.json)")

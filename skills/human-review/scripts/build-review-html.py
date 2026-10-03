@@ -110,11 +110,12 @@ from hrbuild.shared.chips import (
     base_state, base_warning, chip_face, chip_html, diffstat_chips, GENERATED_PATHSPECS,
     _compare_href, _numstat, _resolve_base, BASE_SOURCES, COMMITS_JSON, measured_from,
     page_base, POINTS_JSON, _front_matter, _is_ancestor, _recorded_bases,
-    GENERATED_GLOBS, generated_globs, REVIEW_BOOKKEEPING, _project_cfg
+    GENERATED_GLOBS, generated_globs, REVIEW_BOOKKEEPING, _project_cfg,
+    raised_by_reviewer, review_chip_face, review_chip_key, reviewer_names, _REVIEWER_WORD
 )
 from hrbuild.shared.masthead import (
     FAVICON, FAVICON_EMOJI, FAVICON_SVG, masthead_html, outside_note, page_title, ref_badges,
-    title_ticket_ref
+    title_ticket_ref, OUTSIDE_ID, outside_badge, _outside_where, _split_outside
 )
 from hrbuild.shared.footer import (
     DEMO_DOCKER_URL, DEMO_PAGES_URL, DEMO_ZIP_URL, FOOTER_BOILERPLATE, HOME_URL, INVITATION,
@@ -161,7 +162,13 @@ from hrbuild.tabs.review import (
     _reviewers, CLAUSE_CAP, _CODE_SPAN, TEST_MAPPING_FILES, REQMAP_HTML, NARROWED_LINES,
     NARROWED_QUOTE, _quote, _decision_link, _narrowed_signals, _grade_rows, fix_commit,
     ANCHORS_KEY, ANCHORS_AT_REVIEW, _written_at, reanchor_refs, _anchor_note,
-    drop_stale_pr_comments, NO_PR_LINE, no_pr_line
+    drop_stale_pr_comments, NO_PR_LINE, no_pr_line,
+    REFUTED_ID, _render_finding_items, REVIEW_COMMITS_JSON, generated_in, fix_commits,
+    _commit_face, fix_commits_html, review_commits_warnings, SPEC_DOCS, QA_DOC,
+    CITING_FIELDS, CITE_QUOTE, _CITE, _CITE_GUARD, _spec_change_dir, _doc_lines,
+    _cited_quote, _find_line, _resolve_citation, link_spec_citations, urllib_quote,
+    _before_range_commits, _spec_commit_signals, _PILE_COUNT, _Q_REF, model_line_conflict,
+    _drop_model_line
 )
 from hrbuild.tabs.sequence import (
     CODE_BADGE, FILE_PAGE, FILE_PENCIL, FILE_PLUS, render_testpairs, SEQ_ARROW, SEQ_DECL,
@@ -175,13 +182,13 @@ from hrbuild.tabs.sequence import (
     _drew_nothing, _FEATURE_DECL, _FEATURE_STOP, _JAVA_DECL, _ref, _SKIP_LINE, _STRINGS,
     _tagged_decl, _test_kind, _TS_DECL,
     SEQ_SELECTION, SEQ_WHY, sequence_selection, _slug, picked_for, _why_chip, _names,
-    selection_note_html
+    selection_note_html, SEQ_ALSO, ledger_status, SEL_INLINE, _sel_item, _sel_name
 )
 from hrbuild.tabs.tests import (
     LEDGER_TAB, render_requirements, render_test_ledger, render_tests, render_traces,
     REQMAP_CSS, REQMAP_CUT, REQMAP_SEMCOV_JS, REQMAP_TIP_JS, reqmap_layout, resolve_tests,
     REQMAP_CATS_JS, cats_filter,
-    SEMCOV_LABEL, semcov_switch, SILENCED_LABEL,
+    SEMCOV_LABEL, semcov_switch, SILENCED_LABEL, VIA_HELPER_LABEL, via_helper_tip,
     test_index, TEST_STATES,
     TICKET_CACHE, ticket_head, ticket_ref, tests_chip, _append_inside, _element, _find,
     drawn_ticket,
@@ -189,7 +196,8 @@ from hrbuild.tabs.tests import (
     SEMCOV, COV_NOT_MEASURED_SCRIPTED, _semcov_module, scripted_reqmap,
     RUN_TESTS_ACTION, run_tests_steps, declare_run_tests_rerun, run_tests_button,
     _gh_issue, _issue_url, _ms, _take, _test_changes_module,
-    COVERAGE_JSON, COVCARD_WHO, COVCARD_TIP, COV_COMMON_SHARE, COV_COMMON_MIN,
+    COVERAGE_JSON, COVCARD_WHO, COVCARD_WHO_PR, covcard_who, COVCARD_TIP, COV_COMMON_SHARE,
+    COV_COMMON_MIN,
     COV_NOT_MEASURED, load_coverage, coverage_join, model_pairing, coverage_side, _model_key,
     TEMPLATE_UNSEEN, _rendered_templates,
     _cov_files, _cov_ranges, _snippet_module, COV_PART_MAX, _GHERKIN_NEXT, _cov_part,
@@ -218,7 +226,7 @@ from hrbuild.tabs.cost import (
     _cost_env, _cost_inputs, _cost_money, cost_session,
     _cost_tab_rows, _cost_tokens, _when, components_html, cost_pill_label, cost_pill_title,
     _legacy_ledger_html, _HARNESS, _aic, _component_money, _minutes, _entry_line,
-    COMPONENT_HINTS, guide_breakdown_html
+    COMPONENT_HINTS, guide_breakdown_html, _extension_line, _instants, _stamp_s
 )
 
 
@@ -578,6 +586,7 @@ def _main(argv=None) -> int:
             # A chip counting items the reader then cannot find is the same lie as a
             # hand-typed number, arrived at by a longer route.
             open_n, fixed, assumed = pile_numbers(spec)
+            refuted_n = refuted_number(spec)
             # Everything the reviewers raised, refuted claims included: the hover's
             # breakdown is counted off the same items (`_raised_by`).
             total = len(spec.get("findings", []) or []) + fixed
@@ -636,7 +645,12 @@ def _main(argv=None) -> int:
                 # wear the same face and weight, which `label <b>value</b>` cannot give
                 # them — that shape bolds everything after the first word, and the coder
                 # then reads as a footnote to a bold `Review:`.
-                "face": scope_chip_face(spec, reviewer),
+                #
+                # Eval run 10: that face — `🤖Code: 6 unsure; 🤖Review: 10 open · 3
+                # refuted, 6 fixed` — was the chip that wrapped the scope bar to a second
+                # row. The counts stay; the agent names moved to the hover's first sentence
+                # (`review_chip_key`), still off the same `pile_numbers`.
+                "face": review_chip_face(open_n, refuted_n, fixed, assumed),
                 # The total, which the face no longer carries, split by the pass that
                 # raised each item. `by /code-review and /simplify` named the two passes
                 # and left the reader to guess the split — which is the only thing the
@@ -650,8 +664,10 @@ def _main(argv=None) -> int:
                 #
                 # The model that reviewed opens the hover: the face says only `Review`,
                 # so the name has one home and it is here.
-                "tip": (f"{reviewed}. " if reviewed else "")
-                + _raised_by(spec.get("findings", []) + spec.get("autofixes", []), total)
+                "tip": review_chip_key(open_n, refuted_n, fixed, assumed) + " "
+                + (f"{reviewed}. " if reviewed else "")
+                + raised_by_reviewer(spec.get("findings", []) + spec.get("autofixes", []),
+                                     total)
                 + (f'. {assumed} assumption{"" if assumed == 1 else "s"} the coding agent '
                    "recorded while implementing — listed under the Review tab"
                    if assumed else ""),
@@ -906,7 +922,9 @@ def _main(argv=None) -> int:
             if alarm:
                 auto_badge["tabClass"] = "warn"
                 auto_badge["label"] = alarm
-            return render_testpairs(block, dspec, manifest_rows, root, out_dir)
+            # The ledger, so a tagged picture of a test this branch also wrote says both.
+            return render_testpairs(block, dspec, manifest_rows, root, out_dir,
+                                    test_changes=test_doc.get("tests"))
         if kind == "logging":
             return logging_fragment(block, root, page_rev)
         if kind == "puml":
@@ -1286,6 +1304,17 @@ def _main(argv=None) -> int:
             + "".join(sections)
         )
 
+
+    # The commits before the audited base that wrote this change's own OpenSpec documents
+    # are the spec it was built against, not code nobody reviewed (eval run 10: b12c9bdb
+    # listed among tooling commits). Marked here, off the Review tab's own reading
+    # (`_before_range_commits`), so the masthead's list and the grade's reasons agree.
+    if base_st and base_st.get("outside"):
+        specs = {c["sha"]: c["spec"]
+                 for c in _before_range_commits(spec, root, base_st.get("ref")) if c["spec"]}
+        if specs:
+            base_st = {**base_st, "outside": [{**c, "spec": specs.get(c["sha"])}
+                                              for c in base_st["outside"]]}
 
     doc = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">

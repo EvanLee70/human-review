@@ -114,6 +114,15 @@ REFUTED = re.compile(
 # The same verdict as a `why:` that opens on it — "wrong — handleError rethrows". Only on
 # `why:`: an observation may well open on "Wrong status code…", which is the defect.
 REFUTED_WHY = re.compile(r"^\s*(?:the\s+reviewer\s+(?:was|is)\s+)?wrong\b", re.I)
+# A declined finding's `why:` that rests on a decision recorded somewhere else — the
+# change's design, proposal or tasks, the planning Q&A, a numbered question or task, or
+# "decided by the human". Eval run 10 dismissed four open issues this way ("design.md
+# Decision 3 and task 2.1 specify them", "Q3 decided by the human") with no line to open.
+DECIDED_ELSEWHERE = re.compile(
+    r"\b(?:design|proposal|tasks)\.md\b|Q&A(?:\.md)?|\bQ\d+\b|\btasks?\s+\d+\.\d+\b"
+    r"|\bdecided\s+by\b", re.I)
+# The `file:line` such a reason must carry for the page to link and quote what it cites.
+CITED_LINE = re.compile(r"[\w&.-]+\.md:\d+")
 
 
 def is_refuted(item: dict) -> bool:
@@ -384,6 +393,12 @@ def build_item(title: str, fields: list[tuple[str, str]], body: str, pile: str,
             "that the reviewer was wrong — a refuted finding is not a fix and not an open "
             "defect: file it under Ignored with `severity: info` and the evidence in "
             "`why:`, or it is counted as worth a look.")
+    cites = DECIDED_ELSEWHERE.search(plain("why"))
+    if pile == "findings" and cites and not CITED_LINE.search(plain("why")):
+        warnings.append(
+            f"Ignored: {title[:60]!r} (line {where}) — `why:` rests on {cites.group(0)!r} "
+            "without the file:line it cites. Give it (`openspec/changes/<change>/design.md:50`, "
+            "`Q&A.md:28`) so the page can link the line and quote it.")
     if pile == "assumptions" and not item.get("why"):
         warnings.append(
             f"Assumptions: {title[:60]!r} (line {where}) has no `why:` — one or two "

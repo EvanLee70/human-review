@@ -302,12 +302,83 @@ def test_who_paired_a_sentence_is_said_on_its_hover_and_once_not_after_every_cla
     assert S.AI_NOTE not in bare
 
 
+def test_what_is_not_green_is_counted_at_the_top_of_the_ticket_with_a_jump_to_it(tmp_path):
+    """Eval run 10: the top of the column read solid green, and the one `missing` and four
+    `partly` sentences took a scroll to find. One line inside the frame, under its header
+    strip (so the two frames still start level), counts them; each count links to its
+    first sentence and the script walks on to the next per press."""
+    g, entries, page, pirate = _render(tmp_path)
+    ticket = page[page.index('<div class="rm-ticket">'):]
+    assert ticket.index('class="rm-tally"') < ticket.index('class="rm-issue"')
+    at = ticket.index('class="rm-tally"')
+    tally = ticket[at:ticket.index("</p>", at)]
+    claims = [e for e in entries if e["coverage"] != "n/a"]
+    off = sum(1 for e in claims if e["coverage"] != "covered")
+    assert f"{off} of {len(claims)} claims not fully covered" in tally
+    assert (f'<a class="rm-lg rm-jump" data-cov="missing" href="#rm-s-{pirate}" '
+            'data-tip="Jump to it">1 missing</a>') in tally
+    assert f'id="rm-s-{pirate}"' in page, "the link lands on the sentence itself"
+    js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
+    assert "closest('.rm-jump')" in js and "j.dataset.i=i" in js
+    # Everything green is said too: "none" must not look like "not counted".
+    green = [dict(e, coverage="covered") for e in entries]
+    root = tmp_path / "repo"
+    all_green = S.render(g["ticket"], g["blocks"], g["rows"], green, root)
+    assert (f'<p class="rm-tally" data-all="yes">All {len(claims)} claims fully covered '
+            "by a test.</p>") in all_green
+    assert "rm-jump" not in all_green.split('class="rm-data"')[0].split("</style>")[-1]
+
+
+def test_the_card_says_pr_only_when_there_is_a_pull_request(tmp_path):
+    """Eval run 10's card said "Tests that cover files modified in this PR" on a branch
+    with no pull request."""
+    root, review = _repo(tmp_path)
+    T = importlib.import_module("hrbuild.tabs.tests")
+    (review / S.MAPPING).write_text(json.dumps({"schema": "test-mapping/1", "sentences": []}),
+                                    encoding="utf-8")
+    spec = S._spec(review)
+    S.write_fragment(spec, review, root)
+    frag = (review / S.FRAGMENT).read_text()
+    assert T.COVCARD_WHO in frag and "in this PR" not in frag
+    assert T.COVCARD_WHO.endswith("in this change")
+    spec["pr"]["number"] = 12
+    S.write_fragment(spec, review, root)
+    assert T.COVCARD_WHO_PR in (review / S.FRAGMENT).read_text()
+    # The build's own verdict wins where it ran (`review.py:prepare_pr_push`).
+    assert T.covcard_who(dict(spec, _noPr=True), review) == T.COVCARD_WHO
+
+
+def test_a_test_edited_through_a_helper_is_stamped_so_on_the_card(tmp_path):
+    root, review = _repo(tmp_path)
+    (review / "assets" / "test-coverage.json").unlink()
+    doc = json.loads((review / "assets" / "test-changes.json").read_text())
+    doc["tests"][2].update(status="modified", viaHelper=[
+        {"name": "search", "line": 20, "added": 1, "removed": 2}])
+    (review / "assets" / "test-changes.json").write_text(json.dumps(doc), encoding="utf-8")
+    rows, _ = S.covering_tests(S._spec(review), review, root)
+    row = rows[2]
+    assert row["status"] == "helper" and S.test_rank(row, set()) == 1
+    g = S.gather(S._spec(review), review, root)
+    page = S.render(g["ticket"], g["blocks"], g["rows"],
+                    S.merge(g["sentences"], g["scripted"], None), root, measured=False)
+    data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
+    t = data["tests"]["test/VisitTest.java:13"]
+    assert t["status"] == "helper" and "it calls search() (line 20, +1/−2)" in t["via"]
+    js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
+    assert "helper:[BIG+PENCIL" in js and "'edited via helper','edited']" in js
+    # The model is told it is an edit, in its own three words.
+    asked = S.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"])
+    assert {t["status"] for t in asked["tests"]} <= {"new", "changed", "unchanged", "deleted"}
+
+
 def test_a_sentence_nobody_paired_is_not_called_missing(tmp_path):
     root, review = _repo(tmp_path)
     g = S.gather(S._spec(review), review, root)
     entries = S.merge(g["sentences"], g["scripted"], None)
     page = S.render(g["ticket"], g["blocks"], g["rows"], entries, root)
-    assert page.count('data-cov="unmapped"') == 1
+    # One sentence wears it; the tally over the ticket counts it in the same words.
+    assert page.count('data-cov="unmapped" role=') == 1
+    assert '>1 not paired yet</a>' in page and ">1 missing<" not in page
     assert S.split_counts(entries)["sentences"]["unmapped"] == 1
 
 

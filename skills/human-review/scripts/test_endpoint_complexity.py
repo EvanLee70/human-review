@@ -229,6 +229,75 @@ def test_recursion_costs_one():
     assert ec.extract(files)[0]["flowCc"] == 1
 
 
+STREAMED = """
+package app.rest;
+
+public class OwnerRestController {
+    private final OwnerMapper ownerMapper;
+
+    @GetMapping("/api/owners")
+    public List<OwnerDto> listOwners(List<Owner> owners) {
+        List<Integer> ids = owners.stream().map(Owner::getId).toList();
+        owners.forEach(o -> audit(o));
+        return owners.stream().map(ownerMapper::toOwnerDto).map(this::trim).map(Box::new).toList();
+    }
+    private OwnerDto trim(OwnerDto d) { if (d == null) { return null; } return d; }
+    private void audit(Owner o) { if (o.isNew()) { log(); } }
+}
+"""
+STREAMED_MAPPER = """
+package app.rest;
+
+public class OwnerMapper {
+    public OwnerDto toOwnerDto(Owner o) { for (Pet p : o.pets()) { if (p.sick()) { flag(p); } } return null; }
+}
+"""
+STREAMED_BOX = """
+package app.rest;
+
+public class Box {
+    public Box(OwnerDto d) { if (d == null) { throw new IllegalStateException(); } }
+}
+"""
+STREAMED_OWNER = """
+package app.rest;
+
+public class Owner {
+    public Integer getId() { return id == null ? 0 : id; }
+}
+"""
+
+
+def test_a_method_reference_is_a_call_and_so_is_a_call_inside_a_lambda():
+    """`.map(ownerMapper::toOwnerDto)` runs the mapper exactly as a dotted call would. The
+    call pattern only read `name(`, so eval run 10 lost the whole mapper chain behind
+    `GET /api/owners` and drew a flow that grew by four as one that shrank by five."""
+    [entry] = ec.extract({"a/src/main/java/app/rest/OwnerRestController.java": STREAMED,
+                          "a/src/main/java/app/rest/OwnerMapper.java": STREAMED_MAPPER,
+                          "a/src/main/java/app/rest/Box.java": STREAMED_BOX,
+                          "a/src/main/java/app/rest/Owner.java": STREAMED_OWNER})
+    reached = {m["method"] for m in entry["flow"]}
+    assert "app.rest.OwnerMapper#toOwnerDto" in reached, "field::method, typed like field.method("
+    assert "app.rest.Owner#getId" in reached, "Type::method"
+    assert "app.rest.OwnerRestController#trim" in reached, "this::method"
+    assert "app.rest.Box#Box" in reached, "Type::new is the declared constructor"
+    assert "app.rest.OwnerRestController#audit" in reached, "a call inside a lambda's body"
+    # mapper: the for 1 + the if inside it 2; trim, Box, getId's ternary and audit 1 each.
+    assert entry["flowCc"] == 3 + 1 + 1 + 1 + 1
+
+
+def test_this_dot_call_resolves_to_the_own_class_even_when_another_declares_the_name():
+    files = {
+        "a/src/main/java/app/A.java":
+            "package app;\npublic class A {\n  @GetMapping(\"/a\")\n"
+            "  public void go() { this.run(); }\n  void run() { if (x) { y(); } }\n}\n",
+        "a/src/main/java/app/B.java":
+            "package app;\npublic class B {\n  public void run() { if (x) { y(); } }\n}\n",
+    }
+    [entry] = ec.extract(files)
+    assert [m["method"] for m in entry["flow"]] == ["app.A#go", "app.A#run"]
+
+
 def test_comments_and_strings_are_not_read_as_code():
     # A `{` in a string and an `if` in a comment used to open a block and charge for it.
     assert cc('String s = "if (a) { b(); }"; // if (c) { d(); }') == 0
@@ -321,6 +390,23 @@ def _row(**over):
          "handler": "VisitRestController.addVisit", "entry": "", "kind": "http"}
     r.update(over)
     return r
+
+
+def test_a_simpler_flow_says_so_in_words_and_is_never_drawn_in_alarm_red():
+    """Green is what the branch added. A shrink drawn in `#c62828` read to every eval-run-10
+    judge as an alarm: what it removed is a neutral slate ghost, and the badge says
+    `simpler` beside a real minus sign."""
+    row = delta.render_row(_row(now=6, was=11, delta=-5, why=[]), 12, "main")
+    assert 'class="cx-row cx-down"' in row
+    assert '<span class="cx-badge">−5<small> simpler</small></span>' in row
+    assert "made the flow simpler" in row and "11 → 6" in row
+    for block in re.findall(r"--cx-removed:(#[0-9a-fA-F]{6})", delta.CSS):
+        r, g, b = (int(block[i:i + 2], 16) for i in (1, 3, 5))
+        assert not (r > g + 60 and r > b + 60), f"{block} is a red; the removed colour is neutral"
+    assert "--cx-added:#2e9e5b" in delta.CSS, "an increase stays green, as on the reference"
+    # The badge column holds `−12 simpler` without the word wrapping under the number.
+    cols = re.search(r"\.cx-head \{[^}]*grid-template-columns:([^;]*);", delta.CSS)[1].split()
+    assert float(cols[4].rstrip("rem")) >= 4.2
 
 
 def test_a_path_too_wide_for_its_column_ends_in_an_ellipsis_and_keeps_its_full_text():

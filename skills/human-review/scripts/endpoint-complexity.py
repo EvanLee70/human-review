@@ -16,7 +16,9 @@ So the measurement moves here, and pays for being self-contained by being approx
     source, which is where nesting still exists.
   * **The flow** is every method reachable from the handler through calls this file can
     resolve: a bare `foo(…)` inside the class, `field.foo(…)` where the field, parameter or
-    local has a declared type this project also declares, and `Type.foo(…)`. A call whose
+    local has a declared type this project also declares, and `Type.foo(…)` — and the same
+    four shapes written as method references (`field::foo`, `Type::foo`, `this::foo`,
+    `Type::new` for a declared constructor), which is how a stream calls them. A call whose
     receiver has no known type resolves only when exactly one class in the project declares
     a method by that name; otherwise it is dropped rather than guessed at.
   * **`flowCc`** is the plain sum over the DISTINCT methods reached (cycles counted once).
@@ -81,6 +83,22 @@ PACKAGE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.M)
 # reused for two types in one file is rarer than the calls this resolves.
 VAR = re.compile(r"\b([A-Z]\w*)(?:\s*<[^<>;{}]*>)?(?:\s*\[\s*\])?\s+([a-z_$]\w*)\s*(?=[;=,):])")
 CALL = re.compile(r"(?:(\w+)\s*\.\s*)?\b([A-Za-z_$]\w*)\s*\(")
+# A method reference is a call the stream will make: `.map(ownerMapper::toOwnerDto)` runs
+# the whole mapper chain exactly as `ownerMapper.toOwnerDto(o)` inside a lambda would. Read
+# as `(receiver, method)` with the same typing as a dotted call — a field, a parameter, a
+# class (`Owner::getId`), `this` or `super`. `Type::new` is the constructor, which the index
+# files under the type's own name. Missing this dropped nine points off `GET /api/owners`
+# in eval run 10 and drew a flow that had grown as one that shrank by five.
+METHOD_REF = re.compile(r"\b(\w+)\s*::\s*(new\b|[A-Za-z_$]\w*)")
+
+
+def calls_in(body: str) -> set[tuple[str, str]]:
+    """Every `(receiver, name)` the body invokes: dotted and bare calls, lambdas' bodies
+    included — they are text of the method like any other — and method references."""
+    found = {(recv, called) for recv, called in CALL.findall(body) if called not in NOT_A_METHOD}
+    for recv, called in METHOD_REF.findall(body):
+        found.add((recv, recv if called == "new" else called))
+    return found
 ANNOT = re.compile(r"@(\w+)\s*(\((?:[^()]|\([^()]*\))*\))?")
 STRING = re.compile(r'"([^"\\\n]*)"')
 
@@ -277,8 +295,7 @@ class Index:
             at = m.end() - 1
             body = code[at:block(code, at)]
             key = f"{fqcn}#{name}"
-            calls = {(recv, called) for recv, called in CALL.findall(body)
-                     if called not in NOT_A_METHOD}
+            calls = calls_in(body)
             method = self.methods.setdefault(
                 key, {"key": key, "display": f"{simple}.{name}({_params(params)})",
                       "cc": 0, "cyc": 0, "hits": [], "calls": set(), "types": types})
@@ -345,7 +362,7 @@ class Index:
 
     def resolve(self, method: dict, recv: str, called: str) -> list[str]:
         """Which declared methods a `recv.called(…)` in `method` can mean — [] if unknowable."""
-        if not recv:
+        if not recv or recv == "this":
             own = self.of_class.get(method["key"].rsplit("#", 1)[0], {}).get(called)
             return [own] if own else self._unique(called)
         owner = method["types"].get(recv) or self.classes.get(recv)

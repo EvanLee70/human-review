@@ -111,6 +111,21 @@ def resolve_tests(entries, index: dict, root: Path) -> list[dict]:
     return out
 
 
+#: What the page calls a test whose own lines are untouched but which calls a helper in
+#: the same file that this change set rewrote (`test-changes.py:helpers_called`). Counted
+#: under edited — the run exercises different code — and said apart from a body edit.
+VIA_HELPER_LABEL = "edited via helper"
+
+
+def via_helper_tip(helpers: list[dict]) -> str:
+    """`Its own lines are unchanged; it calls anOwnerWithAPet() (line 105, +13/−6), which
+    this change set rewrote.`"""
+    named = ", ".join(f'{h.get("name")}() (line {h.get("line")}, '
+                      f'+{h.get("added", 0)}/\u2212{h.get("removed", 0)})' for h in helpers)
+    return (f"Its own lines are unchanged; it calls {named}, which this change set "
+            "rewrote in the same file.")
+
+
 def render_tests(rows, root: Path, flags: bool = True) -> str:
     """The sub-list under one requirement: what pins it, and what the diff did to each.
 
@@ -172,6 +187,11 @@ def render_tests(rows, root: Path, flags: bool = True) -> str:
             # Renamed in place: one test kept under a new title, not one lost and one new.
             note = (f' <span class="tnote trenamed">renamed from '
                     f'“{html.escape(r["renamedFrom"])}”</span>') + note
+        if r.get("viaHelper"):
+            # Its own lines are as they were; a same-file helper it calls is not.
+            note = (f' <span class="tnote tvia" data-tip="'
+                    f'{html.escape(via_helper_tip(r["viaHelper"]), quote=True)}">'
+                    f'{VIA_HELPER_LABEL}</span>') + note
         # Off inside the ledger below, where the group heading already says the word and
         # a column repeating `NEW` twenty-two times is a column of noise. Kept everywhere
         # else, and kept even in the ledger's one mixed group.
@@ -203,7 +223,8 @@ def render_test_ledger(rows, root: Path) -> tuple[str, int]:
         ("new", "Tests this change set wrote.", []),
         ("gone", "Tests the run has lost — deleted outright (each links to where it stood "
                  "at the base commit), or commented out in place.", []),
-        ("edited", "Tests whose body this change set moved: worth reading for what they "
+        ("edited", "Tests whose body this change set moved — or, marked “edited via "
+                   "helper”, a same-file helper they call: worth reading for what they "
                    "stopped asserting, not only for what they now do.", []),
     ]
     untouched = 0
@@ -374,6 +395,8 @@ def tests_chip(doc: dict | None) -> dict | None:
            + f', {t["modified"]} edited'
            # A retitled test is counted here and not as one gone plus one new.
            + (f' ({t["renamed"]} renamed)' if t.get("renamed") else "")
+           # Untouched itself, edited through a same-file helper it calls.
+           + (f' ({t["viaHelper"]} via a helper)' if t.get("viaHelper") else "")
            + f', {gone}'
            # The one clause that has to survive the cut: it is why `+10` can stand over
            # `9 new`, and without it the face looks like it cannot add up.
@@ -623,9 +646,12 @@ def card_head(side: str) -> str:
 
 #: Where the measurement is read from, relative to the report directory.
 COVERAGE_JSON = "assets/test-coverage.json"
-COVCARD_WHO = "Tests that cover files modified in this PR"
+#: Said of a change set with no pull request — eval run 10 said "in this PR" over a branch
+#: that had none. "PR" only when there is one (`covcard_who`).
+COVCARD_WHO = "Tests that cover files modified in this change"
+COVCARD_WHO_PR = "Tests that cover files modified in this PR"
 COVCARD_TIP = ("Every test was run with a per-test coverage probe; a row is a test that "
-               "executed at least one line this PR changed")
+               "executed at least one line this branch changed")
 #: A changed line counts as "passed through" when more than this share of a suite's
 #: reaching tests run it — a getter every GET calls, a component's constructor.
 COV_COMMON_SHARE = 0.5
@@ -635,6 +661,19 @@ COV_COMMON_MIN = 4
 COV_NOT_MEASURED = ("Coverage was not measured on this build, so this list is AI's pairing, "
                     "not a run. Configure <code>steps.testcov</code> in human-review.json "
                     "and re-run the tests to see which tests execute the change.")
+
+
+def covcard_who(spec: dict | None, out_dir: Path) -> str:
+    """The card's title: "…in this PR" only when there is a pull request. The build
+    decides that once (`review.py:prepare_pr_push` sets `_noPr` from `pr_exists`); a spec
+    that went through no build is asked the same question directly."""
+    spec = spec or {}
+    if "_noPr" in spec:
+        has_pr = not spec["_noPr"]
+    else:
+        from .review import pr_exists
+        has_pr = pr_exists(spec, out_dir)
+    return COVCARD_WHO_PR if has_pr else COVCARD_WHO
 
 
 def load_coverage(out_dir: Path, spec: dict | None = None) -> dict | None:
@@ -917,6 +956,8 @@ def coverage_tests(frag: str, doc: dict, test_doc: dict | None, root: Path) -> s
         tests[key] = {"title": r.get("title") or key, "cat": _cov_cat(r, root),
                       "status": stamp.get(state.get("status"), "unchanged"),
                       "parts": [part] if part else []}
+        if state.get("viaHelper"):
+            tests[key].update(status="helper", via=via_helper_tip(state["viaHelper"]))
     body = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     return frag[:m.start(2)] + body + frag[m.end(2):]
 
@@ -933,6 +974,15 @@ def coverage_gaps(doc: dict, root: Path) -> str:
             for f, ls in sorted(j["gaps"].items()))
         blocks.append(f'<details class="cov-gaps"><summary>Changed lines no test runs '
                       f'<b>{n}</b></summary><ul>{items}</ul></details>')
+    else:
+        # Said, not omitted. Eval run 10 measured every changed line as run and the block
+        # simply was not there, so a reviewer could not tell "none" from "not computed".
+        total = j["total"]
+        blocks.append(f'<p class="cov-gaps cov-zero">Changed lines no test runs <b>0</b>'
+                      + (f" — all {total} measurable changed line{'s' if total != 1 else ''}"
+                         " ran in at least one test" if total else
+                         " — no changed line is measurable on this build")
+                      + "</p>")
     if j["unmeasurable"]:
         items = []
         for u in j["unmeasurable"]:
@@ -948,7 +998,10 @@ def coverage_gaps(doc: dict, root: Path) -> str:
         blocks.append(f'<details class="cov-unm"><summary>Not measurable <b>{n}</b> changed '
                       "lines — no probe sees them run</summary><ul>" + "".join(items)
                       + "</ul></details>")
-    return f'<div class="cov-after">{"".join(blocks)}</div>' if blocks else ""
+    else:
+        blocks.append('<p class="cov-unm cov-zero">Not measurable <b>0</b> changed lines — '
+                      "a probe sees every changed line that holds code</p>")
+    return f'<div class="cov-after">{"".join(blocks)}</div>'
 
 
 def coverage_side(side: str, frag: str, spec: dict, out_dir: Path, root: Path,
@@ -968,7 +1021,7 @@ def coverage_side(side: str, frag: str, spec: dict, out_dir: Path, root: Path,
         return side[:span[1]] + f'<p class="cov-none">{note}</p>' + side[span[1]:]
     head = (f'<div class="rm-tkhead"><span class="rm-av cov-av" '
             f'data-tip="{html.escape(COVCARD_TIP, quote=True)}" aria-hidden="true">📏</span>'
-            f'<span class="rm-who">{COVCARD_WHO}</span></div>')
+            f'<span class="rm-who">{covcard_who(spec, out_dir)}</span></div>')
     side = re.sub(r'<div class="rm-tkhead">.*?</div>', lambda _: head, side, count=1, flags=re.S)
     # Last in the column, under the card: what no test reaches is a footnote to it.
     close = side.rfind("</div>")
@@ -1120,6 +1173,7 @@ REQMAP_CSS = """
    its height but not its ink, so the card beside it does not jump. */
 .reqmap[data-semcov=off] .rm-f[data-cov]{background:none}
 .reqmap[data-semcov=off] .rm-legend{visibility:hidden}
+.reqmap[data-semcov=off] .rm-tally{visibility:hidden}
 /* The ticket's own heading scale, not the page's h2: this is quoted furniture around
    quoted text, and an h2 here would outrank the tab's own heading. */
 .reqmap .rm-head .rm-title{font-size:1.35em;line-height:1.25;font-weight:600;

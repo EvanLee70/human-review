@@ -69,21 +69,74 @@ def title_ticket_ref(pr: dict, title: str) -> str:
     return f" ({ref})"
 
 
+#: The id that ties the branch chip's `+N` badge to the list it opens (tabs.js).
+OUTSIDE_ID = "hr-outside"
+
+
+def _outside_where(state: dict) -> str:
+    return ("outside the review" if state.get("diffBaseSource") == "audited"
+            else f"before {state['diffBase'][:8]}, where the counts start")
+
+
+def _split_outside(state: dict | None) -> tuple[list[dict], list[dict]]:
+    """(unreviewed, spec): the commits before the counts, apart from the ones that wrote
+    this change's own OpenSpec documents (`spec` set by the build, off the Review tab's
+    `_before_range_commits`). Eval run 10 counted b12c9bdb — this change's proposal, design
+    and spec — among the tooling commits nobody reviewed; it is what the change was built
+    against, and is listed as that, not counted."""
+    outside = (state or {}).get("outside") or []
+    return [c for c in outside if not c.get("spec")], [c for c in outside if c.get("spec")]
+
+
+def outside_badge(state: dict | None) -> str:
+    """`+8` on the branch chip: the branch's commits the page does not count, one click
+    from their list (`outside_note`).
+
+    It used to be a line of its own under the chips, `8 earlier commits outside the review
+    ▸`, and eval run 10 measured what that line cost: with the review chip wrapping too,
+    the sticky header was 164px against the reference's 108px, on every tab, for a fact a
+    reader needs once. It is a fact about the branch — which commits on it the numbers
+    beside it leave out — so it rides on the chip that names the branch, as a count. The
+    sentence is in its hover; the commits are in the list it opens."""
+    other, specs = _split_outside(state)
+    if not other and not specs:
+        return ""
+    n = len(other)
+    tip = (f"{n} earlier commit{'' if n == 1 else 's'} on this branch "
+           f"{_outside_where(state)}, not counted by the chips beside it." if n else "")
+    if specs:
+        tip += ((" " if tip else "") + f"Also before the review: the spec this change was "
+                f"built against ({', '.join(c['sha'][:8] for c in specs)}) — not counted, it "
+                "is not code.")
+    tip += " Click to list them."
+    # The face counts only the commits nobody reviewed; a branch whose only earlier commit
+    # is its spec shows `spec`, not a `+1` that would read as one more unreviewed change.
+    face, label = ((f"+{n}", f"{n} earlier commits {_outside_where(state)}") if n
+                   else ("spec", "the spec this change was built against"))
+    return (f'<button type="button" class="sn-badge" aria-expanded="false" '
+            f'aria-controls="{OUTSIDE_ID}" aria-label="{html.escape(label)}" '
+            f'data-tip="{html.escape(tip)}">{face}<span class="sn-caret" aria-hidden="true">'
+            '&#9656;</span></button>')
+
+
 def outside_note(state: dict | None, repo: str = "") -> str:
-    """One muted line under the chips: the branch's commits the page does not count.
+    """The list `outside_badge` opens: the branch's commits the page does not count.
 
     `page_base` measures from the base the review audited, which on a branch that carried
     commits before the review — a plan, an AGENTS.md, a skill — is past the fork point.
     The numbers above are then honest about the review and silent about those commits,
     and a reader comparing them with GitHub's `main...branch` would find a gap with no
     explanation. Named here, oldest last as `git log` lists them, so the gap is visible.
-    Empty when the page measures from the fork point."""
-    outside = (state or {}).get("outside") or []
-    if not outside:
+    Empty when the page measures from the fork point.
+
+    Hidden until the badge is clicked. Opened, it sits IN FLOW at the foot of the masthead,
+    under the tab strip — never over it (eval run 8 found an overlay covering 11 of 13
+    tabs), and never between the chips and the strip, where opening it would move every
+    tab out from under the pointer. Esc or a click outside closes it (tabs.js)."""
+    other, specs = _split_outside(state)
+    if not other and not specs:
         return ""
-    n = len(outside)
-    where = ("outside the review" if state.get("diffBaseSource") == "audited"
-             else f"before {state['diffBase'][:8]}, where the counts start")
+    n = len(other)
 
     def one(c: dict) -> str:
         # Sha and raw subject, one commit per line: the subjects are the commits' own words,
@@ -94,14 +147,17 @@ def outside_note(state: dict | None, repo: str = "") -> str:
                 if repo else f'<code>{sha}</code>')
         return f'<li>{face} {html.escape(c.get("subject") or "")}</li>'
 
-    # Folded to one short line: eval run 6 spelled six hashes across the masthead, which
-    # never scrolls away, and pushed the tab strip down on every tab for a fact a reader
-    # needs once. Opened, the list sits in flow under the chips (never over the tab
-    # strip — eval run 8 found the overlay covering 11 of 13 tabs) and closes on Esc or
-    # an outside click (tabs.js).
-    return (f'<details class="scopenote"><summary>{n} earlier commit{"" if n == 1 else "s"} '
-            f'{where} <span class="sn-caret" aria-hidden="true">&#9656;</span></summary>'
-            f'<ul class="sn-list">{"".join(one(c) for c in outside)}</ul></details>')
+    parts = []
+    if other:
+        parts.append(f'<p class="sn-head">{n} earlier commit{"" if n == 1 else "s"} '
+                     f'{html.escape(_outside_where(state))}</p>'
+                     f'<ul class="sn-list">{"".join(one(c) for c in other)}</ul>')
+    if specs:
+        where = ", ".join(sorted({html.escape(str(c["spec"])) + "/" for c in specs}))
+        parts.append(f'<p class="sn-head sn-spec">The spec this change was built against '
+                     f'(<code>{where}</code>), before the reviewed range — not unreviewed '
+                     f'code</p><ul class="sn-list">{"".join(one(c) for c in specs)}</ul>')
+    return (f'<div class="scopenote" id="{OUTSIDE_ID}" hidden>{"".join(parts)}</div>')
 
 
 def ref_badges(spec: dict, state: dict | None = None) -> str:
@@ -141,8 +197,9 @@ def ref_badges(spec: dict, state: dict | None = None) -> str:
                 f'target="_blank" rel="noopener">{name}</a>')
 
     branch, base = pr.get("branch"), pr.get("base")
+    badge = outside_badge(state)
     if not branch and not base:
-        return ""
+        return f'<span class="chip refchip">{badge}</span>' if badge else ""
     # One chip, one sentence: `branch test-pr from main`. Each ref is its own link, so
     # the chip is a span holding two anchors rather than one anchor around both.
     parts = []
@@ -159,7 +216,7 @@ def ref_badges(spec: dict, state: dict | None = None) -> str:
         inner += (f'<span class="drift" role="img" aria-label="stale base" '
                   f'data-tip="{html.escape(warning)}">\u26a0\ufe0f</span>')
         cls_extra = " drifted"
-    return f'<span class="chip refchip{cls_extra}">{inner}</span>'
+    return f'<span class="chip refchip{cls_extra}">{inner}{badge}</span>'
 
 
 def masthead_html(spec: dict, title_score: str, chips: str, strip_html: str,
@@ -189,10 +246,13 @@ def masthead_html(spec: dict, title_score: str, chips: str, strip_html: str,
         rows = [f'<div class="titlerow">{heading}'
                 f'<span class="titleside">{title_score}</span></div>',
                 f'<p class="sub">{spec.get("subtitle", "")}</p>']
+    if not spec.get("pr"):
+        # No refs chip to carry the count: the badge leads the chips on its own.
+        badge = outside_badge(base_st)
+        chips = (f'<span class="chip refchip">{badge}</span>' if badge else "") + chips
     rows.append(f'<div class="scopebar">{chips}</div>')
     note = outside_note(base_st, (spec.get("pr") or {}).get("repo") or "")
-    if note:
-        rows.append(note)
     if not strip_html:
-        return "\n".join(rows)
-    return '<header class="masthead">\n' + "\n".join(rows + [strip_html]) + "\n</header>"
+        return "\n".join(rows + ([note] if note else []))
+    return ('<header class="masthead">\n' + "\n".join(rows + [strip_html] + ([note] if note else []))
+            + "\n</header>")

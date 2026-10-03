@@ -662,6 +662,15 @@ def _states(test_doc: dict | None) -> dict:
 STAMP = {"added": "new", "modified": "changed", "deleted": "deleted"}
 
 
+def _stamp(st: dict) -> str:
+    """The card's word for what the branch did to a test — `helper` for one whose own
+    lines are untouched but which calls a same-file helper the branch rewrote
+    (`test-changes.py:helpers_called`); it is still one of the edited."""
+    if st.get("status") == "modified" and st.get("viaHelper"):
+        return "helper"
+    return STAMP.get(st.get("status"), "unchanged")
+
+
 def covering_tests(spec: dict, out_dir: Path, root: Path) -> tuple[list[dict], bool]:
     """`(rows, measured)` — the right-hand column, before any pairing.
 
@@ -685,7 +694,7 @@ def covering_tests(spec: dict, out_dir: Path, root: Path) -> tuple[list[dict], b
             rows.append({"id": f"{file}:{line}", "file": file, "line": int(line),
                          "title": r.get("title") or "", "suite": r.get("suite") or "",
                          "cat": T._cov_cat(r, root),
-                         "status": STAMP.get(st.get("status"), "unchanged"),
+                         "status": _stamp(st), "viaHelper": st.get("viaHelper") or [],
                          "hits": r.get("changedHits") or {}, "aimed": bool(r.get("aimed"))})
         return rows, True
     for t in (test_doc or {}).get("tests") or []:
@@ -696,7 +705,7 @@ def covering_tests(spec: dict, out_dir: Path, root: Path) -> tuple[list[dict], b
         row = {"id": f"{file}:{line}", "file": file, "line": int(line),
                "title": t.get("name") or "", "suite": "",
                "cat": T._cov_cat({"file": file}, root),
-               "status": STAMP.get(t.get("status"), "unchanged"),
+               "status": _stamp(t), "viaHelper": t.get("viaHelper") or [],
                "hits": {}, "aimed": True}
         # A deleted test is linked where it stood at the base, never at its HEAD `line`.
         if t.get("baseUrl") and t.get("status") == "deleted":
@@ -968,7 +977,10 @@ WHERE = (("title", 1.0, "name"), ("asserts", 0.55, "assert"), ("body", 0.3, "bod
 RARE_SHARE = 0.35
 #: A test the branch wrote or edited was written for this ticket; one it did not touch, and
 #: one that only passes through the change (`coverage_join`'s `aimed`), mostly was not.
-PRIOR = {"new": 1.0, "changed": 1.0, "unchanged": 0.5, "deleted": 0.5}
+#: A test edited only through a helper it calls was adapted to the change, not written for
+#: the ticket (run 10's AddVisitApiTest: its helper learned to walk pages) — the prior of
+#: the untouched, so the label does not move the pairing.
+PRIOR = {"new": 1.0, "changed": 1.0, "helper": 0.5, "unchanged": 0.5, "deleted": 0.5}
 PASSING_THROUGH = 0.75
 
 
@@ -1213,7 +1225,9 @@ def model_input(ticket: dict, sentences: list[dict], rows: list[dict], scripted:
         "decisions": [{"id": d["id"], "text": d["text"]} for d in decisions or []],
         "context": [s["text"] for s in sentences],
         "tests": [{"id": t, "title": rows_by[t]["title"], "kind": CATS[rows_by[t]["cat"]],
-                   "status": rows_by[t]["status"],
+                   # An edit through a helper is an edit; the model's vocabulary is three words.
+                   "status": {"helper": "changed"}.get(rows_by[t]["status"],
+                                                      rows_by[t]["status"]),
                    "body": docs[t]["body_text"]} for t in want],
     }
 
@@ -1648,9 +1662,11 @@ def _sentence_html(s: dict, entry: dict) -> str:
     if cov == "narrowed" and decision_name(entry):
         tip += " — by " + decision_name(entry)
     src = ' data-src="model"' if entry.get("by") == "model" else ""
+    # The `id` goes last: `class="rm-f" data-s=` is the shape two readers parse
+    # (`tests.py:model_pairing`, `reference_pairs`); the id is what the tally jumps to.
     return (f'<span class="rm-f" data-s="{s["id"]}" data-cov="{COV_ATTR[cov]}"{src} '
-            f'role="button" tabindex="0" data-tip="{html.escape(tip, quote=True)}">'
-            f"{inner}</span>")
+            f'role="button" tabindex="0" data-tip="{html.escape(tip, quote=True)}" '
+            f'id="rm-s-{s["id"]}">{inner}</span>')
 
 
 #: The one line that says a model read the tests — instead of a 🤖 after every sentence.
@@ -1696,7 +1712,48 @@ def _ticket_html(ticket: dict, blocks: list[dict], entries: dict) -> str:
     src = (f'<p class="rm-src">{html.escape(ticket.get("origin") or "")}{note}</p>'
            if ticket.get("origin") or note else "")
     return ('<div class="rm-ticket"><div class="rm-tkhead">' + head + '</div>' + src
+            + tally_html(blocks, entries)
             + '<div class="rm-issue">' + "".join(body) + "</div></div>")
+
+
+#: The states a sentence can be in that are not "a test asserts all of it", worst first,
+#: with the word the tally says — the legend's own word, so the two read as one key.
+TALLY = (("missing", "missing"), ("partial", "partially"), ("exercised", "executed"),
+         ("unconfirmed", "unconfirmed"), ("unmapped", "not paired yet"),
+         ("narrowed", "narrowed"))
+
+
+def tally_html(blocks: list[dict], entries: dict) -> str:
+    """One line at the top of the ticket frame counting the sentences that are NOT solid
+    green, each count a link that jumps to the first of them (and, in `reqmap.js`, on to
+    the next one per press).
+
+    Eval run 10: the top of the column read solid green, and the one `missing` and four
+    `partly` sentences took a scroll to find — nothing above the fold said they existed.
+    Said when everything is green too, so a reader can tell "none" from "not counted".
+    Inside the frame, under its header strip, so the ticket and the card still start on
+    one line."""
+    order = [s["id"] for s in ticket_sentences(blocks)]
+    claims = [entries[sid] for sid in order if sid in entries
+              and entries[sid]["coverage"] != "n/a"]
+    if not claims:
+        return ""
+    parts = []
+    for cov, word in TALLY:
+        hit = [e for e in claims if e["coverage"] == cov]
+        if hit:
+            tip = ("Jump to it" if len(hit) == 1
+                   else "Jump to the first — press again for the next")
+            parts.append(f'<a class="rm-lg rm-jump" data-cov="{COV_ATTR[cov]}" '
+                         f'href="#rm-s-{hit[0]["id"]}" data-tip="{tip}">'
+                         f'{len(hit)} {word}</a>')
+    n = len(claims)
+    if not parts:
+        return (f'<p class="rm-tally" data-all="yes">All {n} claim{"s" if n != 1 else ""} '
+                "fully covered by a test.</p>")
+    off = n - sum(1 for e in claims if e["coverage"] == "covered")
+    return (f'<p class="rm-tally"><span class="rm-tallyt">{off} of {n} claims not fully '
+            f'covered:</span> ' + " ".join(parts) + "</p>")
 
 
 def _sentence_data(entry: dict, rows_by: dict) -> dict:
@@ -1776,7 +1833,7 @@ def test_rank(r: dict, paired: set) -> int:
     through changed lines most of its suite runs."""
     if r["id"] in paired:
         return 0
-    if r.get("status") in ("new", "changed", "deleted"):
+    if r.get("status") in ("new", "changed", "helper", "deleted"):
         return 1
     return 2 if r.get("aimed", True) else 3
 
@@ -1799,7 +1856,7 @@ def test_why(r: dict) -> str:
 
 
 def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dict],
-           root: Path, measured: bool = True) -> str:
+           root: Path, measured: bool = True, who: str | None = None) -> str:
     """The matrix fragment: same inputs, same bytes."""
     T = _tests_tab()
     by_sid = {e["id"]: e for e in entries}
@@ -1814,6 +1871,9 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
         if r["status"] == "deleted" and r.get("baseUrl"):
             tests[r["id"]]["href"] = r["baseUrl"]
             tests[r["id"]]["hrefTip"] = DELETED_HREF_TIP
+        if r.get("viaHelper"):
+            # Which helper, on the stamp's hover: the row's own source shows no edit.
+            tests[r["id"]]["via"] = T.via_helper_tip(r["viaHelper"])
     used = {e["coverage"] for e in entries}
     legend = LEGEND.replace("</div>", "".join(v for k, v in LEGEND_EXTRA.items()
                                               if k in used) + "</div>")
@@ -1826,8 +1886,9 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
             "ticket": {k: ticket.get(k) for k in ("number", "title", "url", "source", "via",
                                                   "origin")}}
     blob = json.dumps(data, ensure_ascii=False, sort_keys=False).replace("</", "<\\/")
-    who = ("Tests that cover files modified in this PR" if measured
-           else "Tests this branch added or changed")
+    # "…in this PR" only over a pull request (`tests.py:covcard_who`, passed in by
+    # `write_fragment`); a matrix drawn with no spec to ask says "change".
+    who = (who or T.COVCARD_WHO) if measured else "Tests this branch added or changed"
     side = ('<div class="rm-side">' + CAT_KEY
             + '<aside class="rm-code" aria-label="the tests the change set runs">'
             + '<div class="rm-tkhead"><span class="rm-av rm-av-ai" data-tip="paired with the '
@@ -1924,7 +1985,8 @@ def write_fragment(spec: dict, out_dir: Path, root: Path) -> str | None:
     if g is None:
         return None
     entries = merge(g["sentences"], g["scripted"], model, g["decisions"])
-    page = render(g["ticket"], g["blocks"], g["rows"], entries, root, g["measured"])
+    page = render(g["ticket"], g["blocks"], g["rows"], entries, root, g["measured"],
+                  who=_tests_tab().covcard_who(spec, out_dir))
     if old and GENERATED not in old:
         # The model-written matrix this replaces is a paid judgement; keep one copy.
         # `.model-prev/` is "the copy just replaced", as rerun-model.py uses it.

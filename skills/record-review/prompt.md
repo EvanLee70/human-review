@@ -56,6 +56,12 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
                    goes here too, never under Fixed and never dropped: `severity: info`,
                    and `why:` names the evidence that disproves it (the line, the test).
                    Left at medium it is counted on the page as "worth a look".
+                   A `why:` that rests on a decision recorded elsewhere — the design,
+                   proposal or tasks of the change, the Q&A, the ticket — gives the
+                   `file:line` it rests on (`openspec/changes/<change>/design.md:50`,
+                   `Q&A.md:28`), never just "design.md decided it" or "Q3 decided by the
+                   human": the page links the line and quotes it, and a reason nobody can
+                   open is a reason nobody can check.
      Assumptions — what YOU decided that neither the ticket nor the human did: the only
                    section nobody else can write. A choice the human made in this
                    conversation is not your assumption — give it `source: human` and
@@ -76,7 +82,12 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
    turns the file into the structured report the page is built from, validated against
    `review-points.schema.json` (fix what it names and re-run), commits the fixes with it
    as `[auto-fix] …` with the Review-Points:, Implements:, Audited: and Claude-Session:
-   trailers, and writes and checks the PR comments. A harness that needs its own
+   trailers, and writes and checks the PR comments. It carries and checks every
+   `file:line` **before** committing: an anchor whose line is gone or blank stops it
+   with `nothing committed` — point that line where it reads now and run `finish` again.
+   Run again before `ci --push`, it amends its own commit: a round ends in ONE
+   `[auto-fix]` commit, never a fix commit plus re-anchor follow-ups (eval run 10 left
+   three). A harness that needs its own
    attribution adds `--commit-trailer "Co-authored-by: <who>"` (repeatable); a harness
    other than Claude Code names itself with `--harness <name>` (`copilot-cli`,
    `vscode-copilot`). It also measures what the implementation, the review and the fixes

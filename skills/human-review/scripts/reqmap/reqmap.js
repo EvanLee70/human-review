@@ -107,6 +107,13 @@
       STAMP={new:[BIG+PLUS+'</g></svg>','a test this branch wrote','new test','new'],
              changed:[BIG+PENCIL+'</g></svg>',
                       'it existed before - this branch changed it','edited test','edited'],
+             // semcov: its own lines are as they were, but it calls a helper in the same
+             // file that this branch rewrote - so the run exercises different code. The
+             // pencil and the edited colour (`data-st` is `edited`: it is counted with
+             // them); the hover says which helper, from `t.via`.
+             helper:[BIG+PENCIL+'</g></svg>',
+                     'edited via helper - its own lines are unchanged',
+                     'edited via helper','edited'],
              deleted:[BIG+CROSS+'</g></svg>',
                       'this branch removed it - nothing asserts what it asserted',
                       'deleted test','deleted'],
@@ -123,7 +130,8 @@
     // a test edited three lines above the excerpt reads as untouched otherwise.
     var st=STAMP[t.status]||STAMP.unchanged;
     // semcov: and why it is on this card at all - the changed lines its coverage ran.
-    var tip=st[1]+(t.why?' \u2014 '+esc(t.why).replace(/"/g,'&quot;'):'');
+    var tip=st[1]+(t.via?' \u2014 '+esc(t.via).replace(/"/g,'&quot;'):'')
+      +(t.why?' \u2014 '+esc(t.why).replace(/"/g,'&quot;'):'');
     // The word is gone from the page but not from the accessibility tree: a screen reader
     // reading this row still gets "new test", which is what the glyph is for.
     return '<span class="rm-st" data-st="'+st[3]
@@ -467,6 +475,22 @@
   }
   root.addEventListener('click',function(e){
     var f=e.target.closest('.rm-f');if(f&&root.contains(f))open(f.dataset.s);});
+  // semcov: the tally over the ticket - "1 missing", "4 partially" - jumps to the sentences
+  // it counts. Each press moves on to the next of that state, wrapping, and selects it the
+  // way a click on the sentence would, so its tests and its blind spot come up at once.
+  // The href is the first one, for a reader with no script; with one, the page's own
+  // hash is left alone (a `#rm-s-…` in the URL would fight the tab router).
+  root.addEventListener('click',function(e){
+    var j=e.target.closest&&e.target.closest('.rm-jump');if(!j||!root.contains(j))return;
+    var all=root.querySelectorAll('.rm-issue .rm-f[data-cov="'+j.dataset.cov+'"]');
+    if(!all.length)return;
+    e.preventDefault();
+    var i=(+(j.dataset.i||-1)+1)%all.length;j.dataset.i=i;
+    all[i].scrollIntoView({block:'center',behavior:'smooth'});
+    // `open` on the sentence already picked would put it down again; a jump never does.
+    if(!(cur&&cur.dataset.s===all[i].dataset.s))open(all[i].dataset.s);
+    try{all[i].focus({preventScroll:true});}catch(_){}
+  });
   root.addEventListener('keydown',function(e){
     var f=e.target.closest&&e.target.closest('.rm-f');
     if(f&&(e.key==='Enter'||e.key===' ')){e.preventDefault();open(f.dataset.s);}});

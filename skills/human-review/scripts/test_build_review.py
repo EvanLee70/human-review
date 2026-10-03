@@ -737,6 +737,40 @@ def test_the_library_hover_is_a_list_beside_the_line_not_a_sentence_over_it():
     assert '<p class="tipfoot">' in tip and "Lombok" in tip
 
 
+def test_an_inlay_type_hint_paints_where_it_sits_not_over_the_code(tmp_path):
+    """`.ln-row` hangs its wrapped tail with `text-indent:-5.5em`, and `text-indent` is
+    inherited: the inline-block `.typehint` applied it again to its own `::before`, which
+    landed ~72px left, on top of `log.warn` — eval run 10 read 'Ştoingarn(' on every card,
+    in both themes. The hint's text must start inside the hint's own box."""
+    assert "pre.code .ln-row * { text-indent:0; }" in build.CSS
+    sync = pytest.importorskip("playwright.sync_api")
+    row = (f'<pre class="code"><code><span class="ln-row added"><span class="dm">+</span>'
+           f'<span class="ln">93</span>        log.warn(VALIDATION_FAILED_LOG, '
+           f'{build.type_hint_html("List<String>")}errors);</span>\n</code></pre>')
+    page = tmp_path / "hint.html"
+    page.write_text(f'<!doctype html><meta charset="utf-8"><style>{build.CSS}</style>'
+                    f'<body><div class="wrap">{row}</div></body>', encoding="utf-8")
+    with sync.sync_playwright() as p:
+        try:
+            browser = p.chromium.launch()
+        except Exception as e:  # no browser downloaded for this interpreter
+            pytest.skip(f"chromium unavailable: {e}")
+        try:
+            for scheme in ("light", "dark"):
+                pg = browser.new_page(color_scheme=scheme)
+                pg.goto(page.as_uri())
+                # The hint's box is placed right either way; only its painted text moves,
+                # and what moves it is this one computed value (−71.75px without the reset).
+                indent, row = pg.evaluate("""() => [
+                    getComputedStyle(document.querySelector('.typehint')).textIndent,
+                    getComputedStyle(document.querySelector('.ln-row')).textIndent]""")
+                assert indent == "0px", f"{scheme}: the hint inherits the row's hang ({indent})"
+                assert row != "0px", "the row itself still hangs its wrapped tail"
+                pg.close()
+        finally:
+            browser.close()
+
+
 def test_a_logging_box_does_not_badge_what_its_own_gutter_already_marks(tmp_path, monkeypatch):
     """`new code` on every box restates the tab's entry condition: a block is here because
     the branch added or rewrote that logging line, and the `+` in the gutter marks exactly
@@ -1794,6 +1828,24 @@ def test_a_renamed_test_is_edited_and_says_what_it_was_called():
     assert "renamed from “lists every owner”" in out
 
 
+def test_a_test_edited_through_a_helper_is_filed_under_edited_and_names_the_helper():
+    """Eval run 10: AddVisitApiTest kept every line of its own while the helper it calls
+    was rewritten into a page-walking loop, and the ledger counted it among the tests
+    "left exactly as they were". It is one of the edited, said apart from a body edit,
+    with the helper on the hover."""
+    row = {"name": "addsAVisitToAnExistingPet", "path": "src/test/AddVisitApiTest.java",
+           "status": "modified", "line": 76,
+           "viaHelper": [{"name": "anOwnerWithAPet", "line": 105, "added": 13, "removed": 6}]}
+    out, moved = build.render_test_ledger([row, LEDGER_ROWS[-1]], Path("/repo"))
+    assert moved == 1 and "<h3>edited <b>1</b></h3>" in out
+    assert 'class="tnote tvia"' in out and f">{build.VIA_HELPER_LABEL}</span>" in out
+    assert "it calls anOwnerWithAPet() (line 105, +13/−6)" in out
+    assert "1 more test in the files this change set touched" in out
+    # A plain body edit carries no such note.
+    plain, _ = build.render_test_ledger([LEDGER_ROWS[2]], Path("/repo"))
+    assert "tvia" not in plain
+
+
 def test_a_test_whose_file_is_gone_gets_no_link_rather_than_a_dead_one():
     out = build.render_tests([MANIFEST[3]], Path("/repo"))
     assert "vscode://" not in out
@@ -1959,6 +2011,13 @@ def test_a_renamed_test_is_counted_once_as_edited_and_named_in_the_tooltip():
     assert f'{build.PENCIL}5' in chip["value"]
     assert "5 edited (1 renamed)" in chip["tip"]
     assert "renamed" not in build.tests_chip({"totals": TOTALS})["tip"]
+
+
+def test_a_test_edited_through_a_helper_is_counted_once_as_edited_and_named_in_the_tooltip():
+    chip = build.tests_chip({"totals": dict(TOTALS, modified=7, viaHelper=3)})
+    assert f'{build.PENCIL}7' in chip["value"]
+    assert "7 edited (3 via a helper)" in chip["tip"]
+    assert "helper" not in build.tests_chip({"totals": TOTALS})["tip"]
 
 
 def test_the_chip_drops_itself_rather_than_printing_a_zero_it_did_not_count():
@@ -2541,21 +2600,52 @@ def test_the_page_measures_from_the_base_the_review_audited(tmp_path):
 
 def test_the_commits_before_the_audited_base_are_named_under_the_chips(tmp_path):
     """Measuring from the audited base leaves a gap against GitHub's main...branch. It is
-    said, in one muted line, rather than left for a reader to stumble on."""
+    said — as a `+2` on the branch chip, opening the list — rather than left for a reader
+    to stumble on."""
     r, review, plan = _reviewed_repo(tmp_path)
     st = build.page_base(r, review, "main")
     assert [c["subject"] for c in st["outside"]] == ["plan the owners grid",
                                                      "link a visit to its vet"]
     note = build.outside_note(st, "https://github.com/acme/shop")
-    # Eval run 6: six hashes spelled across the masthead pushed the tab strip down. One
-    # short line, folded; opened, each commit with its own raw, untranslated subject.
-    assert note.startswith('<details class="scopenote"><summary>2 earlier commits outside '
-                           'the review <span class="sn-caret"')
+    # Eval run 6: six hashes spelled across the masthead pushed the tab strip down. Eval
+    # run 10: even folded to one line, that line plus a wrapped chip row made the sticky
+    # header 164px against 108px. The list is hidden; the count rides on the branch chip.
+    assert note.startswith('<div class="scopenote" id="hr-outside" hidden><p class="sn-head">'
+                           '2 earlier commits outside the review</p>')
     assert "plan the owners grid</li>" in note and "link a visit to its vet</li>" in note
     assert f'href="https://github.com/acme/shop/commit/{plan}"' in note
-    assert note.index("</summary>") < note.index(plan[:8]), "the hashes are in the fold"
-    page = build.masthead_html({"pr": {"branch": "feature", "base": "main"}}, "", "", "", st)
-    assert '<details class="scopenote">' in page, "the note rides in the masthead"
+    page = build.masthead_html({"pr": {"branch": "feature", "base": "main"}}, "", "",
+                               '<div class="tabstrip"></div>', st)
+    chip = re.search(r'<span class="chip refchip[^"]*">.*?</span>(?=</div>)', page).group(0)
+    assert '<button type="button" class="sn-badge" aria-expanded="false" ' \
+           'aria-controls="hr-outside"' in chip and ">+2<" in chip, \
+        "the count is a badge on the branch chip, not a line of its own"
+    assert "2 earlier commits on this branch outside the review" in chip, "said in its hover"
+    assert page.index('<div class="tabstrip">') < page.index('id="hr-outside"') \
+        < page.index("</header>"), "the list opens in flow under the strip, inside the header"
+
+
+def test_the_changes_own_spec_commit_is_listed_as_its_spec_not_counted_as_unreviewed():
+    """Eval run 10: b12c9bdb — this change's OpenSpec proposal, design and spec — sat among
+    the tooling commits as one of "8 earlier commits outside the review"."""
+    st = {"diffBase": "a" * 40, "diffBaseSource": "audited", "outside": [
+        {"sha": "1" * 40, "subject": "tooling"},
+        {"sha": "2" * 40, "subject": "Document owners pagination plan",
+         "spec": "openspec/changes/paginate-owners"}]}
+    badge = build.outside_badge(st)
+    assert ">+1<" in badge, "the spec commit is not counted among the unreviewed"
+    assert "the spec this change was built against (22222222)" in badge
+    note = build.outside_note(st, "https://github.com/acme/shop")
+    assert "1 earlier commit outside the review" in note
+    assert ("The spec this change was built against "
+            "(<code>openspec/changes/paginate-owners/</code>)") in note
+    assert note.index("tooling") < note.index("built against") < note.index(
+        f'href="https://github.com/acme/shop/commit/{"2" * 40}"'), "linked, under its heading"
+    only_spec = {**st, "outside": st["outside"][1:]}
+    assert ">spec<" in build.outside_badge(only_spec) and "+0" not in build.outside_badge(only_spec)
+    src = (HERE / "build-review-html.py").read_text(encoding="utf-8")
+    assert "_before_range_commits(spec, root, base_st.get(\"ref\"))" in src, \
+        "the build marks them off the Review tab's own reading, so the two agree"
 
 
 def test_the_earlier_commits_fold_never_lies_over_the_tab_strip():
@@ -2567,8 +2657,9 @@ def test_the_earlier_commits_fold_never_lies_over_the_tab_strip():
     assert "position:absolute" not in rule and "position:fixed" not in rule
     assert "position:static" in rule
     js = (HERE / "hrbuild" / "assets" / "tabs.js").read_text(encoding="utf-8")
-    assert "details.scopenote[open]" in js and "'Escape'" in js
-    assert "closest('details.scopenote')" in js, "a click inside the fold must not close it"
+    assert "querySelector('.sn-badge')" in js and "'Escape'" in js
+    assert "list.contains(ev.target)" in js, "a click inside the list must not close it"
+    assert ".scopenote[hidden] { display:none; }" in css
 
 
 def test_the_drift_mark_says_it_measures_against_another_base_than_the_chips(tmp_path):
@@ -2688,7 +2779,8 @@ def test_the_review_chip_leads_with_what_is_left_to_do(tmp_path):
         findings=[{"title": f"f{i}", "body": "<p>b</p>", "source": "/code-review"}
                   for i in range(9)],
         autofixes=[{"title": f"a{i}", "source": "/simplify"} for i in range(3)]))
-    assert '\U0001f916Review: <b>9 open</b>, <b>3 fixed</b>' in page, \
+    # Eval run 10: the agent names moved to the hover, so the scope bar keeps one row.
+    assert '\U0001f916 <b>9 open</b> · <b>3 fixed</b>' in page, \
         "every count is bold together with what it counts"
     assert "auto-fixed" not in page[page.index('<header class="masthead">'):
                                     page.index("</header>")], \
@@ -2705,7 +2797,8 @@ def test_the_review_chip_names_the_model_instead_of_a_second_chip_beside_it(tmp_
         BARE, scope=[{"auto": "autofixed", "href": "#one", "by": "Opus 5"}],
         findings=[{"title": "f", "body": "<p>b</p>", "source": "/code-review"}]),
         env=_sessionless_env())
-    assert "\U0001f916Review: <b>1 open</b>" in page, "the face names the role"
+    assert "\U0001f916 <b>1 open</b>" in page and "Review: 1 open" in page, \
+        "the face counts, the hover names the role"
     # The model has one home, the hover.
     assert "Reviewed by Opus 5." in page
     assert page.count("Opus 5") == 1
@@ -2718,7 +2811,7 @@ def test_a_page_rebuilt_with_no_idea_who_reviewed_it_says_exactly_that_much(tmp_
         BARE, scope=[{"auto": "autofixed", "href": "#one"}],
         findings=[{"title": "f", "body": "<p>b</p>", "source": "/code-review"}]),
         env=_sessionless_env())
-    assert "\U0001f916Review:" in page and "Reviewed by" not in page, \
+    assert "\U0001f916 <b>1 open</b>" in page and "Reviewed by" not in page, \
         "the robot already says a model did it; `LLM` was three letters saying it again"
     assert "LLM review" not in page
     # Scoped to the masthead on purpose. The claim is about the chip's own words, and
@@ -4417,12 +4510,47 @@ def test_a_picture_says_whether_it_is_there_by_tag_or_because_the_branch_wrote_t
     assert "I sort the owners by" in html.unescape(sorting)
     assert "not excerpted here" not in sorting
     note = out[out.index('class="seqsel"'):]
-    note = html.unescape(re.sub(r"<[^>]+>", "", note[:note.index("</p>")]))
+    note = html.unescape(re.sub(r"<[^>]+>", "", note[:note.index("</div>")]))
     assert "Also traced: 2 tests this branch wrote or edited" in note
-    assert "1 of them came back with no picture: Paging forward (owner-search.feature)" in note
-    assert "Not traced, over the cap of 6: getAll (OwnerListTest.java)" in note
-    assert "1 more of the branch's tests are in files no traced suite runs " \
-           "(owner-list.component.spec.ts)" in note
+    assert "1 of them came back with no picture: Paging forward owner-search.feature" in note
+    assert "1 not traced, over the cap of 6: getAll OwnerListTest.java" in note
+    assert "1 in files no traced suite runs: owner-list.component.spec.ts ×1" in note
+
+    # Tagged AND written by this branch: the row says both, as the Tests tab does.
+    ledger = [{"path": feat, "line": 4, "status": "added",
+               "name": "Searching with an empty last name shows the first page"}]
+    out2, _, _ = build.render_testpairs(
+        {"type": "testpairs", "title": "", "snippets": dict(build.AUTO_SNIPPETS)}, {}, [],
+        tmp_path, review, test_changes=ledger)
+    both = [p for p in re.findall(r'<details class="testpair".*?</summary>', out2, re.S)
+            if "Searching" in p][0]
+    assert 'data-why="tagged" data-status="added"' in both
+    assert ">tagged \u00b7 new test</span>" in both
+    assert "This branch wrote this test." in both
+
+
+def test_the_selection_line_folds_a_long_list_under_its_count():
+    """Eval run 10: 'Not traced, over the cap of 6: requestedPage_returns… and 22 more.
+    28 more of the branch's tests…' — one italic run-on paragraph. Each fact is now a count
+    on one line, and a list longer than two names is a closed fold, never prose."""
+    capped = [{"path": f"src/test/T{i}.java", "name": f"case{i}", "suite": "java"}
+              for i in range(26)]
+    nosuite = [{"path": f"web/spec{i % 3}.ts", "name": f"spec{i}", "suite": None}
+               for i in range(28)]
+    picked = [{"path": "a.feature", "name": f"p{i}", "line": i} for i in range(6)]
+    out = build.selection_note_html({"max": 6, "picked": picked, "left": capped + nosuite},
+                                    set(range(6)))
+    assert out.startswith('<div class="seqsel">') and "<p" not in out
+    assert "came back with no picture" not in out, "every picked test drew"
+    folds = re.findall(r'<details class="seqsel-k"><summary>([^<]*)</summary><ul>(.*?)</ul>',
+                       out)
+    assert [f[0] for f in folds] == ["26 not traced, over the cap of 6",
+                                     "28 in files no traced suite runs"]
+    assert folds[0][1].count("<li>") == 26, "all of them, folded — no 'and 22 more'"
+    assert folds[1][1].count("<li>") == 3 and "spec0.ts</span> ×10" in folds[1][1]
+    assert " more" not in re.sub(r"<[^>]+>", "", out), "no run-on 'and N more' left"
+    assert "<details" not in out.split("</span>")[0], "the lead is plain text"
+    assert "details.seqsel-k[open] { flex-basis:100%; }" in build.CSS
 
 
 def test_without_a_selection_the_tab_says_nothing_new(tmp_path):
@@ -4445,6 +4573,10 @@ def test_a_struck_tab_says_why_it_is_struck(tmp_path):
     other = page[page.index('<section class="panel" id="other"'):]
     assert 'class="quietline"' not in other[:other.index("</section>")] or \
         'class="tab quiet" role="tab" id="tabbtn-other"' in page
+    # It is the panel's first block, so it takes a first block's distance from the strip —
+    # at .2rem it sat jammed against the strip's bottom line (eval run 10).
+    top = re.search(r"\.quietline \{[^}]*margin:([\d.]+)rem", build.CSS)
+    assert top and float(top[1]) >= .8, "the struck note clears the tab strip"
 
 
 # ── the three piles, read off the branch instead of out of the content file ─────────
@@ -4674,7 +4806,8 @@ def test_the_scope_chip_says_the_same_thing_as_the_counts_line(tmp_path):
     declined` beside `6 open, 3 fixed` used to ask the reader which of them to
     believe; both now read `pile_numbers`, so a mismatch cannot recur."""
     src = (HERE / "build-review-html.py").read_text(encoding="utf-8")
-    assert '"face": scope_chip_face(spec, reviewer)' in src
+    assert '"face": review_chip_face(open_n, refuted_n, fixed, assumed)' in src
+    assert "open_n, fixed, assumed = pile_numbers(spec)" in src
     spec = {"findings": [{"title": f"f{i}"} for i in range(6)],
             "autofixes": [{"title": f"a{i}"} for i in range(3)],
             "assumptions": [{"title": f"s{i}"} for i in range(7)]}
@@ -4718,7 +4851,9 @@ def test_refuted_claims_are_counted_apart_from_the_open_pile(tmp_path):
     build.reset_list()
     lede = build.opening_lede(dict(spec, tabs=[{"id": "review", "label": "R", "blocks": [
         {"type": "findings"}, {"type": "autofixes"}]}]))
-    assert "8 open LLM review issues · 4 refuted" in lede
+    assert "8 open LLM review issues · 4 refuted" in build._plain_text(lede)
+    # Eval run 10: the refuted clause jumps to the refuted pile, not into the open one.
+    assert '<a href="#refuted">4 refuted</a>' in lede
     signal = next(s for s in build._pile_signals(spec) if s["key"].startswith("open"))
     assert signal["short"].startswith("8 open review issues"), signal
 
@@ -4744,9 +4879,11 @@ def test_the_chip_carries_the_coders_assumptions_as_its_own_sentence(tmp_path):
         assumptions=[_assumption(title=f"s{i}") for i in range(7)]
         + [_assumption(title="floating", refs=[])]),
         env=_sessionless_env())
-    assert ('\U0001f916Code: <b>7 unsure</b>; '
-            '\U0001f916Review: <b>6 open</b>, <b>3 fixed</b>') in page, \
-        "two agents, one face: neither robot's name is bolder or greyer than the other's"
+    # Eval run 10: one robot, the counts only; the two agents are named in the hover.
+    assert '\U0001f916 <b>7 unsure</b> · <b>6 open</b> · <b>3 fixed</b>' in page, \
+        "every count bold with its noun, the coder's first"
+    assert "Coding agent: 7 unsure. Review: 6 open · 3 fixed." in page, \
+        "the hover's first sentence spells out what the face abbreviates"
     assert "7 assumptions the coding agent recorded while implementing" in page, \
         "the hover says who recorded them and where they are; the pill has no room to"
     # Singular, so the chip reads as a sentence rather than as a field with a value in it.
@@ -5219,6 +5356,253 @@ def test_a_fix_hunk_goes_only_to_a_card_whose_line_is_on_it(tmp_path):
     assert "line 40 fixed" in spec["_reviewPoints"]["fixOther"]
 
 
+# ── eval run 10: the Review tab's judges ────────────────────────────────────────
+
+def test_refuted_findings_are_their_own_pile_after_the_open_one_and_unnumbered():
+    """Run 10: three refuted claims were cards 11–13 of a pile every count called `10 open`,
+    wearing the open pile's CONTEXT badge. They are their own pile now, under the open one,
+    with a REFUTED badge and no number — the numbers count what is open."""
+    live = [{"title": "live high", "severity": "medium", "why": "deliberate"},
+            {"title": "live info", "severity": "info", "why": "the spec asks for it"}]
+    refuted = [{"title": "plus sign", "severity": "info",
+                "why": "refuted — Angular 16 encodes '+'"}]
+    out = build.render_findings(live + refuted)
+    ol, rest = out.split("</ol>", 1)
+    assert ol.count("<li") == 2 and "plus sign" not in ol, "only the open ones are numbered"
+    assert 'id="refuted"' in rest and "Refuted — 1" in rest
+    assert '<ul class="findings refuted">' in rest and "plus sign" in rest
+    assert '<span class="badge sev-refuted">refuted</span>' in rest
+    assert "sev-info" not in rest, "not the open pile's CONTEXT badge"
+
+
+def test_the_review_pill_hover_says_where_the_left_out_piles_are_without_lying():
+    """Run 10's hover said the refuted were "further down the tab" while they sat inside the
+    open pile, and the assumptions — the tab's first pile — are not below anything."""
+    spec = {"findings": [{"title": "a", "severity": "low", "why": "x"},
+                         {"title": "r", "severity": "info", "why": "refuted — no"}],
+            "autofixes": [{"title": "f"}], "assumptions": [{"title": "s"}, {"title": "t"}]}
+    label = build.review_tab_badge(spec)["label"]
+    assert label.startswith("1 open review issue · 1 refuted")
+    assert "further down" not in label
+    assert "1 refuted (listed apart, under the open ones)" in label
+    assert "2 implementation assumptions" in label and "1 auto-fixed" in label
+
+
+def _three_fix_commits(tmp_path):
+    """Run 10's shape: the implementation, one `[auto-fix]` commit with the fixes and a
+    re-recorded genseq trace, then two that only touch review-points.md / review-cost.json."""
+    def git(*a):
+        return subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                              capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    lines = [f"line {i}" for i in range(1, 51)]
+    (tmp_path / "a.py").write_text("\n".join(lines) + "\n")
+    (tmp_path / "c.py").write_text("x = 1\n")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "s.genseq.json").write_text('{"id": "0ywzps7"}\n')
+    git("add", ".")
+    git("commit", "-qm", "impl")
+    impl = git("rev-parse", "HEAD")
+    lines[2] = "line 3 fixed"
+    (tmp_path / "a.py").write_text("\n".join(lines) + "\n")
+    (tmp_path / "c.py").write_text("x = 2\n")
+    (tmp_path / "docs" / "s.genseq.json").write_text('{"id": "0xnovwo"}\n')
+    (tmp_path / "review-points.md").write_text("## Fixed\n")
+    git("add", ".")
+    git("commit", "-qm", "[auto-fix] the fixes")
+    fixes = git("rev-parse", "HEAD")
+    for i, msg in enumerate(("[auto-fix] anchor", "[auto-fix] re-anchor")):
+        (tmp_path / "review-points.md").write_text(f"## Fixed\n<!-- {i} -->\n")
+        (tmp_path / "review-cost.json").write_text("{}\n")
+        git("add", ".")
+        git("commit", "-qm", msg)
+    return impl, fixes, git("rev-parse", "HEAD")
+
+
+def test_every_fix_commit_is_named_and_the_re_anchors_are_said_to_be_bookkeeping(tmp_path):
+    """Run 10 called `91905dff..e7b807e8` "the fix commit" — e7b807e8 a one-line re-anchor
+    — and never named 6b14c32b, where the fixes were. Its own review-commits warning
+    ("3 commits carry a Review-Points trailer…") never reached the page."""
+    impl, fixes, last = _three_fix_commits(tmp_path)
+    out = tmp_path / ".human-review"
+    out.mkdir()
+    (out / "review-commits.json").write_text(json.dumps({"warnings": [
+        f"3 commits carry a Review-Points trailer ({fixes[:8]}, x, {last[:8]}); taking the "
+        "last one.", "no Claude-Session trailer on either commit — …"]}))
+    card = {"title": "first", "refs": ["a.py:3"]}
+    spec = {"autofixes": [card],
+            "_reviewPoints": {"source": "review-points.md",
+                              "provenance": {"implementation": impl, "reviewCommit": last}}}
+    build.attribute_fix_hunks(spec, out, root=tmp_path)
+    points = spec["_reviewPoints"]
+    assert [c["sha"] for c in points["fixCommits"]][0] == fixes
+    assert [c["bookkeeping"] for c in points["fixCommits"]] == [False, True, True]
+    intro = build.pile_intro("autofixes", points)
+    assert f"<code>{fixes[:8]}</code>" in intro and f"<code>{last[:8]}</code>" in intro
+    assert "3 fix commits" in intro and "(the fixes)" in intro
+    assert "only re-record <code>review-cost.json</code> and <code>review-points.md</code>" \
+        in intro
+    assert "3 commits carry a <code>Review-Points:</code> trailer" in intro
+    assert "Claude-Session" not in intro, "a cost-tab doubt, not the fixes'"
+    assert "line 3 fixed" in card["_fixDiffs"]
+
+
+def test_review_commits_lists_every_trailered_commit_and_says_they_all_count(tmp_path):
+    """`review-commits.py` names every commit carrying the trailer (`review_commits`), and
+    its warning no longer says "the page reports one" — the page reads them all."""
+    spec_ = importlib.util.spec_from_file_location("review_commits", HERE / "review-commits.py")
+    rc = importlib.util.module_from_spec(spec_)
+    spec_.loader.exec_module(rc)
+
+    def git(*a):
+        return subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                              capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    (tmp_path / "a.py").write_text("x = 1\n")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    (tmp_path / "a.py").write_text("x = 2\n")
+    git("add", ".")
+    git("commit", "-qm", "impl")
+    impl = git("rev-parse", "HEAD")
+    shas = []
+    for i in range(2):
+        (tmp_path / "review-points.md").write_text(f"## Fixed\n<!-- {i} -->\n")
+        git("add", ".")
+        git("commit", "-qm", f"[auto-fix] round {i}\n\nReview-Points: review-points.md\n"
+                             f"Implements: {impl}")
+        shas.append(git("rev-parse", "HEAD"))
+    found = rc.detect(tmp_path, base)
+    assert found["review"] == shas[-1] and found["review_commits"] == shas
+    assert found["implementation"] == impl
+    w = next(w for w in found["warnings"] if "Review-Points trailer" in w)
+    assert w.startswith("2 commits carry a Review-Points trailer")
+    assert "every one of them counts as a fix commit" in w and "reports one" not in w
+
+
+def test_generated_files_are_not_drawn_as_fixes_and_the_rest_is_folded(tmp_path):
+    """Run 10 drew the re-recorded `*.genseq.json` traces as 4 KB one-line diffs (~3,000 px)
+    under *Other changes in the fix commit*. A generated file is one line now; what no card
+    reaches is folded, its count on the fold."""
+    impl, fixes, last = _three_fix_commits(tmp_path)
+    card = {"title": "first", "refs": ["a.py:3"]}
+    spec = {"autofixes": [card],
+            "_reviewPoints": {"source": "review-points.md",
+                              "provenance": {"implementation": impl, "reviewCommit": last}}}
+    build.attribute_fix_hunks(spec, tmp_path, root=tmp_path)
+    other = spec["_reviewPoints"]["fixOther"]
+    assert "0xnovwo" not in other, "the generated trace's diff is not drawn"
+    assert "1 generated file re-recorded in the fix commits" in other
+    assert 'data-tip="docs/s.genseq.json"' in other
+    assert other.startswith('<details class="fixother"><summary'), "folded by default"
+    assert "<details class=\"fixother\" open" not in other
+    assert "1 hunk in 1 file no card" in other and "x = 2" in other
+    assert "review-cost.json" not in other.split("generated file")[0]
+
+
+def _spec_repo(tmp_path):
+    def git(*a):
+        return subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                              capture_output=True, text=True).stdout.strip()
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    git("remote", "add", "origin", "https://github.com/o/r.git")
+    (tmp_path / "README").write_text("x\n")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
+    git("checkout", "-qb", "feature")
+    ch = tmp_path / "openspec" / "changes" / "page-owners"
+    ch.mkdir(parents=True)
+    (ch / "design.md").write_text(
+        "# Design\n\n## Decisions\n\n### 1. Envelope\nOwn record.\n\n"
+        "### 3. New indexes, verified\nAdd V4 with three indexes.\n\n## Risks / Trade-offs\n"
+        "- Offsets drift under concurrent writes.\n")
+    (ch / "tasks.md").write_text("# Tasks\n\n## 2. Indexes\n- [x] 2.1 Author V4 indexes\n")
+    (tmp_path / "Q&A.md").write_text("# Q&A\n\n### Q3. Which columns are sortable?\n"
+                                     "**Name and City only.**\n\n### Q5. Defaults?\nTen.\n")
+    git("add", ".")
+    git("commit", "-qm", "Document the plan")
+    spec_sha = git("rev-parse", "HEAD")
+    (tmp_path / "tool.sh").write_text("echo\n")
+    git("add", ".")
+    git("commit", "-qm", "tooling")
+    audited = git("rev-parse", "HEAD")
+    (tmp_path / "app.py").write_text("x = 1\n")
+    git("add", ".")
+    git("commit", "-qm", "feature")
+    return spec_sha, audited, git("rev-parse", "HEAD")
+
+
+def test_a_reason_citing_the_spec_links_the_line_and_quotes_it(tmp_path):
+    """Run 10 dismissed open issues with "design.md Decision 3 and task 2.1 specify them"
+    and "Q3 decided by the human" — and no link to any of those documents was on the page."""
+    _spec_repo(tmp_path)
+    item = {"title": "V4 indexes nobody asked for", "severity": "info",
+            "why": "design.md Decision 3 and task 2.1 specify them; Q3 decided by the human; "
+                   "<code>design.md</code> stays code."}
+    spec = {"findings": [item], "autofixes": [], "assumptions": []}
+    assert build.link_spec_citations(spec, tmp_path, root=tmp_path) == 3
+    why = item["why"]
+    design = re.search(r'<a class="specref" href="([^"]+)" data-tip="([^"]+)">design.md '
+                       r'Decision 3</a>', why)
+    assert design and design[1].endswith("openspec/changes/page-owners/design.md:8:1")
+    assert "design.md:8 — 3. New indexes, verified — Add V4 with three indexes." in \
+        html_mod.unescape(design[2])
+    assert ">task 2.1</a>" in why and "tasks.md:4 — 2.1 Author V4 indexes" in \
+        html_mod.unescape(why)
+    assert ">Q3</a>" in why and "Q&amp;A.md:3 — Q3. Which columns are sortable?" in why
+    head = subprocess.run(["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    assert (f'href="https://github.com/o/r/blob/{head}/openspec/changes/page-owners/'
+            'design.md#L8"') in why
+    assert "<code>design.md</code> stays code." in why, "never inside code"
+
+
+def test_the_changes_own_spec_commit_is_not_an_unreviewed_commit(tmp_path):
+    """Run 10 listed b12c9bdb — the OpenSpec proposal of this very change — among tooling
+    commits as "never reviewed", and it capped the grade. It is the spec the change was
+    built against: its own reason line, linked, no cap."""
+    spec_sha, audited, _ = _spec_repo(tmp_path)
+    spec = {"_reviewPoints": {"provenance": {"auditedBase": audited}}}
+    sig = build._out_of_range_signal(spec, tmp_path, "origin/main", tmp_path)
+    assert sig["short"] == "1 commit on the branch before the reviewed range"
+    assert "tooling" in sig["full"] and "Document the plan" not in sig["full"]
+    found = build._spec_commit_signals(spec, tmp_path, "origin/main")
+    assert [s["short"] for s in found] == [f"Built against the spec in {spec_sha[:8]}"]
+    assert found[0]["href"] == f"https://github.com/o/r/commit/{spec_sha}"
+    assert found[0]["linkText"] == "openspec/changes/page-owners/" and not found[0]["cap"]
+
+
+def test_a_model_line_that_contradicts_the_record_is_dropped_from_the_grade(capsys):
+    """Run 10's hand-typed bullet tied Q5–Q15 to the coder's assumptions; Q&A.md says the
+    planner adopted those answers, and none of the six assumptions is about any of them.
+    A model line may not restate what the page computes unless it agrees with it."""
+    spec = {"findings": [{"title": "a", "severity": "low", "why": "x"}],
+            "autofixes": [], "assumptions": [{"title": "Empty ?size= means omitted"}],
+            "verdict": {"score": 7, "bullets": [
+                "GET /api/owners now answers <code>{content}</code> instead of an array.",
+                "Built before Q5–Q15 were confirmed, so the assumptions below are the "
+                "coder's answers to them.",
+                "Leaves 4 open review issues to a human."]}}
+    shorts = [s for s, _ in build.grade_reasons(spec)]
+    assert any(s.startswith("GET /api/owners now answers") for s in shorts)
+    assert not any("Q5" in s for s in shorts) and not any("4 open" in s for s in shorts)
+    err = capsys.readouterr().err
+    assert "no assumption on the page cites any of those questions" in err
+    assert "it says '4 open review issues'; the page counts 1" in err
+    build.grade_reasons(spec)
+    assert capsys.readouterr().err.count("dropped") == 0, "said once per build"
+    spec["assumptions"][0]["why"] = "Q5 left the empty value undefined."
+    assert build.model_line_conflict(spec["verdict"]["bullets"][1], spec) is None
+
+
 def test_the_pr_button_says_publish_whether_or_not_it_was_pushed_before():
     for posted in (0, 3):
         face = build.push_pr_button({"_prPush": {
@@ -5344,6 +5728,41 @@ def test_the_review_chip_counts_each_reviewer_once():
     assert tip == ("6 raised — 2 by reviewer correctness, 1 by reviewer ticket-fit, "
                    "1 by reviewer security, 2 by /code-review high, 1 with no pass named "
                    "(1 raised by more than one reviewer)")
+
+
+def test_the_review_chip_hover_counts_one_reviewer_under_one_name():
+    """Eval run 10: `4 by correctness reviewer, … 2 by correctness, 1 by tests, 2 by
+    ticket-fit reviewers, 3 by CI` — one reviewer under two labels, because `correctness
+    reviewer` and the `correctness` of a shared plural were different strings, and the
+    parts summed to 22 over 19 with nothing saying why."""
+    srcs = (["correctness reviewer"] * 4 + ["security reviewer"] + ["tests reviewer"] * 5
+            + ["ticket-fit reviewer"] * 3
+            + ["correctness, tests and ticket-fit reviewers",
+               "correctness and ticket-fit reviewers", "security reviewer",
+               "CI (SonarCloud java:S1192)", "CI (SonarCloud typescript:S5906)",
+               "CI (SonarCloud typescript:S2933)"])
+    tip = build.raised_by_reviewer([{"source": x} for x in srcs], 19)
+    assert tip == ("19 raised — 6 by correctness, 2 by security, 6 by tests, 5 by "
+                   "ticket-fit, 3 by CI (2 raised by more than one reviewer, so the counts "
+                   "add to 22)")
+    # Word order and case are spelling, not a second reviewer.
+    assert build.reviewer_names("Reviewer Correctness") == [("correctness", "Correctness")]
+    assert [k for k, _ in build.reviewer_names("reviewer correctness, correctness reviewer")] \
+        == ["correctness"]
+    assert build.raised_by_reviewer([{"source": "/code-review high (the PUT scenario)"},
+                                     {}], 2) == \
+        "2 raised — 1 by /code-review high, 1 with no reviewer named"
+
+
+def test_the_review_chip_face_is_counts_only_so_the_scope_bar_keeps_one_row():
+    """Eval run 10: `🤖Code: 6 unsure; 🤖Review: 10 open · 3 refuted, 6 fixed` was 379px of
+    a 1040px bar and wrapped it, taking the sticky header from 108px to 164px."""
+    assert build.review_chip_face(10, 3, 6, 6) == \
+        '\U0001f916 <b>6 unsure</b> · <b>10 open</b> · 3 refuted · <b>6 fixed</b>'
+    assert build.review_chip_face(1, 0, 0, 0) == '\U0001f916 <b>1 open</b> · <b>0 fixed</b>', \
+        "no assumptions, nothing refuted: those counts are absent, not zeroed"
+    assert build.review_chip_key(10, 3, 6, 6) == \
+        "Coding agent: 6 unsure. Review: 10 open · 3 refuted · 6 fixed."
 
 
 def test_without_a_pull_request_the_page_says_so_once(tmp_path):

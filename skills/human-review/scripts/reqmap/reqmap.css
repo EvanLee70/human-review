@@ -146,10 +146,17 @@
    stays at the ticket's own size instead of inflating to fill it. Padding and gap move
    to `em` so the whole row shrinks together -- left in px they would eat the width the
    smaller text just freed. The container is `.rm-text`, so the row measures itself
-   against the ticket column it labels, not against the window. */
-.reqmap .rm-legend{display:flex;flex-wrap:nowrap;justify-content:space-between;
-  align-items:center;gap:0 .86em;min-height:var(--rm-key-h);margin-bottom:10px;
-  padding:0 2px;font-size:min(1em,calc(3.2cqi - 0.5px))}
+   against the ticket column it labels, not against the window.
+   It wraps now. The five became seven (`unconfirmed`, `narrowed`) plus the label, and
+   eval run 10 measured the row at 617px in a 470px column: `unconfirmed` ran under the
+   card and `narrowed` - the only key to the grey-hatched sentence - was hidden behind it.
+   The shrink was sized for five words and cannot hold eight at a readable size, and the
+   reason for refusing a second row is gone: the build moves the legend *under* the ticket
+   (`tests.py:reqmap_layout`), where a wrapped row lands on nothing. Packed from the left,
+   so a short second row does not spread its two words to the far edges. */
+.reqmap .rm-legend{display:flex;flex-wrap:wrap;justify-content:flex-start;
+  align-items:center;gap:.35em .86em;min-height:var(--rm-key-h);margin-bottom:10px;
+  padding:0 2px;font-size:min(1em,calc(3.2cqi - 0.5px));max-width:100%}
 /* A thin grey frame around all five, so the row reads as five badges rather than as five
    words that happen to be coloured. `N/A` is why it is on all of them and not only on the
    filled ones: its state is *no fill*, so without an edge it is a word with nothing around
@@ -441,6 +448,17 @@
    never squeezed into it beside the author and the date. */
 .reqmap .rm-ticket > .rm-src{margin:0;padding:6px 16px;font-size:12.5px;line-height:1.45;
   border-bottom:1px solid var(--rm-gh-edge)}
+/* What is not solid green, counted at the top of the frame (`semcov.py:tally_html`): the
+   counts wear the legend's own fills, so "1 missing" up here and the red sentence down in
+   the prose are recognised as one thing. A link, not a key: pointer, not help. */
+.reqmap .rm-ticket > .rm-tally{margin:0;padding:6px 16px;font-size:12.5px;line-height:1.9;
+  border-bottom:1px solid var(--rm-gh-edge);color:var(--muted,#6b6b6b)}
+.reqmap .rm-tally .rm-tallyt{margin-right:.3em}
+.reqmap .rm-tally .rm-jump{cursor:pointer;text-decoration:none;margin-right:.35em;
+  display:inline-block;line-height:1.5}
+.reqmap .rm-tally .rm-jump:hover,.reqmap .rm-tally .rm-jump:focus-visible{
+  box-shadow:0 0 0 2px var(--rm-g-edge);outline:none}
+.reqmap .rm-tally[data-all=yes]{color:var(--rm-g-edge)}
 /* The covering-tests card, grouped by why a test is on it. */
 .reqmap .rm-tgroup{padding:8px 10px 3px;font-size:11px;font-weight:600;letter-spacing:.04em;
   text-transform:uppercase;color:var(--muted,#6b6b6b);border-bottom:1px solid var(--line,#e2e2e2)}

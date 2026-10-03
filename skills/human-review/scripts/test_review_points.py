@@ -1070,6 +1070,38 @@ def test_an_assumption_with_no_why_is_told_to_say_what_holds_its_confidence(tmp_
                and "confidence where it is" in w for w in warnings)
 
 
+CITED = """## Ignored
+
+### V4 indexes nobody asked for
+- file: app.py:3
+- source: ticket-fit reviewer
+- observation: three indexes add write overhead.
+- why: design.md Decision 3 and task 2.1 specify them.
+
+### Name sorts by last name
+- file: app.py:4
+- source: tests reviewer
+- observation: rows read as unsorted.
+- why: Q3 decided by the human, Q&A.md:28.
+
+### Query budget is fine
+- file: app.py:5
+- source: tests reviewer
+- observation: may mask lazy loads.
+- why: refuted — statistics count every statement.
+"""
+
+
+def test_a_reason_resting_on_the_spec_without_its_line_is_warned_about():
+    """Eval run 10: open issues were declined on "design.md Decision 3 and task 2.1" and
+    "Q3 decided by the human", and nothing named the line either rests on. A reason that
+    cites a document must give the `file:line`, so the page can link and quote it."""
+    warnings = rp.parse(CITED)["warnings"]
+    cited = [w for w in warnings if "without the file:line it cites" in w]
+    assert len(cited) == 1 and "V4 indexes nobody asked for" in cited[0], warnings
+    assert "'design.md'" in cited[0]
+
+
 # ── eval run 6 ──────────────────────────────────────────────────────────────────
 
 def test_a_code_span_is_escaped_once(tmp_path):

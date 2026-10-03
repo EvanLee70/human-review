@@ -153,18 +153,6 @@
     if (i >= 0 && i !== active) select(i, false, true);
   });
 
-  // The masthead's "N earlier commits outside the review" fold (`outside_note`): a bare
-  // <details> only closes on its own summary, and eval run 8 had a reader hunting for it
-  // to get the tab strip back. Esc, or a click anywhere outside it, closes it too.
-  function closeNotes(except) {
-    Array.prototype.forEach.call(document.querySelectorAll('details.scopenote[open]'),
-      function (d) { if (d !== except) d.removeAttribute('open'); });
-  }
-  document.addEventListener('click', function (ev) {
-    closeNotes(ev.target.closest && ev.target.closest('details.scopenote'));
-  });
-  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeNotes(null); });
-
   // Opening on a deep link: the hash may name a tab, or anything inside one.
   var wanted = decodeURIComponent((location.hash || '').slice(1));
   var start = 0;
@@ -181,4 +169,29 @@
     }
   }
   select(start, false, Boolean(wanted));
+})();
+
+// The branch chip's `+N` badge (`outside_badge`) and the list of earlier commits it opens
+// (`outside_note`), at the foot of the masthead. Outside the strip's closure because a page
+// with no tab strip has the badge too. Esc, or a click anywhere outside both, closes it:
+// eval run 8 had a reader hunting for the one control that would give the tab strip back.
+(function () {
+  var badge = document.querySelector('.sn-badge');
+  var list = badge && document.getElementById(badge.getAttribute('aria-controls'));
+  if (!list) return;
+  function show(open) {
+    list.hidden = !open;
+    badge.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  badge.addEventListener('click', function (ev) {
+    ev.preventDefault();
+    show(list.hidden);
+  });
+  document.addEventListener('click', function (ev) {
+    if (list.hidden || badge.contains(ev.target) || list.contains(ev.target)) return;
+    show(false);
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && !list.hidden) show(false);
+  });
 })();

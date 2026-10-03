@@ -508,3 +508,91 @@ def chip_html(c: dict) -> str:
         return (f'<a class="chip chip-link" href="{html.escape(c["href"])}"'
                 f'{" target=_blank" if c["href"].startswith("http") else ""}>{inner}</a>')
     return f'<span class="chip">{inner}</span>'
+
+
+def review_chip_face(open_n: int, refuted_n: int, fixed_n: int, assumed_n: int) -> str:
+    """`🤖 <b>6 unsure</b> · <b>10 open</b> · 3 refuted · <b>6 fixed</b>` — the masthead's
+    review chip, numbers only, one robot.
+
+    Eval run 10: `🤖Code: 6 unsure; 🤖Review: 10 open · 3 refuted, 6 fixed` was 379px of a
+    1040px scope bar, and it was the chip that wrapped to a second row and took the sticky
+    header from 108px to 164px on every tab. The two agent names and the second robot
+    were the words a reader needs once, so they moved to the hover (`review_chip_key`);
+    the counts stay, each one with the noun that says what it counts, in the order of the
+    work — what the coder guessed at first, then what is left, what was set aside, what
+    was already done. With no assumptions the `unsure` count is absent rather than zeroed,
+    and with nothing refuted so is `refuted`: a zero is a claim the page cannot stand
+    behind (`pile_numbers` counts the piles the tab renders)."""
+    parts = ([f"<b>{assumed_n} unsure</b>"] if assumed_n else []) + [f"<b>{open_n} open</b>"]
+    if refuted_n:
+        parts.append(f"{refuted_n} refuted")
+    parts.append(f"<b>{fixed_n} fixed</b>")
+    return "\U0001f916 " + " · ".join(parts)
+
+
+def review_chip_key(open_n: int, refuted_n: int, fixed_n: int, assumed_n: int) -> str:
+    """The hover's first sentence: the chip's face in the long words it no longer has room
+    for, so `6 unsure` is never left to be guessed at."""
+    coder = f"Coding agent: {assumed_n} unsure. " if assumed_n else ""
+    return (coder + f"Review: {open_n} open"
+            + (f" · {refuted_n} refuted" if refuted_n else "")
+            + f" · {fixed_n} fixed.")
+
+
+# The words a reviewer's name is spelt around: `correctness reviewer`, `reviewer correctness`,
+# and the plural a shared source distributes over its list (`correctness, tests and
+# ticket-fit reviewers`). None of them tells two reviewers apart.
+_REVIEWER_WORD = re.compile(r"\b(?:sub-?agent|reviewers?)\b", re.I)
+
+
+def reviewer_names(source: str) -> list[tuple[str, str]]:
+    """`correctness, tests and ticket-fit reviewers` → three reviewers, as (key, name).
+
+    The key is what is counted: lower-case, the parenthesised detail dropped (`CI
+    (SonarCloud java:S1192)` → `ci`), and the word `reviewer` gone from either end, so
+    `correctness reviewer`, `Reviewer correctness` and the `correctness` of a shared plural
+    are one reviewer. The name is the first spelling met, without that word — what the
+    hover prints. A source naming nothing but `reviewer` keeps it as its name."""
+    src = re.sub(r"\s*\([^()]*\)", "", source or "").strip()
+    out: dict[str, str] = {}
+    for part in re.split(r"\s*(?:,|\+|;|&|\band\b)\s*", src):
+        part = part.strip()
+        if not part:
+            continue
+        name = re.sub(r"\s+", " ", _REVIEWER_WORD.sub("", part)).strip(" -") or part
+        out.setdefault(name.lower(), name)
+    return list(out.items())
+
+
+def raised_by_reviewer(items, total: int) -> str:
+    """`19 raised — 6 by correctness, 2 by security, 6 by tests, 5 by ticket-fit, 3 by CI
+    (2 raised by more than one reviewer, so the counts add to 22)` — the review chip's
+    hover, counted per reviewer, never per spelling of `source`.
+
+    Eval run 10 listed `4 by correctness reviewer … 2 by correctness` — one reviewer under
+    two labels, because `correctness reviewer` and the `correctness` of `correctness, tests
+    and ticket-fit reviewers` were counted as different strings, and the parts summed to 22
+    over 19 with nothing saying why. Each item now counts once for every reviewer it names
+    (`reviewer_names`), the reviewers are listed in the order first met, and when an item
+    was raised by several the hover says so and gives the sum, so the arithmetic is on the
+    page instead of left to the reader. An item with no `source` is counted as itself."""
+    counts: dict[str, int] = {}
+    names: dict[str, str] = {}
+    shared = 0
+    for it in items:
+        found = reviewer_names(it.get("source") or "")
+        if len(found) > 1:
+            shared += 1
+        for key, name in found or [("", "")]:
+            names.setdefault(key, name)
+            counts[key] = counts.get(key, 0) + 1
+    named = [f"{n} by {names[k]}" for k, n in counts.items() if k]
+    if not named:
+        return f"{total} raised"
+    if counts.get(""):
+        named.append(f'{counts[""]} with no reviewer named')
+    tail = ""
+    if shared:
+        tail = (f" ({shared} raised by more than one reviewer, so the counts add to "
+                f"{sum(counts.values())})")
+    return f"{total} raised — " + ", ".join(named) + tail

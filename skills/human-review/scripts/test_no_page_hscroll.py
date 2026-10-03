@@ -62,3 +62,71 @@ def test_the_window_has_no_horizontal_scrollbar(width, tmp_path):
         pytest.skip("this Chromium draws overlay scrollbars; nothing to measure")
     assert ch == ih, f"a horizontal scrollbar takes {ih - ch}px of the window at {width}px"
     assert sx == 0, f"a sideways wheel moved the page {sx}px at {width}px"
+
+
+# ---------------------------------------------------------------------------------------- #
+# Eval run 10: the masthead keeps one row of chips. The review chip wrapped to a second row
+# and "8 earlier commits outside the review ▸" took a third: 164px of sticky header on every
+# tab against the reference's 108px. The run's own chips, at the two widths a laptop has.
+# ---------------------------------------------------------------------------------------- #
+
+def _run10_masthead() -> str:
+    from hrbuild.shared import chips, masthead
+    state = {"diffBase": "98cb82a7" * 5, "diffBaseSource": "audited",
+             "outside": [{"sha": f"{i:040x}", "subject": f"earlier commit {i}"}
+                         for i in range(8)]}
+    spec = {"pr": {"branch": "hr-claude-10", "base": "main",
+                   "repo": "https://github.com/victorrentea/petclinic"}}
+    bar = "".join(chips.chip_html(c) for c in [
+        {"label": "files", "value": '<span class="added">+6</span> / ✍️26', "tip": "t"},
+        {"label": "lines", "value": '<span class="added">+1330</span> / −292', "tip": "t",
+         "href": "https://example.com"},
+        {"label": "tests", "value": "+54 / −9 / ✍️7", "tip": "t", "href": "#t"},
+        {"face": chips.review_chip_face(10, 3, 6, 6), "tip": "t", "href": "#t"}])
+    strip = ('<div class="tabstrip" role="tablist"><button type="button" class="tab" '
+             'role="tab" aria-controls="p1">Review</button></div>')
+    return masthead.masthead_html(spec, "", bar, strip, state)
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+@pytest.mark.parametrize("width", [1440, 1280])
+def test_the_masthead_keeps_its_chips_on_one_row(width, scheme, tmp_path):
+    sync = pytest.importorskip("playwright.sync_api")
+    page_file = tmp_path / "mast.html"
+    page_file.write_text(f"""<!doctype html><html><head><meta charset="utf-8">
+<style>{assets.CSS}</style></head><body><div class="wrap">
+<h1>Owners grid: paged and sorted by Name or City (#25)</h1>
+{_run10_masthead()}<section class="panel" id="p1">{"<p>text</p>" * 200}</section>
+</div>{assets.TABS_JS}</body></html>""", encoding="utf-8")
+    with sync.sync_playwright() as p:
+        try:
+            browser = p.chromium.launch()
+        except Exception as e:  # no browser downloaded for this interpreter
+            pytest.skip(f"chromium unavailable: {e}")
+        try:
+            page = browser.new_page(viewport={"width": width, "height": 900},
+                                    color_scheme=scheme)
+            page.goto(page_file.as_uri())
+            # Measured once the fonts are in: a width taken while a fallback face is still
+            # standing in is not the width the reader sees, and the "closed" height would be.
+            page.wait_for_function("document.fonts.status === 'loaded'")
+            page.wait_for_timeout(100)
+            measure = ("() => { const m = document.querySelector('.masthead');"
+                       " const tops = [...m.querySelectorAll('.scopebar > *')]"
+                       "   .map(c => Math.round(c.getBoundingClientRect().top));"
+                       " return [new Set(tops).size, Math.round(m.getBoundingClientRect().height),"
+                       "   document.getElementById('hr-outside').hidden]; }")
+            rows, closed, hidden = page.evaluate(measure)
+            assert rows == 1, f"the scope bar wrapped to {rows} rows at {width}px"
+            assert hidden, "the earlier commits are folded until asked for"
+            page.click(".sn-badge")
+            _, opened, hidden = page.evaluate(measure)
+            assert not hidden and opened > closed, "opened, the list sits in flow"
+            page.keyboard.press("Escape")
+            _, after, hidden = page.evaluate(measure)
+            assert hidden and abs(after - closed) <= 1, "Esc closes it and gives the height back"
+            page.click(".sn-badge")
+            page.mouse.click(width / 2, 800)
+            assert page.evaluate(measure)[2], "a click outside closes it"
+        finally:
+            browser.close()

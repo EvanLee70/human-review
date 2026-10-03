@@ -675,3 +675,76 @@ def test_the_four_rows_explain_only_the_prices_on_screen():
     assert '<span class="costnum">&nbsp;&middot;&nbsp;$0.16</span>' in out
     assert "claude -p on Haiku 4.5" in out and ".model-runs.json" not in out
     assert "film script" not in out, "the hint names no step the run did not take"
+
+
+# --------------------------------------------------------------------------- eval run 10
+
+def test_no_turn_is_running_while_the_conversation_is_idle_or_over(claude_world):
+    """The reference page: `.session` named the conversation that wrote, reviewed and fixed
+    the change (one prompt, over by 18:40), and the run started at 19:59 in another one. The
+    turn "running at 19:59" came back as that whole conversation, and "this guide" billed
+    its $38.15 on top of the three rows that had already paid for it: $75.23 for $37.48."""
+    w = claude_world
+    # Between the CI verdict (11:05:10) and the next prompt (11:30): idle.
+    assert hc.claude_turn_bounds(w["sid"], "2026-10-02T11:20:00Z") == (None, None)
+    # After the transcript's last record: over.
+    assert hc.claude_turn_bounds(w["sid"], "2026-10-02T13:00:00Z") == (None, None)
+    # Inside a turn the answer is unchanged.
+    a, b = hc.claude_turn_bounds(w["sid"], "2026-10-02T11:30:05Z")
+    assert hc.iso(a) == "2026-10-02T11:30:00+00:00" and hc.iso(b) == "2026-10-02T11:30:10+00:00"
+
+
+def test_a_guide_pinned_to_a_finished_conversation_bills_none_of_it(claude_world):
+    w = claude_world
+    review = w["repo"] / ".human-review"
+    (review / ".session").write_text(w["sid"])
+    (review / ".started").write_text("2026-10-02T13:00:00+00:00")
+    guide, _ = hc.measure_guide(w["repo"], review, end="2026-10-02T13:20:00Z")
+    assert not guide["measured"], "the run's own window holds no turn of that conversation"
+
+
+def test_the_guide_row_never_bills_a_turn_the_rows_above_already_billed(claude_world):
+    """The invariant behind the fix above: the four rows are summed, so they never overlap.
+    A guide entry for a session rows 1–3 bill starts where their last window ends."""
+    w = claude_world
+    paid = [hc.component("autofix", [hc.entry(hc.CLAUDE, w["sid"], "fixing",
+                                              ("2026-10-02T10:50:00Z", "2026-10-02T11:05:10Z"),
+                                              usd=0.6)])]
+    whole = hc.component("guide", [hc.claude_entry(w["sid"], "2026-10-02T10:00:00Z",
+                                                   "2026-10-02T11:31:00Z", "the run")])
+    kept = hc.without_paid_turns(whole, paid)
+    assert kept["usd"] == pytest.approx(0.20), "only a10, the turn after the fixes"
+    assert kept["entries"][0]["window"][0] == "2026-10-02T11:05:11+00:00"
+    assert "less the turns the rows above already billed" in kept["source"]
+    other = hc.component("guide", [hc.entry(hc.CLAUDE, "s-other", "the run",
+                                            ("2026-10-02T10:00:00Z", "2026-10-02T11:00:00Z"),
+                                            usd=1.0)])
+    assert hc.without_paid_turns(other, paid) is other, "another conversation is untouched"
+
+
+def test_an_extended_autofix_row_keeps_what_the_record_said(tmp_path, monkeypatch):
+    """Eval run 10: $2.26 / 7.7M on the page, $1.97 / 6.5M in the committed record, and
+    nothing on the row to say why. The extension keeps the recorded figure beside it."""
+    (tmp_path / ".human-review" / "review").mkdir(parents=True)
+    (tmp_path / ".human-review" / "review" / "state.json").write_text(json.dumps(
+        {"reviewStartedAt": "2026-10-03T05:32:57+00:00", "lastCiAt": "2026-10-03T05:50:09+00:00"}))
+    recorded = {"key": "autofix", "measured": True, "usd": 1.9744, "aic": None,
+                "tokens": 6_531_866, "window": ["2026-10-03T05:34:23+00:00",
+                                                "2026-10-03T05:42:55+00:00"]}
+    rec = {"schema": hc.RECORD_SCHEMA, "harness": "claude-code",
+           "recordedAt": "2026-10-03T05:42:55+00:00", "rounds": [],
+           "components": [{"key": "implementation"}, {"key": "review"}, recorded]}
+    monkeypatch.setattr(hc, "record", lambda *a, **k: {"components": [
+        {"key": "implementation"}, {"key": "review"},
+        {"key": "autofix", "measured": True, "usd": 2.2583, "tokens": 7_666_958}]})
+    monkeypatch.setattr(hc, "git", lambda *a: "")
+    row = hc.extend_to_last_round(tmp_path, "main", rec)["components"][2]
+    assert row["recorded"] == {"usd": 1.9744, "aic": None, "tokens": 6_531_866,
+                               "window": recorded["window"]}
+    assert row["extendedTo"].startswith("2026-10-03T05:50:09")
+    sys.path.insert(0, str(HERE))
+    from hrbuild.tabs import cost
+    out = cost.components_html({"rows": [{**row, "label": "auto-fixes", "entries": []}],
+                                "usd": 2.2583, "aic": 0.0})
+    assert "extended to the last CI round" in out
+    assert "+$0.28 / +1.1M tok since the committed record, which says $1.97 / 6.5M" in out

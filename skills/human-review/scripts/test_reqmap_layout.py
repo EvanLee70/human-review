@@ -363,3 +363,64 @@ def test_the_coverage_switch_sits_on_the_ticket_header_and_starts_checked(tmp_pa
     assert ".reqmap[data-semcov=off] .rm-legend{visibility:hidden}" in css
     assert "box.matches('.rm-semcov input')" in out
     assert "setAttribute('data-semcov', 'off')" in out
+
+
+# --- the legend fits its column, measured in a browser ------------------------------------
+
+def _all_states_fragment() -> str:
+    """The matrix as `semcov.py` draws it, with every legend state on: the five, plus
+    `unconfirmed` and `narrowed`. Its own stylesheet inlined, as on the page."""
+    sc = importlib.util.spec_from_file_location("semcov_layout", HERE / "semcov.py")
+    S = importlib.util.module_from_spec(sc)
+    sc.loader.exec_module(S)
+    legend = S.LEGEND.replace("</div>", "".join(S.LEGEND_EXTRA.values()) + "</div>")
+    css = (HERE / "reqmap" / "reqmap.css").read_text(encoding="utf-8")
+    return FRAGMENT.replace('<style>.reqmap{color:#111}</style>', f"<style>{css}</style>") \
+        .replace('<div class="rm-legend"><span class="rm-lgt">Legend:</span>'
+                 '<span class="rm-lg">fully covered</span></div>', legend)
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+@pytest.mark.parametrize("width", [986, 1100, 940])
+def test_the_legend_holds_every_state_inside_its_column(width, scheme, tmp_path):
+    """Eval run 10: eight items in a `nowrap` row, scrollWidth 617 against a 470px column
+    at a 1440px window — `unconfirmed` ran under the card, and `narrowed`, the only key to
+    the grey-hatched sentence, was hidden behind it. `986` is that page's body: two 470px
+    columns and the 46px gutter."""
+    sync = pytest.importorskip("playwright.sync_api")
+    from hrbuild.shared import assets
+    out = T.reqmap_layout(_all_states_fragment(), SPEC, tmp_path)
+    assert out.count('class="rm-lg"') == 7
+    page_file = tmp_path / "page.html"
+    page_file.write_text(f'<!doctype html><html><head><meta charset="utf-8"><style>{assets.CSS}'
+                         f'</style></head><body><div style="width:{width}px">{out}</div>'
+                         "</body></html>", encoding="utf-8")
+    with sync.sync_playwright() as p:
+        try:
+            browser = p.chromium.launch()
+        except Exception as e:  # no browser downloaded for this interpreter
+            pytest.skip(f"chromium unavailable: {e}")
+        try:
+            ctx = browser.new_context(viewport={"width": 1440, "height": 900},
+                                      color_scheme=scheme)
+            page = ctx.new_page()
+            page.goto(page_file.as_uri())
+            got = page.evaluate("""() => {
+              const L = document.querySelector('.rm-legend'),
+                    side = document.querySelector('.rm-side').getBoundingClientRect(),
+                    box = L.getBoundingClientRect();
+              return {sw: L.scrollWidth, cw: L.clientWidth, right: box.right,
+                      sideLeft: side.left,
+                      pills: [...L.querySelectorAll('.rm-lg')].map(e => {
+                        const r = e.getBoundingClientRect();
+                        return [e.textContent, r.left, r.right, r.width,
+                                getComputedStyle(e).visibility];})};
+            }""")
+        finally:
+            browser.close()
+    assert got["sw"] <= got["cw"] + 1, f"legend overflows: {got['sw']} > {got['cw']}"
+    for name, left, right, w, vis in got["pills"]:
+        assert w > 0 and vis == "visible", name
+        assert right <= got["right"] + 1, f"{name!r} runs past its column"
+        assert right <= got["sideLeft"], f"{name!r} sits under the tests card"
+    assert {p[0] for p in got["pills"]} >= {"unconfirmed", "narrowed"}

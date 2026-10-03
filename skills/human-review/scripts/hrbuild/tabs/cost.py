@@ -261,8 +261,11 @@ def _cost_tokens(n: float, models=None) -> str:
     # Under half a percent a model is a rounding error with a name, and printing
     # "Sonnet 5 0%" makes the reader parse a share too small to explain anything.
     big = [(k, v) for k, v in rows if v / total >= 0.005] or rows[:1]
+    # The shares are of TOKENS, and say so. Eval run 10's guide row read `Opus 5.5 96% /
+    # Sonnet 5.5 4%` beside a cost in which the Sonnet step was $0.43 of $1.58 — 27% —
+    # and a bare percentage in a table of dollars reads as a share of the dollars.
     text = (big[0][0] if len(big) == 1 else
-            " / ".join(f"{k} {v / total * 100:.0f}%" for k, v in big))
+            " / ".join(f"{k} {v / total * 100:.0f}%" for k, v in big) + " of tokens")
     return f'{out}<span class="costsub">{html.escape(text)}</span>'
 
 
@@ -332,6 +335,25 @@ def _when(raw: str | None) -> str:
     if t.tzinfo is not None:
         t = t.astimezone()
     return f"{t.day} {t.strftime('%b')} {t:%H:%M}"
+
+
+def _instants(win) -> list:
+    """A window's two ends as instants, so two spellings of one moment compare equal."""
+    out = []
+    for raw in (win or [])[:2]:
+        try:
+            out.append(dt.datetime.fromisoformat(str(raw).replace("Z", "+00:00")))
+        except ValueError:
+            out.append(raw)
+    return out
+
+
+def _stamp_s(raw: str | None) -> str:
+    """The seconds of a stamp, two digits — for when two ends differ by less than a minute."""
+    try:
+        return f"{dt.datetime.fromisoformat(str(raw).replace('Z', '+00:00')).second:02d}"
+    except ValueError:
+        return "00"
 
 
 def phase_rows_html(phases: dict | None) -> str:
@@ -486,6 +508,12 @@ def guide_breakdown_html(led: dict, tabs: list[dict]) -> str:
         total += resid.get("cost") or 0.0
         tokens += resid.get("tokens") or 0
     sub = ""
+    if total <= 0 and not tokens:
+        # Nothing of the row was found turn by turn — the row was read off another
+        # conversation (the reference page's guide is the phase cut's page build, in a
+        # session the tab split never reads). Twelve zeros over "$0.39 less here" is not a
+        # breakdown of anything, so there is no fold.
+        return ""
     if guide and guide.get("measured") and guide.get("usd") is not None and not guide.get("aic"):
         g = guide.get("usd") or 0.0
         if abs(total - g) < 0.005:
@@ -495,13 +523,38 @@ def guide_breakdown_html(led: dict, tabs: list[dict]) -> str:
             # is the contradiction this footer exists to remove.
             total, tokens = g, guide.get("tokens") or tokens
         else:
-            win = guide.get("window") or [None, None]
-            span = (f" ({_when(win[0])} &rarr; {_when(win[1])})"
-                    if len(win) == 2 and _when(win[0]) and _when(win[1]) else "")
-            sub = (f"the &ldquo;this guide&rdquo; row above says {_cost_money(g)}: it stops "
-                   f"where the run ended{span}, while these rows read the run&rsquo;s "
-                   f"conversation from its start to this build, "
-                   f"{_cost_money(abs(total - g))} {'more' if total > g else 'less'}")
+            # Said with the two windows as measured, never as a description of them. Eval
+            # run 10's sentence claimed these rows read the WIDER window ("from its start to
+            # this build") over a total $0.48 SMALLER: they had started at `.started`,
+            # 31 s after the prompt the row above starts on. `review-cost.py` now reads the
+            # row's own window, so this branch is the residue of a real disagreement, and
+            # the reader gets the two spans to compare instead of a story about them.
+            def span(win, secs: bool = False) -> str:
+                win = win or []
+                if not (len(win) == 2 and _when(win[0]) and _when(win[1])):
+                    return ""
+                at = [_when(w) + (f":{_stamp_s(w)}" if secs else "") for w in win]
+                return f"{at[0]} &rarr; {at[1]}"
+            mine = next((e.get("window") for e in guide.get("entries") or []
+                         if not str(e.get("session") or "").startswith("claude -p")),
+                        None) or guide.get("window")
+            ours_w = report.get("window")
+            differ = _instants(mine) != _instants(ours_w)
+            theirs, ours = span(mine), span(ours_w)
+            if differ and theirs == ours:
+                # Apart by seconds: at minute precision the two spans would print equal
+                # and the sentence would say "the same stretch" over two different ones.
+                theirs, ours = span(mine, True), span(ours_w, True)
+            if theirs and ours and differ:
+                why = (f"it reads the run&rsquo;s conversation over {theirs}, these rows "
+                       f"over {ours}")
+            elif theirs and ours:
+                why = (f"over the same stretch ({ours}), priced turn by turn here and as one "
+                       "window there")
+            else:
+                why = "the two were measured over stretches this build cannot name"
+            sub = (f"the &ldquo;this guide&rdquo; row above says {_cost_money(g)}: {why}; "
+                   f"{_cost_money(abs(total - g))} {'more' if total > g else 'less'} here")
     foot = (f'<tr class="costtotal"><td>total'
             + (f'<span class="costsub">{sub}</span>' if sub else "")
             + f'</td><td>{_cost_tokens(tokens)}</td><td>{_cost_money(total)}</td></tr>')
@@ -789,6 +842,32 @@ COMPONENT_HINTS = {
 }
 
 
+def _extension_line(r: dict, rate: float) -> str:
+    """`extended to the last CI round (3 Oct 08:42 → 08:50): +$0.29 / +1.1M tok since the
+    record, which says $1.97 / 6.5M` — on a row the build carried past what the run
+    committed (`harness_cost.extend_to_last_round`).
+
+    Eval run 10: the auto-fixes row read $2.26 / 7.7M while the committed
+    `review-cost.json` said $1.97 / 6.5M, and the only trace of why was a `source` string
+    no reader sees. A figure that departs from the branch's own record says so, by how
+    much, and over which stretch."""
+    was = r.get("recorded")
+    if not isinstance(was, dict):
+        return ""
+    now_c = (r.get("usd") or 0.0) + (r.get("aic") or 0.0) * rate
+    then_c = (was.get("usd") or 0.0) + (was.get("aic") or 0.0) * rate
+    d_cost, d_tok = now_c - then_c, (r.get("tokens") or 0) - (was.get("tokens") or 0)
+    win = was.get("window") or []
+    since = _when(win[1]) if len(win) == 2 else ""
+    to = _when(r.get("extendedTo"))
+    span = f" ({since} &rarr; {to.split(' ')[-1]})" if since and to else ""
+    sign = "+" if d_cost >= 0 else "&minus;"
+    tsign = "+" if d_tok >= 0 else "&minus;"
+    return (f"extended to the last CI round{span}: {sign}{_cost_money(abs(d_cost))} / "
+            f"{tsign}{_cost_tokens(abs(d_tok))} tok since the committed record, which says "
+            f"{_cost_money(then_c)} / {_cost_tokens(was.get('tokens') or 0)}")
+
+
 def components_html(comp: dict | None) -> str:
     """The four rows the cost tab leads with, or "" when nothing at all was measured."""
     rows = [r for r in (comp or {}).get("rows") or [] if isinstance(r, dict)]
@@ -816,6 +895,9 @@ def components_html(comp: dict | None) -> str:
                                                 if model else "")
                              + (f"; plus {_minutes(extra)} of refreshes, no model"
                                 if extra else ""))
+        ext = _extension_line(r, rate)
+        if ext:
+            lines.append(ext)
         if r.get("source") == "derived":
             lines.append("derived — the run recorded no report-cost.json"
                          if r.get("key") == "guide" else

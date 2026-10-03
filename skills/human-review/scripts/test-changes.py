@@ -533,6 +533,113 @@ def _spans(rel: str, text: str, cases: dict) -> dict[str, tuple[int, int]]:
             for name, (ln, _) in cases.items()}
 
 
+# --------------------------------------------------------------------------- #
+# a test edited through a helper it calls
+# --------------------------------------------------------------------------- #
+# Eval run 10: AddVisitApiTest's one test kept every line of its own, while the private
+# `anOwnerWithAPet()` it calls was rewritten (+14/−6) from one unpaged GET into a loop that
+# walks pages and reads `.content`. The test now exercises different code, and the page
+# filed it under "left exactly as they were". So a test whose own lines are untouched but
+# which *directly* calls a function declared in the same file whose body the diff touched
+# is `modified` too, carrying `viaHelper` — which helper, where, and how much of it moved.
+#
+# Conservative on purpose, the same way `pair_renames` is: same file only, a call written
+# in the test's own lines only (`helper(`, `this.helper(`, `self.helper(` — not a method
+# reference, not a helper reached through another helper, not a `@BeforeEach` nobody calls
+# by name), and the helper must be a declaration outside every test's own lines.
+_NOT_A_DECL = frozenset(("return", "new", "else", "throw", "if", "for", "while", "switch",
+                         "catch", "synchronized", "do", "try", "case", "assert", "yield",
+                         "await"))
+JS_HELPER = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s*\*?\s*(\w+)\s*\("
+                       r"|^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?"
+                       r"(?:function\b|\([^)]*\)\s*(?::[^=]*)?=>|\w+\s*=>)")
+PY_HELPER = re.compile(r"^\s*(?:async\s+)?def\s+(\w+)\s*\(")
+GO_HELPER = re.compile(r"^func\s+(?:\([^)]*\)\s*)?(\w+)\s*\(")
+
+
+def _helper_name(rel: str, line: str) -> str | None:
+    """The function a line of a test file declares, if it declares one."""
+    s = line.strip()
+    if not s or s.startswith(("//", "*", "/*", "@", "#")):
+        return None
+    if rel.endswith((".java", ".kt")):
+        m = JAVA_METHOD.match(line)
+        if not m or s.endswith(";"):
+            return None
+        head = line[:m.start(1)]
+        if "=" in head or m.group(1) in _NOT_A_DECL or set(head.split()) & _NOT_A_DECL:
+            return None
+        return m.group(1)
+    if rel.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs")):
+        m = JS_HELPER.match(line)
+        return (m.group(1) or m.group(2)) if m else None
+    if rel.endswith(".py"):
+        m = PY_HELPER.match(line)
+        return m.group(1) if m else None
+    if rel.endswith(".go"):
+        m = GO_HELPER.match(line)
+        return m.group(1) if m else None
+    return None
+
+
+def _helper_span(rel: str, lines: list[str], line: int) -> tuple[int, int]:
+    """A helper's own lines. In a braced language a statement that ends (`;`) before any
+    brace opens is a one-line helper (`const page = () => x;`) — the brace scan would
+    otherwise take the next `{` in the file for its body."""
+    if rel.endswith(_BRACED):
+        for n in range(line, len(lines) + 1):
+            code = _STRINGS.sub("", lines[n - 1]).split("//", 1)[0]
+            if "{" in code:
+                break
+            if ";" in code:
+                return line, n
+    return case_span(rel, lines, line, None)
+
+
+def changed_helpers(rel: str, after: str, test_spans: dict, added: set[int],
+                    removed: dict[int, int]) -> dict[str, list[dict]]:
+    """`{name: [{"name", "line", "added", "removed"}]}` — every function declared in this
+    test file, outside the tests' own lines, whose body the diff touched. A list per name,
+    because an overload is a second body under the same call."""
+    lines = after.splitlines()
+    spans = list(test_spans.values())
+    tests = set(test_spans)
+    out: dict[str, list[dict]] = {}
+    skip_to = 0
+    for i, line in enumerate(lines, start=1):
+        if i <= skip_to or any(a <= i <= b for a, b in spans):
+            continue
+        name = _helper_name(rel, line)
+        if not name or name in tests:
+            continue
+        first, last = _helper_span(rel, lines, i)
+        # Whatever is declared inside this body is part of it, not a helper of its own.
+        skip_to = last
+        plus = sum(1 for n in added if first <= n <= last)
+        minus = sum(1 for n in removed.values() if first <= n <= last)
+        if plus or minus:
+            out.setdefault(name, []).append({"name": name, "line": i,
+                                             "added": plus, "removed": minus})
+    return out
+
+
+def helpers_called(lines: list[str], first: int, last: int,
+                   helpers: dict[str, list[dict]]) -> list[dict]:
+    """The changed helpers a test calls by name in its own lines, in the order it calls
+    them first."""
+    if not helpers:
+        return []
+    code = "\n".join(_STRINGS.sub('""', x).split("//", 1)[0]
+                     for x in lines[first - 1:last])
+    found = []
+    for name, decls in helpers.items():
+        m = re.search(r"(?:^|[^\w$.]|\bthis\.|\bself\.)" + re.escape(name) + r"\s*\(", code,
+                      re.M)
+        if m:
+            found.append((m.start(), decls))
+    return [d for _, decls in sorted(found, key=lambda x: x[0]) for d in decls]
+
+
 def classify_file(rel: str, status: str, before: str | None, after: str | None,
                   added: set[int], removed: dict[int, int]) -> list[dict]:
     """Every test case in one changed file, with what happened to it."""
@@ -543,16 +650,24 @@ def classify_file(rel: str, status: str, before: str | None, after: str | None,
     rows: list[dict] = []
 
     after_spans = _spans(rel, after, after_cases) if after is not None else {}
+    helpers = (changed_helpers(rel, after, after_spans, added, removed)
+               if before is not None and after is not None else {})
+    after_lines = after.splitlines() if after is not None else []
     for name, (line, silenced) in sorted(after_cases.items(), key=lambda kv: kv[1][0]):
         first, last = after_spans[name]
         was = before_cases.get(name)
+        via = []
         if was is None:
             state = "added"
         elif any(first <= t <= last for t in touched):
             state = "modified"
         else:
-            state = "unchanged"
-        rows.append(_row(name, rel, state, line, silenced, was[1] if was else None))
+            via = helpers_called(after_lines, first, last, helpers)
+            state = "modified" if via else "unchanged"
+        row = _row(name, rel, state, line, silenced, was[1] if was else None)
+        if via:
+            row["viaHelper"] = via
+        rows.append(row)
 
     before_spans = _spans(rel, before, before_cases) if before is not None else {}
     for name, (line, was_silenced) in sorted(before_cases.items(), key=lambda kv: kv[1][0]):
@@ -598,11 +713,13 @@ def totals(rows: list[dict]) -> dict:
     are worse than no chip."""
     t = dict.fromkeys(("added", "modified", "deleted", "unchanged", "commented",
                        "disabled", "reenabled", "runningBefore", "runningAfter",
-                       "gained", "lost", "renamed"), 0)
+                       "gained", "lost", "renamed", "viaHelper"), 0)
     for r in rows:
         t[r["status"]] += 1
         # A rename is one of the `modified`: the run kept the test under a new title.
         t["renamed"] += bool(r.get("renamedFrom"))
+        # So is a test edited only through a same-file helper it calls (`helpers_called`).
+        t["viaHelper"] += bool(r.get("viaHelper"))
         ran_before = r["status"] != "added" and not r.get("wasSilenced")
         runs_now = r["status"] != "deleted" and not r.get("silenced")
         t["runningBefore"] += ran_before
@@ -698,8 +815,8 @@ def main(argv=None) -> int:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(text, encoding="utf-8")
         detail = ", ".join(f"{t[k]} {k}" for k in
-                           ("added", "modified", "renamed", "deleted", "commented", "disabled",
-                            "reenabled")
+                           ("added", "modified", "renamed", "viaHelper", "deleted", "commented",
+                            "disabled", "reenabled")
                            if t[k])
         print(f"[test-changes] {len(rows)} test cases in changed test files -> {args.out}"
               + (f" ({detail})" if detail else "")

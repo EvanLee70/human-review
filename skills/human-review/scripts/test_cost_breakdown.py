@@ -1047,3 +1047,45 @@ def test_a_fold_that_does_not_reach_the_guide_row_says_by_how_much_and_why():
     out = build.cost_ledger_html(_run6_ledger(residual_cost=3.955), [_tab("review", "Review")])
     fold = out.split('<details class="costdetail">')[1]
     assert "row above says $3.31" in fold and "$0.80 more" in fold
+
+
+def test_a_fold_that_disagrees_names_both_windows_and_never_claims_the_wider_one():
+    """Eval run 10: "these rows read the run's conversation from its start to this build"
+    — the WIDER window — over a total $0.48 SMALLER. They had started at `.started`, 31 s
+    after the row above. The footnote now prints the two windows as measured."""
+    led = _run6_ledger(residual_cost=2.675)
+    led["tabs"]["window"] = ["2026-10-02T23:50:59+00:00", "2026-10-03T00:03:59+00:00"]
+    fold = build.cost_ledger_html(led, [_tab("review", "Review")]).split(
+        '<details class="costdetail">')[1]
+    assert "from its start to this build" not in fold
+    assert "$0.48 less here" in fold
+    # Apart by seconds: at minute precision both would print 23:50 → 00:03, and the
+    # footnote would call two different stretches the same one.
+    assert re.search(r"over \S+ \S+ \d\d:\d\d:53 &rarr; [^,;]*, these rows over "
+                     r"\S+ \S+ \d\d:\d\d:59 &rarr;", fold), fold
+    led["tabs"]["window"] = list(led["components"]["rows"][1]["entries"][0].get("window")
+                                 or led["components"]["rows"][1]["window"])
+    fold = build.cost_ledger_html(led, [_tab("review", "Review")]).split(
+        '<details class="costdetail">')[1]
+    assert "over the same stretch" in fold and "$0.48 less here" in fold
+
+
+def test_no_fold_when_the_tab_split_found_none_of_the_guide_row():
+    """The reference page's guide row is the phase cut's page build, in a conversation the
+    tab split never reads: its fold was twelve zeros over "$0.39 less here"."""
+    led = _run6_ledger(residual_cost=0.0)
+    led["tabs"]["residual"].update(tokens=0, messages=0)
+    led["tabs"]["residual_parts"] = {}
+    led["tabs"]["tabs"]["requirements"] = {**led["tabs"]["tabs"]["requirements"], "cost": 0.0,
+                                           "tokens": 0, "runs": []}
+    led["tabs"].pop("modelRuns", None)
+    out = build.cost_ledger_html(led, [_tab("review", "Review")])
+    assert "costdetail" not in out and "less here" not in out
+
+
+def test_a_mixed_model_share_says_it_is_a_share_of_tokens():
+    """Eval run 10: `Opus 5.5 96% / Sonnet 5.5 4%` beside a cost the Sonnet step was 27% of.
+    A bare percentage in a table of dollars reads as a share of the dollars."""
+    out = build._cost_tokens(1_878_326, {"Opus 5.5": 1_796_332, "Sonnet 5.5": 81_994})
+    assert out == '1.9M<span class="costsub">Opus 5.5 96% / Sonnet 5.5 4% of tokens</span>'
+    assert "of tokens" not in build._cost_tokens(10, {"Opus 5.5": 10}), "one model is a name"

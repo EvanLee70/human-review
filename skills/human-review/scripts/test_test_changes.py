@@ -269,6 +269,92 @@ def test_every_case_of_an_added_file_is_added():
 
 
 # --------------------------------------------------------------------------- #
+# a test edited through a helper it calls
+# --------------------------------------------------------------------------- #
+# Eval run 10: AddVisitApiTest kept every line of its own while `anOwnerWithAPet()`, the
+# private helper it calls, was rewritten from one unpaged GET into a page-walking loop —
+# and the test was counted among those "left exactly as they were".
+HELPER_BEFORE = """class AddVisitApiTest {
+  @Test
+  void addsAVisit() {
+    JsonNode owner = anOwnerWithAPet();
+    post(owner);
+  }
+
+  @Test
+  void listsVets() {
+    get("/api/vets");
+  }
+
+  @Test
+  void viaAnotherHelper() {
+    wrapper();
+  }
+
+  @Test
+  void byReference() {
+    Stream.of(1).map(this::anOwnerWithAPet);
+  }
+
+  private void wrapper() {
+    keep();
+  }
+
+  private JsonNode anOwnerWithAPet() {
+    return first(get("/api/owners"));
+  }
+}
+"""
+
+
+def _helper_rows():
+    after = HELPER_BEFORE.replace(
+        '    return first(get("/api/owners"));\n',
+        '    for (int page = 0;; page++) {\n'
+        '      JsonNode owners = get("/api/owners?page=" + page).path("content");\n'
+        '      if (!owners.isEmpty()) return first(owners);\n'
+        '    }\n')
+    added, removed = tc.hunk_lines(_unified0(HELPER_BEFORE, after))
+    return {r["name"]: r for r in
+            tc.classify_file("AddVisitApiTest.java", "M", HELPER_BEFORE, after, added, removed)}
+
+
+def test_a_test_whose_same_file_helper_was_rewritten_is_edited_via_that_helper():
+    rows = _helper_rows()
+    assert rows["addsAVisit"]["status"] == "modified"
+    assert rows["addsAVisit"]["viaHelper"] == [
+        {"name": "anOwnerWithAPet", "line": 27, "added": 4, "removed": 1}]
+    assert rows["listsVets"]["status"] == "unchanged" and "viaHelper" not in rows["listsVets"]
+
+
+def test_only_a_direct_call_makes_a_helper_edit_the_test_s():
+    """Conservative: a helper reached through another helper, or named in a method
+    reference, is not a call written in the test — the page would be guessing."""
+    rows = _helper_rows()
+    assert rows["viaAnotherHelper"]["status"] == "unchanged"
+    assert rows["byReference"]["status"] == "unchanged"
+
+
+def test_an_edit_through_a_helper_is_counted_with_the_edited_and_on_its_own():
+    t = tc.totals(list(_helper_rows().values()))
+    assert t["modified"] == 1 and t["viaHelper"] == 1 and t["unchanged"] == 3
+
+
+def test_a_playwright_spec_s_helper_function_counts_too():
+    before = ("async function addVisit(page) {\n  await page.click('#add');\n}\n\n"
+              "test('books a visit', async ({ page }) => {\n  await addVisit(page);\n});\n\n"
+              "test('lists vets', async ({ page }) => {\n  await page.goto('/vets');\n});\n")
+    after = before.replace("await page.click('#add');",
+                           "await page.click('#add');\n  await page.fill('#vet', 'Helen');")
+    added, removed = tc.hunk_lines(_unified0(before, after))
+    rows = {r["name"]: r for r in
+            tc.classify_file("add-visit.spec.ts", "M", before, after, added, removed)}
+    assert rows["books a visit"]["status"] == "modified"
+    assert rows["books a visit"]["viaHelper"][0]["name"] == "addVisit"
+    assert rows["lists vets"]["status"] == "unchanged"
+
+
+# --------------------------------------------------------------------------- #
 # end to end, against a real repository
 # --------------------------------------------------------------------------- #
 def _git(cwd, *args):

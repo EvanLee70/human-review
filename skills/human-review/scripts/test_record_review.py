@@ -154,17 +154,83 @@ def test_finish_carries_every_ref_to_the_tree_it_commits_and_warns_on_a_blank_on
     (r / "app.py").write_text("import math\ndef total(xs):\n    return sum(xs)\n\n"
                               "def mean(xs):\n    return total(xs) / len(xs)\n")
     (r / "review-points.md").write_text(DRIFT_POINTS)
+    before = git(r, "rev-parse", "HEAD")
     done = rr(r, "finish", "--subject", "add the mean")
     out = done.stdout + done.stderr
-    assert done.returncode == 0, out
+    # Eval run 10: a finish that committed over such a warning was followed by two more
+    # `[auto-fix]` commits re-pointing the line by hand. It refuses now, writes nothing.
+    assert done.returncode == 4, out
     assert "re-anchored app.py:2 -> app.py:3" in out
     assert "WARNING app.py:4: points at a blank line" in out
+    assert "nothing committed" in out
+    assert git(r, "rev-parse", "HEAD") == before
+    assert (r / "review-points.md").read_text() == DRIFT_POINTS, "left as the agent wrote it"
+    (r / "review-points.md").write_text(DRIFT_POINTS.replace("app.py:4", "app.py:6"))
+    done = rr(r, "finish", "--subject", "add the mean")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert git(r, "rev-parse", "HEAD~1") == before, "one commit for the round"
     committed = git(r, "show", "HEAD:review-points.md")
     assert "### Empty input returns zero\n- file: app.py:3\n" in committed
     assert "- file: app.py:5\n" in committed, "a Fixed ref is read at the working tree"
     assert "\nanchors: review-commit\n" in committed.split("---", 2)[1] + "\n"
     report = json.loads((r / ".human-review" / "review-points.json").read_text())
     assert report["frontmatter"]["anchors"] == "review-commit"
+
+
+def test_an_assumption_written_as_it_reads_now_is_not_read_at_the_implementation(repo):
+    """Eval run 10: prompt.md says to write every line as it reads now, and the agent did —
+    `ExceptionControllerAdvice.java:88`, the handler in the working tree. Read first at the
+    implementation commit, line 88 was one the fixes replaced, so finish warned "the fixes
+    removed that line", committed anyway, and two re-anchor commits followed. The working
+    tree's reading lands on code, so it is the one meant: no warning, one commit."""
+    r, base, feature, head = repo
+    (r / "app.py").write_text("def total(xs):\n    return sum(xs or [])\n")
+    (r / "review-points.md").write_text(POINTS)
+    done = rr(r, "finish", "--subject", "guard the empty list")
+    out = done.stdout + done.stderr
+    assert done.returncode == 0, out
+    assert "WARNING" not in out
+    assert git(r, "rev-parse", "HEAD~1") == head
+    assert "### Empty input returns zero\n- file: app.py:2\n" in git(
+        r, "show", "HEAD:review-points.md")
+
+
+def test_finish_run_again_before_the_push_amends_its_own_commit(repo):
+    """One `[auto-fix]` commit per round: a second finish before `ci --push` is the same
+    round corrected, so it amends — keeping the round's subject, not the correction's."""
+    r, base, feature, head = repo
+    (r / "review-points.md").write_text(POINTS)
+    assert rr(r, "finish", "--subject", "guard the empty list").returncode == 0
+    (r / "review-points.md").write_text(
+        (r / "review-points.md").read_text().replace("why: out of scope",
+                                                     "why: out of scope for #25"))
+    done = rr(r, "finish", "--subject", "re-anchor one line")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "amended" in done.stdout
+    assert git(r, "rev-parse", "HEAD~1") == head, "still one commit after the feature"
+    assert git(r, "log", "-1", "--format=%s") == "[auto-fix] guard the empty list"
+    assert "out of scope for #25" in git(r, "show", "HEAD:review-points.md")
+    state = json.loads((r / ".human-review" / "review" / "state.json").read_text())
+    assert state["reviewCommit"] == git(r, "rev-parse", "HEAD")
+    assert len(state["finishes"]) == 1
+
+
+def test_finish_after_the_push_is_a_new_round(repo, tmp_path):
+    """Pushed, the commit is never rewritten: a CI round's finish is a commit of its own."""
+    r, base, feature, head = repo
+    remote = tmp_path / "remote.git"
+    git(tmp_path, "init", "-q", "--bare", str(remote))
+    git(r, "remote", "add", "origin", str(remote))
+    (r / "review-points.md").write_text(POINTS)
+    assert rr(r, "finish", "--subject", "round one").returncode == 0
+    first = git(r, "rev-parse", "HEAD")
+    git(r, "push", "-q", "origin", "HEAD:main")
+    git(r, "fetch", "-q", "origin")
+    (r / "app.py").write_text("def total(xs):\n    return sum(xs)\n\n")
+    done = rr(r, "finish", "--subject", "round two")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert git(r, "rev-parse", "HEAD~1") == first
+    assert git(r, "log", "-1", "--format=%s") == "[auto-fix] round two"
 
 
 def test_a_malformed_trailer_is_refused_before_anything_is_committed(repo):

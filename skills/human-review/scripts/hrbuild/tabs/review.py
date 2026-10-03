@@ -107,6 +107,7 @@ def resolve_review_points(spec: dict, out_dir: Path) -> dict | None:
     points = resolve_piles(spec, out_dir)
     attribute_fix_hunks(spec, out_dir)
     reanchor_refs(spec, out_dir)
+    link_spec_citations(spec, out_dir)
     grade_signals(spec, out_dir)
     cap_grade(spec)
     return points
@@ -260,11 +261,18 @@ def pile_intro(kind: str, points: dict | None) -> str:
     impl = ((points or {}).get("provenance") or {}).get("implementation", "")
     against = (f"<code>{html.escape(impl[:8])}</code>, the implementation commit"
                if impl else "the implementation commit")
-    return (f"Read off <code>{src}</code>, committed with the fixes. Each one names the "
-            f"reviewer that raised it and shows the hunks of the fix commit its "
+    # Every commit of the fix range by name (`fix_commits_html`), not "the fix commit"
+    # over a range whose last commit only re-anchored one line (eval run 10).
+    commits = (points or {}).get("fixCommits") or []
+    named = (points or {}).get("fixCommitsHtml") or "the fix commit"
+    whose = "of the fix commits" if len(commits) > 1 else "of the fix commit"
+    warn = "".join(f' <span class="fixwarn">{w}</span>'
+                   for w in (points or {}).get("fixWarnings") or [])
+    return (f"Read off <code>{src}</code>, committed with the fixes in {named}. Each one "
+            f"names the reviewer that raised it and shows the hunks {whose} its "
             f"<code>file:line</code> reaches, against {against} — so what the review "
             "changed is separable from what the feature changed. Hunks no card reaches "
-            "follow the pile.")
+            "follow the pile." + warn)
 
 
 def own_review_tab(spec: dict) -> None:
@@ -650,17 +658,20 @@ def review_tab_badge(spec) -> dict:
     """
     open_n, fixed_n, assumed_n = pile_numbers(spec)
     refuted_n = refuted_number(spec)
-    rest = " and ".join(x for x in (
-        f"the {refuted_n} refuted" if refuted_n else "",
-        f"the {fixed_n} auto-fixed" if fixed_n else "",
-        f'the {assumed_n} assumption{"" if assumed_n == 1 else "s"}' if assumed_n else "",
+    # Where each left-out pile is, said by its own place and never by "further down":
+    # eval run 10's hover put the refuted "further down the tab" while they sat inside the
+    # open pile, and the assumptions — the first pile on the tab — are not below anything.
+    rest = "; ".join(x for x in (
+        f"{refuted_n} refuted (listed apart, under the open ones)" if refuted_n else "",
+        f"{fixed_n} auto-fixed (their own pile)" if fixed_n else "",
+        (f'{assumed_n} implementation assumption{"" if assumed_n == 1 else "s"} '
+         "(their own pile)") if assumed_n else "",
     ) if x)
     label = f'{open_n} open review issue{"" if open_n == 1 else "s"}'
     if refuted_n:
         label += f" · {refuted_n} refuted"
     if rest:
-        label += f". {rest[:1].upper()}{rest[1:]} are further down the tab, already dealt " \
-                 "with, and this number leaves them out"
+        label += f". This number leaves out {rest}"
     return {"count": open_n, "label": label}
 
 
@@ -1047,13 +1058,8 @@ def _out_of_range_signal(spec, root: Path | None, base_ref: str | None,
     that correctly showed no PR number."""
     prov = ((spec.get("_reviewPoints") or {}).get("provenance") or {})
     audited = prov.get("auditedBase") or prov.get("base")
-    if not (root and base_ref and audited):
-        return None
-    mb = _git_out(root, "merge-base", base_ref, "HEAD")
-    if not mb or not _git_out(root, "merge-base", "--is-ancestor", mb, audited) == "":
-        return None
-    listed = _git_out(root, "log", "--no-merges", "--format=%h %s", f"{mb}..{audited}")
-    rows = [line for line in (listed or "").splitlines() if line.strip()]
+    rows = [f"{c['sha'][:8]} {c['subject']}"
+            for c in _before_range_commits(spec, root, base_ref) if not c["spec"]]
     if not rows:
         return None
     n = len(rows)
@@ -1065,6 +1071,54 @@ def _out_of_range_signal(spec, root: Path | None, base_ref: str | None,
                    f"; these sit between {base_ref} and that range and were never reviewed: "
                    + "; ".join(rows[:5]) + (" …" if n > 5 else ""),
                    GRADE_CAPS["out-of-range"])
+
+
+def _before_range_commits(spec, root: Path | None, base_ref: str | None) -> list[dict]:
+    """The branch's commits between its fork point and the audited base, newest first:
+    `{sha, subject, spec}` — `spec` names `openspec/changes/<change>/` when the commit
+    wrote the change this branch implements.
+
+    Eval run 10 listed b12c9bdb — the OpenSpec proposal, design and spec of this very
+    change — among tooling commits as "never reviewed". It is the spec the change was
+    built against: said as that, linked, and never counted against the grade."""
+    prov = ((spec.get("_reviewPoints") or {}).get("provenance") or {})
+    audited = prov.get("auditedBase") or prov.get("base")
+    if not (root and base_ref and audited):
+        return []
+    mb = _git_out(root, "merge-base", base_ref, "HEAD")
+    if not mb or not _git_out(root, "merge-base", "--is-ancestor", mb, audited) == "":
+        return []
+    listed = _git_out(root, "log", "--no-merges", "--format=%H%x1f%s", f"{mb}..{audited}")
+    change = _spec_change_dir(root, spec)
+    out = []
+    for line in (listed or "").splitlines():
+        sha, _, subject = line.partition("\x1f")
+        if not sha.strip():
+            continue
+        touched = _git_out(root, "diff-tree", "--no-commit-id", "--name-only", "-r",
+                           "--root", sha, "--", f"{change}/") if change else ""
+        out.append({"sha": sha, "subject": subject, "spec": change if touched else None})
+    return out
+
+
+def _spec_commit_signals(spec, root: Path | None, base_ref: str | None) -> list[dict]:
+    """`Built against the spec in b12c9bdb` — a reason line per commit before the reviewed
+    range that wrote this change's OpenSpec documents, linked to it on GitHub. No cap:
+    reading the spec was never the review's job."""
+    found = [c for c in _before_range_commits(spec, root, base_ref) if c["spec"]]
+    if not found:
+        return []
+    gh = github_blob_base(Path(root)) if root else None
+    out = []
+    for c in found:
+        sig = _signal("spec-commit", f"Built against the spec in {c['sha'][:8]}",
+                      f"{c['sha'][:8]} {c['subject']} — wrote {c['spec']}/, the OpenSpec "
+                      "change this branch implements, before the reviewed range: the spec "
+                      "the change was built against, not unreviewed code")
+        if gh:
+            sig.update(href=f"{gh}/commit/{c['sha']}", linkText=f"{c['spec']}/")
+        out.append(sig)
+    return out
 
 
 #: Where `semcov.py` leaves the Tests tab's sentence-to-test mapping, merged copy first;
@@ -1231,6 +1285,7 @@ def grade_signals(spec, out_dir: Path, root: Path | None = None) -> list[dict]:
                 _out_of_range_signal(spec, root, base_ref, out_dir)):
         if sig:
             out.append(sig)
+    out.extend(_spec_commit_signals(spec, root, base_ref))
     out.extend(_narrowed_signals(out_dir, root))
     spec["_gradeSignals"] = out
     return out
@@ -1290,7 +1345,8 @@ def _grade_rows(spec) -> list[tuple[str, str, tuple[str, str] | None]]:
             short += f" (caps the grade at {s['cap']})"
         link = (s["href"], s.get("linkText") or "source") if s.get("href") else None
         out.append((short, s.get("full") or short, link))
-    own = list(v.get("why") or v.get("bullets") or [])
+    own = [b for b in (v.get("why") or v.get("bullets") or [])
+           if not _drop_model_line(b, spec)]
     if len(own) > MODEL_GRADE_LINES:
         print(f"[review] verdict carries {len(own)} lines of its own; the grade panel shows "
               f"the first {MODEL_GRADE_LINES} — the rest of its reasons are computed",
@@ -1303,6 +1359,79 @@ def _grade_rows(spec) -> list[tuple[str, str, tuple[str, str] | None]]:
         if short:
             out.append((short, _plain_text(b), None))
     return out
+
+
+#: A count a model line may state about a pile the page counts itself: `6 assumptions`,
+#: `10 open review issues`, `3 refuted`, `6 fixes`.
+_PILE_COUNT = re.compile(
+    r"\b(\d+)\s+(open\s+)?(?:LLM\s+)?(?:review\s+)?(?:implementation\s+)?"
+    r"(assumptions?|issues?|findings?|fixes|fixed|auto-fixed|refuted)\b", re.I)
+#: A Q&A question a model line names, alone or as a range (`Q3`, `Q5–Q15`).
+_Q_REF = re.compile(r"\bQ(\d+)(?:\s*[–-]\s*Q?(\d+))?\b")
+
+
+def model_line_conflict(text: str, spec) -> str | None:
+    """Why a content file's verdict line contradicts the record the page renders, or None.
+
+    The rule: a model line may say what only the model knows, but it may not restate a
+    number the page computes — and when it does, the number has to be the page's. Two
+    checks, both against the piles as rendered:
+
+    * a count of a pile (`6 assumptions`, `10 open issues`, `3 refuted`, `6 fixes`) must
+      be that pile's count (`pile_numbers`, `refuted_number`);
+    * a line that ties Q&A question numbers to the assumptions (`Q5–Q15 … the
+      assumptions below are the coder's answers to them`) needs at least one assumption
+      on the page that cites one of those questions.
+
+    Eval run 10's hand-typed bullet did the second: Q&A.md says the planner adopted the
+    Q5–Q15 answers, and none of the six assumptions is about any of them — the page
+    printed it as a reason for the grade."""
+    plain = _plain_text(text)
+    open_n, fixed_n, assumed_n = pile_numbers(spec)
+    refuted_n = refuted_number(spec)
+    for m in _PILE_COUNT.finditer(plain):
+        n, what = int(m[1]), m[3].lower()
+        if what.startswith("assumption"):
+            ok = {assumed_n}
+        elif what == "refuted":
+            ok = {refuted_n}
+        elif what in ("fixes", "fixed", "auto-fixed"):
+            ok = {fixed_n}
+        elif m[2]:                   # `N open issues`: the open pile
+            ok = {open_n}
+        else:                        # `N findings` may count a subset; not checked
+            continue
+        if n not in ok:
+            return f"it says {m[0]!r}; the page counts {min(ok)}"
+    qs: set[int] = set()
+    for m in _Q_REF.finditer(plain):
+        lo, hi = int(m[1]), int(m[2] or m[1])
+        qs |= set(range(lo, hi + 1)) if 0 < hi - lo < 100 else {lo}
+    if qs and re.search(r"\bassum|\bcoder", plain, re.I):
+        cited = set()
+        for a in spec.get("assumptions") or []:
+            if isinstance(a, dict):
+                said = " ".join(_plain_text(str(a.get(k) or ""))
+                                for k in ("title", "why", "alternative", "body"))
+                cited |= {int(q) for q in re.findall(r"\bQ(\d+)\b", said)}
+        if not cited & qs:
+            names = ", ".join(f"Q{q}" for q in sorted(qs)[:3]) + ("…" if len(qs) > 3 else "")
+            return (f"it ties {names} to the assumptions, and no assumption on the page "
+                    "cites any of those questions")
+    return None
+
+
+def _drop_model_line(text: str, spec) -> bool:
+    """`model_line_conflict`, said once per build on stderr when it drops a line."""
+    why = model_line_conflict(text, spec)
+    if not why:
+        return False
+    said = spec.setdefault("_droppedModelLines", set())
+    if text not in said:
+        said.add(text)
+        print(f"[review] WARNING: verdict line dropped from the grade panel — {why}: "
+              f"{_plain_text(text)[:90]!r}", file=sys.stderr)
+    return True
 
 
 def grade_reasons_html(spec) -> str:
@@ -1383,6 +1512,15 @@ def opening_lede(spec) -> str:
         at = _pile_anchor(spec, kind, fallback)
         return f'<a href="#{html.escape(at)}">{text}</a>' if at else text
 
+    def refuted_clause() -> str:
+        """` · 3 refuted`, the jump to the refuted pile `render_findings` draws under the
+        open one — its own anchor, not the open pile's (eval run 10)."""
+        n = refuted_number(spec)
+        if not n:
+            return ""
+        return (f' · <a href="#{REFUTED_ID}">{n} refuted</a>'
+                if _pile_anchor(spec, "findings", "first") else f" · {n} refuted")
+
     # Two vocabularies, because the two sources mean different things by the same pile.
     # With the piles written into the content file, `findings` is what a review pass raised
     # and nobody has answered yet — *open*. Read out of `review-points.md`, the same array
@@ -1399,11 +1537,10 @@ def opening_lede(spec) -> str:
         # comes next, and what nobody could be asked about is always the tail — see the
         # `block is not None` clause below.
         if spec.get("findings"):
-            n_open, n_refuted = pile_numbers(spec)[0], refuted_number(spec)
+            n_open = pile_numbers(spec)[0]
             parts.append(clause(
-                f"{n_open} open review issue{'' if n_open == 1 else 's'}"
-                + (f" · {n_refuted} refuted" if n_refuted else ""),
-                "findings", "first"))
+                f"{n_open} open review issue{'' if n_open == 1 else 's'}",
+                "findings", "first") + refuted_clause())
         if spec.get("autofixes"):
             parts.append(clause(f"{len(spec['autofixes'])} auto-fixed", "autofixes", "fixed"))
     else:
@@ -1414,11 +1551,10 @@ def opening_lede(spec) -> str:
             # not. What they do act on is *who raised these*, because the page carries two
             # piles a machine produced and one a human owns, and the clause that opens the
             # line is the one that has to say which of them it is counting.
-            n_open, n_refuted = pile_numbers(spec)[0], refuted_number(spec)
+            n_open = pile_numbers(spec)[0]
             parts.append(clause(
-                f"{n_open} open LLM review issue{'' if n_open == 1 else 's'}"
-                + (f" · {n_refuted} refuted" if n_refuted else ""),
-                "findings", "first"))
+                f"{n_open} open LLM review issue{'' if n_open == 1 else 's'}",
+                "findings", "first") + refuted_clause())
         if spec.get("autofixes"):
             # `auto-fixed`, the same word the badge on every one of those items already
             # wears. "auto-applied" was a second name for one thing, and a reader who
@@ -1477,9 +1613,38 @@ def opening_lede(spec) -> str:
             + PILELEDE_SPY_JS)
 
 
+#: The id of the refuted pile's own heading, under the open one — what the counts line's
+#: `N refuted` jumps to.
+REFUTED_ID = "refuted"
+
+
 def render_findings(findings) -> str:
+    """The open pile, numbered, then the refuted claims as a small pile of their own.
+
+    Eval run 10: the three refuted findings were drawn inside *Open review issues* with
+    the same CONTEXT badge and numbered 1–13 under a counts line, a tab pill and a chip
+    that all said `10 open` — and the pill's hover said they were "further down the tab",
+    which they were not. A refuted claim is settled: it is listed apart, after the open
+    pile, unnumbered, under a REFUTED badge, so every count on the page is a count of
+    something drawn where it says."""
     if not findings:
         return '<p class="sub">Nothing outstanding \u2014 the automated passes came back clean.</p>'
+    live = [f for f in findings if not is_refuted(f)]
+    refuted = [f for f in findings if is_refuted(f)]
+    out = _render_finding_items(live, ordered=True) if live else (
+        '<p class="sub">Nothing left open \u2014 every finding the agent declined, it '
+        'refuted.</p>')
+    if refuted:
+        n = len(refuted)
+        out += (f'<h3 class="refuted-h" id="{REFUTED_ID}">Refuted \u2014 {n}</h3>'
+                f'<p class="sub refuted-intro">Claim{"s" if n != 1 else ""} the agent showed '
+                f'{"were" if n != 1 else "was"} never true, each with the evidence it names. '
+                'Not open and not counted above; listed so you can check the evidence.</p>'
+                + _render_finding_items(refuted, ordered=False))
+    return out
+
+
+def _render_finding_items(findings, ordered: bool) -> str:
     items = []
     # Worst first, whatever order the source listed them in: a pile that read "worth a
     # look, nit, worth a look" made the reader sort it in their head. Stable, so equal
@@ -1488,9 +1653,12 @@ def render_findings(findings) -> str:
     findings = sorted(findings, key=lambda f: rank.get(f.get("severity", "info"), len(rank)))
     for f in findings:
         cls, label = SEVERITIES.get(f.get("severity", "info"), SEVERITIES["info"])
+        li_cls = cls.replace("sev-", "n-")
+        if not ordered:
+            cls, label, li_cls = "sev-refuted", "refuted", "n-refuted"
         refs = _finding_refs(f)
         items.append(
-            f'<li class="{cls.replace("sev-", "n-")}">'
+            f'<li class="{li_cls}">'
             f'<span class="badge {cls}">{html.escape(label)}</span>'
             + _finding_source(f)
             + f' <span class="f-title">{f["title"]}</span>'
@@ -1505,6 +1673,8 @@ def render_findings(findings) -> str:
             + (f.get("_diffs", "") or "")
             + "</li>"
         )
+    if not ordered:
+        return '<ul class="findings refuted">' + "\n".join(items) + "</ul>"
     return _open_list(len(findings)) + "\n".join(items) + "</ol>"
 
 
@@ -1685,6 +1855,111 @@ FIX_HUNK_REACH = DIFF_CONTEXT
 #: points file itself is added from the report's own `source`.
 FIX_BOOKKEEPING = ("review-cost.json",)
 
+#: Where `run-steps.py` leaves `review-commits.py --json`: which commit is which, and its
+#: doubts about the answer (`warnings`).
+REVIEW_COMMITS_JSON = "review-commits.json"
+
+
+def generated_in(root: Path, base: str, head: str | None) -> list[str]:
+    """The files `base..head` changes that a generator owns — the project's `"generated"`
+    globs in `human-review.json`, else the shared list (`shared/chips.py:generated_globs`),
+    matched by git's own `:(glob)` pathspec so the same string means the same paths as in
+    the header chips and the aftermath band.
+
+    Eval run 10: the fix commit's re-recorded `*.genseq.json` / `.puml` traces were drawn
+    under *Other changes in the fix commit* as 4 KB single-line JSON diffs — about
+    3,000 px whose only change was a random step id. A fix is what a person changed."""
+    from ..shared.chips import _project_cfg, generated_globs
+    globs = generated_globs(_project_cfg(Path(root)))
+    listed = _git_out(root, "diff", "--name-only", "--no-renames", base,
+                      *([head] if head else []), "--", *[f":(glob){g}" for g in globs])
+    return [p for p in (listed or "").splitlines() if p]
+
+
+def fix_commits(points: dict, root: Path | None, fixed_by: str | None = None) -> list[dict]:
+    """Every commit between the implementation and the review commit, oldest first:
+    `{sha, subject, files, bookkeeping}` — `bookkeeping` when it touched nothing but the
+    points file and `review-cost.json`.
+
+    The fix range is `implementation..review commit`, and eval run 10 had three commits in
+    it: 6b14c32b carried every fix, 1338ed9e and e7b807e8 only re-anchored one line of
+    `review-points.md`. The page called `91905dff..e7b807e8` "the fix commit" and never
+    named 6b14c32b; this is what lets it name all three and say which one is the fixes."""
+    prov = points.get("provenance") or {}
+    impl = prov.get("implementation") or prov.get("auditedHead")
+    head = fixed_by or fix_commit(points, root)
+    if not (root and impl and head):
+        return []
+    listed = _git_out(root, "log", "--reverse", "--format=%H%x1f%s", f"{impl}..{head}") or ""
+    src = points.get("source") or "review-points.md"
+    out = []
+    for line in listed.splitlines():
+        sha, _, subject = line.partition("\x1f")
+        if not sha:
+            continue
+        files = [p for p in (_git_out(root, "diff-tree", "--no-commit-id", "--name-only",
+                                      "-r", "--root", sha) or "").splitlines() if p]
+        out.append({"sha": sha, "subject": subject, "files": files,
+                    "bookkeeping": bool(files) and all(
+                        p == src or Path(p).name in FIX_BOOKKEEPING for p in files)})
+    return out
+
+
+def _commit_face(sha: str, repo: str | None, tip: str = "") -> str:
+    code = f"<code>{html.escape(sha[:8])}</code>"
+    t = f' data-tip="{html.escape(tip, quote=True)}"' if tip else ""
+    if repo:
+        return (f'<a href="{html.escape(repo)}/commit/{html.escape(sha)}" target="_blank" '
+                f'rel="noopener"{t}>{code}</a>')
+    return f"<span{t}>{code}</span>" if t else code
+
+
+def fix_commits_html(commits: list[dict], repo: str | None, src: str) -> str:
+    """`the fix commit 6b14c32b`, or with several, `3 fix commits: 6b14c32b (the fixes);
+    1338ed9e, e7b807e8 only re-record review-points.md` — every one named, each a link."""
+    if not commits:
+        return "the fix commit"
+    if len(commits) == 1:
+        c = commits[0]
+        return "the fix commit " + _commit_face(c["sha"], repo, c["subject"])
+    work = [c for c in commits if not c["bookkeeping"]]
+    books = [c for c in commits if c["bookkeeping"]]
+    said = []
+    if work:
+        said.append(", ".join(_commit_face(c["sha"], repo, c["subject"]) for c in work)
+                    + (" (the fixes)" if books else ""))
+    if books:
+        names = sorted({Path(p).name for c in books for p in c["files"]})
+        said.append(", ".join(_commit_face(c["sha"], repo, c["subject"]) for c in books)
+                    + f" only re-record{'s' if len(books) == 1 else ''} "
+                    + " and ".join(f"<code>{html.escape(n)}</code>" for n in names))
+    return f"{len(commits)} fix commits: " + "; ".join(said)
+
+
+def review_commits_warnings(out_dir: Path, commits: list[dict]) -> list[str]:
+    """What `review-commits.py` doubted about which commit is which, in words, when it
+    bears on the fixes' diffs — never shown before (eval run 10 wrote "3 commits carry a
+    Review-Points trailer…" to the JSON and the page said nothing).
+
+    Several trailered commits inside one fix range are the same round recorded in pieces;
+    the page now names each of them (`fix_commits_html`), so that warning is said as a
+    sentence about them instead. The session warning is about the cost tab, not here."""
+    doc = _read_json(Path(out_dir) / REVIEW_COMMITS_JSON)
+    out = []
+    for w in (doc or {}).get("warnings") or [] if isinstance(doc, dict) else []:
+        w = str(w)
+        if "Claude-Session" in w:
+            continue
+        m = re.match(r"(\d+) commits carry a Review-Points trailer", w)
+        if m:
+            if len(commits) > 1:
+                out.append(f"{m[1]} commits carry a <code>Review-Points:</code> trailer; "
+                           "the page reads them as one round of fixes, from the "
+                           "implementation to the last of them.")
+            continue
+        out.append(html.escape(w[:1].upper() + w[1:]))
+    return out
+
 
 def fix_hunks(rel: str, base: str, head: str | None, root: Path) -> list[tuple[int, int]]:
     """`[(lo, hi), …]` — the new-side lines each hunk of `rel` changed, one pair per hunk,
@@ -1806,6 +2081,14 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
     # Every Fixed item with an anchor, not only those carrying `diffs`: whenever a fix
     # commit follows the implementation, its hunks are what the card shows.
     fixed_by = fix_commit(points, root)
+    # Every commit of the fix range named, and what `review-commits.py` doubted about it,
+    # for the pile's intro (`pile_intro`) and the block under the pile.
+    commits = fix_commits(points, root, fixed_by)
+    repo = github_blob_base(Path(root))
+    points["fixCommits"] = commits
+    points["fixCommitsHtml"] = fix_commits_html(
+        commits, repo, points.get("source") or "review-points.md")
+    points["fixWarnings"] = review_commits_warnings(out_dir, commits)
     fixes = [f for f in spec.get("autofixes") or [] if isinstance(f, dict)
              and (f.get("diffs") or (fixed_by and f.get("refs")))]
     if not fixes:
@@ -1822,8 +2105,10 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
     for (base, head), items in groups.items():
         listed = _git_out(root, "diff", "--name-only", "--no-renames", base,
                           *([head] if head else [])) or ""
+        generated = set(generated_in(root, base, head))
         files = [p for p in listed.splitlines()
-                 if p and p not in skip and Path(p).name not in FIX_BOOKKEEPING]
+                 if p and p not in skip and Path(p).name not in FIX_BOOKKEEPING
+                 and p not in generated]
         owned: list[dict[str, list[int]]] = [{} for _ in items]
         # A hunk two cards' lines both sit on is drawn ONCE, under the first of them, with
         # every title it serves; the others say where it is (eval run 8 drew one +25 spec
@@ -1884,19 +2169,31 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
                 f["snippets"] = [s for s in f["snippets"]
                                  if _ref_spans(str(s.get("ref", "")))[0] not in drawn]
             f["diffs"] = []
+        rng = (f"<code>{html.escape(base[:8])}..{html.escape(head[:8])}</code>" if head
+               else f"<code>{html.escape(base[:8])}</code>..the working tree")
+        which = "fix commits" if len(commits) > 1 else "fix commit"
         if unowned:
-            rng = (f"<code>{html.escape(base[:8])}..{html.escape(head[:8])}</code>" if head
-                   else f"<code>{html.escape(base[:8])}</code>..the working tree")
+            # Folded, with its count on the fold: what no card reaches is mostly mechanical
+            # churn a card already summarises (run 10's eleven toBe → toHaveSize hunks), and
+            # drawn open it was the longest thing on the tab. Still one click from the page.
             n = sum(len(v) for v in unowned.values())
+            nf = len(unowned)
             other_html.append(
-                '<div class="fixother">'
-                f'<p class="fixother-h"><b>Other changes in the fix commit</b> · {rng}: '
-                f'{n} hunk{"" if n == 1 else "s"} no card\'s <code>file:line</code> reaches '
-                f'(within {FIX_HUNK_REACH} lines), shown so nothing the fixes changed is '
-                'off the page.</p>'
+                '<details class="fixother">'
+                f'<summary class="fixother-h"><b>Other changes in the {which}</b> · {rng}: '
+                f'{n} hunk{"" if n == 1 else "s"} in {nf} file{"" if nf == 1 else "s"} no '
+                f'card\'s <code>file:line</code> reaches (within {FIX_HUNK_REACH} lines) — '
+                'folded, open to read them.</summary>'
                 + "".join(diff_html(p, base, root, None, head, hunks=v)
                           for p, v in unowned.items())
-                + '</div>')
+                + '</details>')
+        gen = sorted(p for p in listed.splitlines() if p in generated)
+        if gen:
+            k = len(gen)
+            other_html.append(
+                f'<p class="fixother-gen sub" data-tip="{html.escape(", ".join(gen))}">'
+                f'{k} generated file{"" if k == 1 else "s"} re-recorded in the {which} '
+                f'({rng}) — regenerated output, not a fix, so not drawn.</p>')
     if other_html:
         points["fixOther"] = "".join(other_html)
 
@@ -1996,6 +2293,190 @@ def reanchor_refs(spec: dict, out_dir: Path, root: Path | None = None) -> None:
                     if not (s.get("ref") in moved and moved[s.get("ref")] is None)]
             if notes:
                 item["_anchorNotes"] = notes
+
+
+# --------------------------------------------------------------------------- #
+# A reason that cites the spec, linked to the line it cites
+# --------------------------------------------------------------------------- #
+
+#: The OpenSpec documents a reason may cite by name, inside `openspec/changes/<change>/`.
+SPEC_DOCS = ("design.md", "proposal.md", "tasks.md")
+#: The planning Q&A, at the repository root or beside the change's documents.
+QA_DOC = "Q&A.md"
+#: Which fields of an item are prose a citation can sit in.
+CITING_FIELDS = ("why", "observation", "body", "alternative", "fix")
+#: How much of the cited text the hover quotes.
+CITE_QUOTE = 220
+
+_CITE = re.compile(
+    r"(?P<doc>(?:[\w.-]+/)*(?:design|proposal|tasks)\.md)(?::(?P<line>\d+))?"
+    r"(?:\s+(?P<sec>Decision\s+\d+|Risks(?:\s*/\s*Trade-offs)?|Goals(?:\s*/\s*Non-Goals)?"
+    r"|Non-Goals|Context|Migration Plan))?"
+    r"|(?P<qa>Q&(?:amp;)?A\.md)(?::(?P<qaline>\d+))?"
+    r"|\b(?P<task>[Tt]asks?\s+(?P<taskno>\d+\.\d+))\b"
+    r"|\bQ(?P<q>\d+)(?:\s*(?:–|&#x2013;|&ndash;|-)\s*Q?(?P<q2>\d+))?\b")
+#: What a citation is never looked for inside: code, an existing link, a tag.
+_CITE_GUARD = re.compile(r"(<code\b.*?</code>|<a\b.*?</a>|<[^>]+>)", re.S)
+
+
+def _spec_change_dir(root: Path, spec) -> str | None:
+    """`openspec/changes/<change>` — the change this branch was built against: the one
+    directory there (outside `archive/`) carrying a design, proposal or tasks file; with
+    several, the one the branch itself committed to."""
+    base = Path(root) / "openspec" / "changes"
+    if not base.is_dir():
+        return None
+    dirs = sorted(d for d in base.iterdir() if d.is_dir() and d.name != "archive"
+                  and any((d / n).is_file() for n in SPEC_DOCS))
+    if len(dirs) <= 1:
+        return f"openspec/changes/{dirs[0].name}" if dirs else None
+    base_ref = _base_ref(spec, root)
+    mb = _git_out(root, "merge-base", base_ref, "HEAD") if base_ref else None
+    touched = _git_out(root, "diff", "--name-only", f"{mb}..HEAD", "--",
+                       "openspec/changes") if mb else ""
+    hit = [d for d in dirs if f"openspec/changes/{d.name}/" in (touched or "")]
+    return f"openspec/changes/{hit[0].name}" if len(hit) == 1 else None
+
+
+def _doc_lines(root: Path, rel: str) -> list[str]:
+    try:
+        return (Path(root) / rel).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+
+
+def _cited_quote(lines: list[str], line: int) -> str:
+    """The cited line, markdown marks dropped, plus the next line of prose when the cited
+    one is a heading — `### 3. New indexes…` alone says what, not what was decided."""
+    def clean(s: str) -> str:
+        return re.sub(r"^\s*(?:#+|[-*]\s*(?:\[[ xX]\]\s*)?)\s*", "", s).strip()
+    if not (1 <= line <= len(lines)):
+        return ""
+    said = clean(lines[line - 1])
+    if lines[line - 1].lstrip().startswith("#"):
+        nxt = next((ln for ln in lines[line:line + 6] if ln.strip()
+                    and not ln.lstrip().startswith("#")), "")
+        if nxt:
+            said += " — " + clean(nxt)
+    said = re.sub(r"[*`]", "", said)
+    return said if len(said) <= CITE_QUOTE else said[:CITE_QUOTE].rsplit(" ", 1)[0] + "…"
+
+
+def _find_line(lines: list[str], pattern: str, after: str | None = None) -> int | None:
+    start = 0
+    if after:
+        start = next((i for i, ln in enumerate(lines) if re.match(after, ln)), 0)
+    rx = re.compile(pattern)
+    return next((i + 1 for i, ln in enumerate(lines[start:], start) if rx.search(ln)), None)
+
+
+def _resolve_citation(m: re.Match, root: Path, change: str | None,
+                      qa: str | None) -> tuple[str, int | None, str] | None:
+    """`(path, line or None, what the hover says)` for one citation, or None when the
+    repository has nothing it could mean."""
+    if m["doc"]:
+        name = Path(m["doc"]).name
+        rel = m["doc"] if "/" in m["doc"] and (Path(root) / m["doc"]).is_file() else (
+            f"{change}/{name}" if change else None)
+        if not rel or not (Path(root) / rel).is_file():
+            return None
+        lines = _doc_lines(root, rel)
+        line = int(m["line"]) if m["line"] else None
+        sec = m["sec"] or ""
+        if line is None and sec.startswith("Decision"):
+            n = sec.split()[-1]
+            line = _find_line(lines, rf"^#+\s*(?:Decision\s+)?{n}[.:)]\s", r"^##\s+Decisions")
+        elif line is None and sec:
+            line = _find_line(lines, rf"^#+\s*{re.escape(sec.split()[0])}")
+        return rel, line, (_cited_quote(lines, line) if line else
+                           "the reason names the document, not a line in it")
+    if m["qa"]:
+        if not qa:
+            return None
+        line = int(m["qaline"]) if m["qaline"] else None
+        lines = _doc_lines(root, qa)
+        return qa, line, (_cited_quote(lines, line) if line else
+                          "the reason names the document, not a line in it")
+    if m["task"]:
+        rel = f"{change}/tasks.md" if change else None
+        if not rel or not (Path(root) / rel).is_file():
+            return None
+        lines = _doc_lines(root, rel)
+        line = _find_line(lines, rf"^\s*(?:[-*]\s*(?:\[[ xX]\]\s*)?|#+\s*){re.escape(m['taskno'])}\b")
+        return (rel, line, _cited_quote(lines, line)) if line else None
+    if m["q"] and qa:
+        lines = _doc_lines(root, qa)
+        line = _find_line(lines, rf"^#+\s*Q{m['q']}\b")
+        if not line:
+            return None
+        quote = _cited_quote(lines, line)
+        if m["q2"]:
+            last = _find_line(lines, rf"^#+\s*Q{m['q2']}\b")
+            if last:
+                quote += f" … through Q{m['q2']}: {_cited_quote(lines, last)}"
+        return qa, line, quote
+    return None
+
+
+def link_spec_citations(spec: dict, out_dir: Path, root: Path | None = None) -> int:
+    """Every `design.md Decision 3`, `task 2.1`, `Q3`, `Q&A.md:28` in an item's prose,
+    turned into a link to the line it cites — the editor and GitHub at HEAD — with that
+    line quoted on hover. Returns how many were linked.
+
+    Eval run 10: open issues were dismissed with "design.md decided to surface it",
+    "design.md Decision 3 and task 2.1 specify them", "Q3 decided by the human" — and the
+    page had no link to any of those documents, so no reason could be checked from it.
+    Only what the repository has is linked; a bare document name links the file and its
+    hover says no line was cited, which is the thing `/record-review` now asks for."""
+    root = root if root is not None else _git_root(out_dir)
+    if root is None:
+        return 0
+    change = _spec_change_dir(root, spec)
+    qa = next((r for r in ([f"{change}/{QA_DOC}"] if change else []) + [QA_DOC]
+               if (Path(root) / r).is_file()), None)
+    if not change and not qa:
+        return 0
+    gh = github_blob_base(Path(root))
+    head = _git_out(root, "rev-parse", "HEAD") if gh else None
+    linked = 0
+
+    def link(m: re.Match) -> str:
+        nonlocal linked
+        got = _resolve_citation(m, root, change, qa)
+        if not got:
+            return m.group(0)
+        rel, line, quote = got
+        at = f"{rel}:{line}" if line else rel
+        tip = html.escape(f"{at} — {quote}" if quote else at, quote=True)
+        vs = f"vscode://file/{(Path(root) / rel).resolve()}" + (f":{line}:1" if line else "")
+        out = (f'<a class="specref" href="{html.escape(vs, quote=True)}" data-tip="{tip}">'
+               f'{m.group(0)}</a>')
+        if gh and head:
+            web = f"{gh}/blob/{head}/{urllib_quote(rel)}" + (f"#L{line}" if line else "")
+            out += (f'<a class="specref-gh" href="{html.escape(web, quote=True)}" '
+                    f'target="_blank" rel="noopener" data-tip="{html.escape(at)} on GitHub, '
+                    f'at {head[:8]}">↗</a>')
+        linked += 1
+        return out
+
+    for kind in POINTS_PILES:
+        for item in spec.get(kind) or []:
+            if not isinstance(item, dict):
+                continue
+            for key in CITING_FIELDS:
+                text = item.get(key)
+                if not isinstance(text, str) or not text:
+                    continue
+                parts = _CITE_GUARD.split(text)
+                item[key] = "".join(p if i % 2 else _CITE.sub(link, p)
+                                    for i, p in enumerate(parts))
+    return linked
+
+
+def urllib_quote(rel: str) -> str:
+    """A repository path as a URL path: `Q&A.md` → `Q%26A.md`, slashes kept."""
+    import urllib.parse
+    return urllib.parse.quote(rel, safe="/")
 
 
 def _anchor_note(f) -> str:

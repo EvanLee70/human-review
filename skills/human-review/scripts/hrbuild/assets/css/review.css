@@ -99,6 +99,17 @@ ol.findings > li.fixed .f-title { font-weight:600; }
   ol.findings > li.n-assumed { --num-bg:#8b6fd4; border-left-color:#8b6fd4; }
 }
 ol.findings > li.n-assumed { --num-bg:#5b3fa8; border-left:3px solid #5b3fa8; }
+/* The refuted claims: their own small pile under the open one, unnumbered (the numbers
+   count what is open), receding like the fixed pile, with a REFUTED badge of their own
+   rather than the open pile's CONTEXT. Eval run 10 drew them as cards 11–13 of `10 open`. */
+.refuted-h { font-size:1rem; margin:1.4rem 0 .2rem; color:var(--muted); }
+.refuted-intro { margin:0 0 .4rem; }
+ul.findings.refuted { list-style:none; padding:0; margin:.4rem 0 1rem; }
+ul.findings.refuted > li { background:var(--code-bg); border:1px dashed var(--line);
+                    border-radius:8px; padding:.7rem 1rem; margin:.5rem 0; }
+.sev-refuted { background:#eceef1; color:#4b5563; border:1px solid #c9ced6; }
+@media (prefers-color-scheme: dark) {
+  .sev-refuted { background:#24282e; color:#9aa3af; border-color:#3a4049; } }
 /* The road not taken, which is what makes an assumption checkable at a glance: the reader
    recognises their own intent in one of the two readings without opening anything. */
 .f-alt { color:var(--muted); font-size:.9rem; margin:.35rem 0 0; }
@@ -170,6 +181,19 @@ a.f-src:hover, a.f-src:focus-visible { color:var(--link); border-color:var(--lin
             border-radius:8px; }
 .fixother-h { margin:0 0 .2rem; color:var(--muted); font-size:.88rem; }
 .fixother-h b { color:var(--fg); }
+/* Folded by default (eval run 10: open, it was the longest thing on the tab); the count
+   on the fold says how much is behind it. */
+details.fixother > summary.fixother-h { cursor:pointer; margin:0; }
+details.fixother[open] > summary.fixother-h { margin-bottom:.4rem; }
+.fixother-gen { margin:.5rem 0 0; font-size:.86rem; cursor:help; }
+.fixwarn { color:var(--drift); }
+/* A reason's citation of the spec (`design.md Decision 3`, `Q3`): the phrase opens the line
+   in the editor and quotes it on hover; the arrow opens it on GitHub at HEAD. */
+a.specref { color:inherit; text-decoration:underline dotted; text-underline-offset:2px;
+            cursor:help; }
+a.specref:hover, a.specref:focus-visible { color:var(--link); }
+a.specref-gh { font-size:.8em; margin-left:.12em; text-decoration:none; color:var(--muted); }
+a.specref-gh:hover, a.specref-gh:focus-visible { color:var(--link); }
 /* A fix-commit hunk two Fixed cards share: drawn once, under the first, captioned with both
    titles; the other card carries only the pointer. */
 .fixshared { margin:.45rem 0 .2rem; color:var(--muted); font-size:.86rem; }

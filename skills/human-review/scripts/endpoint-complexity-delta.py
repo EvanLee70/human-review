@@ -9,8 +9,9 @@ two of its JSON snapshots and renders the full ranked list, grouped by kind — 
 called out, untouched rows kept for scale, because "+3" only means something next to the
 numbers it is standing among.
 
-Colour reads as authorship, not as judgement: green is what the branch ADDED, red is what
-it REMOVED.
+Colour reads as authorship, not as judgement: green is what the branch ADDED; what it
+REMOVED is a neutral slate ghost of the old length, badged "simpler" in words. It used to be
+red, and eval run 10's judges read a shorter flow drawn in alarm red as an alarm.
 
 Take the two snapshots at the merge-base and at HEAD:
     endpoint-complexity.py --base origin/main --out before.json
@@ -407,7 +408,7 @@ def _path_cell(r) -> str:
 TIP_BASELINE = ("{baseline} on {base} before this branch. Measured, not estimated — the "
                 "same extractor read the merge-base's own source for this number.")
 TIP_UP = "+{delta} added by this branch — {baseline} → {total}."
-TIP_DOWN = "−{delta} removed by this branch — {baseline} → {total}."
+TIP_DOWN = "−{delta}: this branch made the flow simpler — {baseline} → {total}."
 TIP_BAR = ("Whole-flow complexity behind this entry point: {baseline} on {base} "
            "→ {total} on this branch.")
 TIP_SAME = ("Unchanged at {total} — this branch did not touch this flow. Measured, not "
@@ -439,8 +440,8 @@ def _row(cls, head: str, why: str, key: str = "") -> str:
 
 def render_row(r, peak, base) -> str:
     if r.get("gone"):
-        # The branch deleted this entry point. Red for the whole width it used to occupy —
-        # the same "red is what the branch removed" convention as everywhere else.
+        # The branch deleted this entry point. A ghost for the whole width it used to
+        # occupy — the same "slate is what the branch removed" convention as everywhere else.
         was = r["was"] or 0
         gone_tip = TIP_GONE.format(baseline=was, base=base)
         # No fold: there is no branch code left to break down. A row whose flow the branch
@@ -460,11 +461,13 @@ def render_row(r, peak, base) -> str:
     elif r["delta"] > 0:
         badge, cls = f'+{r["delta"]}', "cx-up"
     elif r["delta"] < 0:
-        badge, cls = str(r["delta"]), "cx-down"
+        # A typographic minus and the word: "-5" alone, in the removed colour, was read as
+        # a warning. The row says what happened to the flow, not just by how much.
+        badge, cls = f'−{-r["delta"]}<small> simpler</small>', "cx-down"
     else:
         badge, cls = "", "cx-same"
     # The delta rides on the *end* of the bar, so the eye reads "this much of this bar the
-    # branch added" (green) or "this much it removed" (red), instead of subtracting two numbers.
+    # branch added" (green) or "this much it removed" (a slate ghost), instead of subtracting two numbers.
     # A growth splits the current bar; a shrink hangs the lost part off its end; a brand-new
     # entry point is added whole.
     delta = r["delta"] or 0
@@ -618,12 +621,13 @@ TOGGLE_JS = """<script>
 
 
 CSS = """
-/* Green = complexity this branch ADDED, red = complexity it REMOVED: the colour names the
-    author of the change, it is not a verdict on whether growing is bad. */
+/* Green = complexity this branch ADDED; what it REMOVED is a neutral slate ghost, never red:
+    the colour names the author of the change, it is not a verdict — and a simpler flow
+    painted in alarm red read as an alarm. */
 .cx-title { margin:0 0 .15rem; font-size:1.15rem; font-weight:600; }
 .cx-title a { color:var(--link); }
-.cx-lede { color:var(--muted); font-size:.92rem; --cx-added:#2e9e5b; --cx-removed:#c62828; }
-.cx-group { --cx-added:#2e9e5b; --cx-removed:#c62828; }
+.cx-lede { color:var(--muted); font-size:.92rem; --cx-added:#2e9e5b; --cx-removed:#5b6b8c; }
+.cx-group { --cx-added:#2e9e5b; --cx-removed:#5b6b8c; }
 .cx-group + .cx-group { margin-top:1.1rem; }
 .cx-kind { font:600 11px/1 system-ui,sans-serif; text-transform:uppercase; letter-spacing:.07em;
             color:var(--muted); margin:0 0 .35rem .15rem; }
@@ -643,7 +647,7 @@ CSS = """
     one: at 3.6rem + .55rem a `GET` sat 46px from its own path and read as two columns of
     unrelated things. The caret column in front is the fold's second handle, next to the
     word a reader looks at first. */
-.cx-head { display:grid; grid-template-columns:1.1rem 2.45rem minmax(9rem,17rem) 1fr 2.6rem 2.2rem;
+.cx-head { display:grid; grid-template-columns:1.1rem 2.45rem minmax(9rem,17rem) 1fr 4.4rem 2.2rem;
           align-items:center; gap:.4rem; padding:.3rem .8rem .3rem .5rem; font-size:.84rem;
           cursor:default; list-style:none; }
 /* The full-size triangles (U+25B6/U+25BC, forced to text with U+FE0E so macOS does not
@@ -707,9 +711,14 @@ details.cx-row .cx-bar { padding:7px 0; margin:-7px 0; box-sizing:content-box; }
 .cx-bar i { background:#c9c9d4; border-radius:5px 0 0 5px; }
 .cx-bar u { border-radius:0 5px 5px 0; }
 .cx-up .cx-bar u { background:var(--cx-added); }
-.cx-down .cx-bar u { background:var(--cx-removed); }
+/* What the branch took away hangs off the bar's end as an outline of the old length — a
+    ghost, lightly filled — so it reads as "no longer there", not as something on fire. */
+.cx-down .cx-bar u { background:color-mix(in srgb, var(--cx-removed) 22%, transparent);
+    box-shadow:inset 0 0 0 1.5px var(--cx-removed); }
+.cx-badge small { font:600 10px/1 system-ui,sans-serif; }
 .cx-same .cx-bar i { border-radius:5px; }
-.cx-badge { font:700 11px/1 ui-monospace,Menlo,monospace; text-align:right; color:var(--muted); }
+.cx-badge { font:700 11px/1 ui-monospace,Menlo,monospace; text-align:right; color:var(--muted);
+    white-space:nowrap; }
 .cx-up .cx-badge, .cx-up.cx-key { color:var(--cx-added); }
 .cx-down .cx-badge, .cx-down.cx-key { color:var(--cx-removed); }
 .cx-n { font:600 12px/1 ui-monospace,Menlo,monospace; text-align:right; }
@@ -863,7 +872,7 @@ a.cg-go:hover { background:var(--link); color:var(--card); }
 a.cx-why-new code { color:var(--cx-added); }
 a.cx-why-new .cx-why-inc { color:var(--cx-added); }
 @media (prefers-color-scheme: dark) {
-  .cx-lede, .cx-group { --cx-added:#4ec27f; --cx-removed:#ef6a6a; }
+  .cx-lede, .cx-group { --cx-added:#4ec27f; --cx-removed:#9fb0d0; }
   .cx-bar i { background:#3d3d4a; }
   /* The verb is the only coloured *text* on the row, and the light palette was never
      re-themed for dark: #2e7d32 on --card is 3.3:1 and #1565c0 is 2.9:1, so forty-three

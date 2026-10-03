@@ -348,10 +348,19 @@ def _real_prompt(rec: dict) -> bool:
 def claude_turn_bounds(session: str | None, t) -> tuple:
     """`(start, end)` of the turn of `session` that was running at `t`: from the prompt
     that opened it to the last record before the next prompt. `(None, None)` when the
-    transcript is gone or `t` is before its first prompt.
+    transcript is gone, `t` is before its first prompt, or the last turn before `t` had
+    already ended by `t` — the conversation was idle then, or over, and no turn of it was
+    running.
 
     The boundary a stamp cannot give: `lastCiAt` is written when `ci` *starts*, `.started`
-    when Step 2 runs, and the model's work on either goes on until its turn ends."""
+    when Step 2 runs, and the model's work on either goes on until its turn ends.
+
+    The idle case is the one that billed the reference page twice. Its `.session` names the
+    conversation that wrote, reviewed and fixed the change (18:18 → 18:40 UTC, one prompt);
+    the page's run started at 19:59, in another conversation. "The turn running at 19:59"
+    came back as that whole conversation, from its only prompt, and "this guide" billed all
+    $38.15 of it a second time on top of the three rows that had already paid for it:
+    $75.23 where the change cost $37.48."""
     t = parse(t)
     path = rc().transcript(session) if session and t else None
     if path is None:
@@ -369,6 +378,8 @@ def claude_turn_bounds(session: str | None, t) -> tuple:
                 break
         if start is not None and when >= start:
             end = when
+    if end is not None and end < t:
+        return None, None
     return start, end
 
 
@@ -904,9 +915,17 @@ def extend_to_last_round(root: Path, base: str, rec: dict) -> dict:
     again = record(root, state.get("base") or base,
                    {**state, "finishes": rec.get("rounds") or []},
                    rec.get("harness") or "", at=end)
+    was = next((c for c in rec.get("components") or []
+                if isinstance(c, dict) and c.get("key") == "autofix"), None)
     for c in again["components"]:
         if c["key"] == "autofix":
             c["source"] = "recorded, extended to the last CI round at build"
+            # What the committed record said, kept beside the new figure: eval run 10's row
+            # read $2.26 / 7.7M where `review-cost.json` says $1.97 / 6.5M, and nothing on
+            # the page said why. The cost tab prints the difference on the row.
+            if was and was.get("measured"):
+                c["recorded"] = {k: was.get(k) for k in ("usd", "aic", "tokens", "window")}
+                c["extendedTo"] = iso(end)
     return {**rec, "components": [rec["components"][0], *again["components"][1:]],
             "extendedTo": iso(end)}
 
@@ -1501,6 +1520,48 @@ def _guide_from_phases(phases: dict | None) -> dict | None:
 
 # ----------------------------------------------------------------------------- the page
 
+def without_paid_turns(guide: dict, first3: list[dict]) -> dict:
+    """The guide row, less any turn of a Claude conversation that rows 1–3 already billed.
+
+    The four rows are added up into one total, so they must not overlap — and the guide's
+    window is drawn from a stamp (`.started`) and a session id (`.session`) that nothing
+    ties to the windows of the rows above it. The reference page's guide row read the
+    implementing conversation from its first prompt and billed $38.15 of it twice ($75.23
+    for a $37.48 change). `claude_turn_bounds` no longer answers an idle conversation, which
+    was the cause; this is the invariant, kept here so no other route can break it: a guide
+    entry for a session that rows 1–3 also bill starts where their last window ends."""
+    paid: dict[str, dt.datetime] = {}
+    for c in first3:
+        for e in (c or {}).get("entries") or []:
+            hi = parse((e.get("window") or [None, None])[-1])
+            if e.get("harness") == CLAUDE and e.get("session") and hi:
+                paid[e["session"]] = max(paid.get(e["session"], hi), hi)
+    out, trimmed = [], []
+    for e in guide.get("entries") or []:
+        lo, hi = (parse(x) for x in ((e.get("window") or [None, None]) + [None])[:2])
+        floor = paid.get(e.get("session")) if e.get("harness") == CLAUDE else None
+        if floor and lo and lo < floor:
+            trimmed.append(e.get("session"))
+            # A second past it: windows are inclusive at both ends and recorded to the
+            # second, so the turn that opened at the floor is the rows' already.
+            again = claude_entry(e["session"], floor + dt.timedelta(seconds=1), hi,
+                                 e.get("what") or "")
+            if again:
+                out.append(again)
+            continue
+        out.append(e)
+    if not trimmed:
+        return guide
+    win = guide.get("window") or [None, None]
+    sid = ", ".join(str(t)[:8] for t in trimmed)
+    return component("guide", out,
+                     f"the run's conversation ({sid}) is the one rows 1–3 already billed, "
+                     "and nothing of it is left after the auto-fixes",
+                     (win[0], win[1]),
+                     (guide.get("source") or "derived")
+                     + ", less the turns the rows above already billed")
+
+
 def components(root: Path, base: str, review: Path, phases: dict | None = None,
                commits: dict | None = None) -> dict:
     """The four rows the `$` tab leads with, and how each was obtained."""
@@ -1532,6 +1593,10 @@ def components(root: Path, base: str, review: Path, phases: dict | None = None,
         if not guide["measured"] and (phases or {}).get("run_session"):
             guide = _guide_from_phases(phases) or guide
         guide["source"] = "derived"
+    kept = without_paid_turns(guide, first3)
+    if kept is not guide and not kept["measured"] and (phases or {}).get("run_session"):
+        kept = _guide_from_phases(phases) or kept
+    guide = kept
     refreshes = (report or {}).get("refreshes") or []
     rows = [relabel(c) for c in list(first3) + [guide]]
     usd = sum(c.get("usd") or 0.0 for c in rows if c.get("measured"))
