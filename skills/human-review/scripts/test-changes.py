@@ -41,10 +41,11 @@ unrelated code sits at that landing line, the page does not link a deleted test 
 carries `baseLine` (its declaration at the base) and, with a GitHub `origin`, `baseUrl` —
 the blob at the base commit — and that is what the page opens.
 
-A test renamed in place (same spot, same tags, mostly the same body, a new title) is one
-`modified` row with `renamedFrom`, not one deleted and one added; see `pair_renames`. One
-rewritten — moved, or retitled over a body of the same shape — is one `modified` row with
-`rewrittenFrom`; see `_rewrites`.
+The key is the test's NAME, and nothing else. A test retitled is one test deleted and one
+added, whatever its body kept: the pairing heuristics that used to fold a rename into one
+`modified` row (same spot, same tags, a similar body) were a guess the reviewer could not
+see, and a wrong guess hid a real deletion behind a pencil. A deleted row links to its
+original at the base commit, so the reader sees both halves and judges the rename.
 
 Usage:
     test-changes.py --base origin/main [path ...] [--out assets/test-changes.json]
@@ -369,241 +370,6 @@ def _row(name: str, rel: str, status: str, line: int | None,
 
 
 # --------------------------------------------------------------------------- #
-# a test that was renamed, not replaced
-# --------------------------------------------------------------------------- #
-# Names are the key above, so a scenario retitled in place — `Searching with an empty last
-# name lists every owner` → `… shows the first page of every owner`, same line, same tag,
-# its last step rewritten — came out as one test gone and one test new. That is two lies
-# on the chip: a test the run never lost, and a test nobody wrote. So the leftovers of
-# the name match get a second, stricter look, and a pair that sits in the same place, wears
-# the same tags and still says mostly the same thing is one test, EDITED.
-#
-# Conservative on purpose. A wrong pairing hides a real deletion behind a pencil, which is
-# worse than the double count it replaces, so every condition has to hold: the same file
-# (by construction), the base declaration landing within RENAME_DRIFT lines of the new one
-# once the diff's own shifts are applied, the same tag/annotation lines above it, and
-# either a similar name over a body that kept something, or a near-identical body of some
-# substance under a new name. Two empty `void x() {}` bodies are similar to everything and
-# prove nothing, so a body has to have RENAME_MIN_BODY real lines before it can carry a
-# pairing on its own. One-to-one, best match first.
-RENAME_DRIFT = 3
-RENAME_NAME_SIM = 0.6
-RENAME_BODY_WITH_NAME = 0.3
-RENAME_BODY_ALONE = 0.8
-RENAME_MIN_BODY = 3
-RENAME_BODY_MAX = 40
-
-
-def _old_to_new(old: int, added: set[int], removed: dict[int, int]) -> int:
-    """Where base line `old` sits in the working tree: its removal's landing place if the
-    diff took it out, otherwise shifted by every removal before it and every addition
-    before where it lands."""
-    if old in removed:
-        return removed[old]
-    new = old - sum(1 for r in removed if r < old)
-    while True:
-        moved = old - sum(1 for r in removed if r < old) + sum(1 for a in added if a <= new)
-        if moved == new:
-            return new
-        new = moved
-
-
-def _tags_above(lines: list[str], line: int) -> tuple[str, ...]:
-    """The `@…` lines directly over a declaration: Gherkin tags, Java annotations, Python
-    decorators. A test that changed them changed what it is, not just what it is called."""
-    out, i = [], line - 2
-    while i >= 0 and lines[i].strip().startswith("@"):
-        out.append(" ".join(lines[i].split()))
-        i -= 1
-    return tuple(sorted(out))
-
-
-def _body(lines: list[str], line: int, starts: list[int]) -> list[str]:
-    """A declaration's body: the lines after it, up to the next declaration, with the
-    punctuation-only lines (`}`, `});`, blank) left out — they are in every body alike."""
-    end = next((s for s in starts if s > line), len(lines) + 1)
-    end = min(end, line + 1 + RENAME_BODY_MAX)
-    return [" ".join(x.split()) for x in lines[line:end - 1] if re.search(r"\w", x)
-            and not x.lstrip().startswith("@")]
-
-
-def _similar(a, b) -> float:
-    import difflib
-    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio()
-
-
-def pair_renames(rel: str, before: str, after: str, rows: list[dict],
-                 added: set[int], removed: dict[int, int]) -> list[dict]:
-    """`rows` with every rename folded into one `modified` row that names its old title
-    (`renamedFrom`) — the added half keeps its line, the deleted half is dropped."""
-    gone = [r for r in rows if r["status"] == "deleted" and not r.get("silenced")]
-    new = [r for r in rows if r["status"] == "added"]
-    if not gone or not new:
-        return rows
-    b_lines, a_lines = before.splitlines(), after.splitlines()
-    b_cases, a_cases = scan_cases(rel, before), scan_cases(rel, after)
-    b_starts = sorted(ln for ln, _ in b_cases.values())
-    a_starts = sorted(ln for ln, _ in a_cases.values())
-    scored = []
-    for g in gone:
-        old_line = b_cases[g["name"]][0]
-        at = _old_to_new(old_line, added, removed)
-        b_tags, b_body = _tags_above(b_lines, old_line), _body(b_lines, old_line, b_starts)
-        for n in new:
-            if abs(n["line"] - at) > RENAME_DRIFT:
-                continue
-            if _tags_above(a_lines, n["line"]) != b_tags:
-                continue
-            a_body = _body(a_lines, n["line"], a_starts)
-            name = _similar(g["name"].lower(), n["name"].lower())
-            body = _similar(b_body, a_body) if b_body and a_body else 0.0
-            ok = ((name >= RENAME_NAME_SIM and body >= RENAME_BODY_WITH_NAME)
-                  or (body >= RENAME_BODY_ALONE
-                      and min(len(b_body), len(a_body)) >= RENAME_MIN_BODY))
-            if ok:
-                scored.append((name + body, g["name"], n["name"]))
-    pairs = _one_to_one(scored)
-    # What the rename pass left over gets the looser, position-free look of `_rewrites`.
-    rewrites = _one_to_one(_rewrites(
-        rel, [g for g in gone if g["name"] not in pairs.values()],
-        [n for n in new if n["name"] not in pairs], b_lines, a_lines, b_cases, a_cases))
-    if not pairs and not rewrites:
-        return rows
-    was = {r["name"]: r for r in gone}
-    taken_old = set(pairs.values()) | set(rewrites.values())
-    out = []
-    for r in rows:
-        if r["status"] == "deleted" and r["name"] in taken_old:
-            continue
-        if r["status"] == "added" and (r["name"] in pairs or r["name"] in rewrites):
-            renamed = r["name"] in pairs
-            old = was[pairs[r["name"]] if renamed else rewrites[r["name"]]]
-            r = dict(r, status="modified",
-                     **{"renamedFrom" if renamed else "rewrittenFrom": old["name"]})
-            if not renamed and old.get("baseLine"):
-                r["rewrittenFromLine"] = old["baseLine"]
-            if old.get("wasSilenced"):
-                r["wasSilenced"] = old["wasSilenced"]
-        out.append(r)
-    return out
-
-
-def _one_to_one(scored: list[tuple]) -> dict[str, str]:
-    """`{new name: old name}` from `(score, old, new)` candidates, best first, each name
-    used once."""
-    taken_old, taken_new, pairs = set(), set(), {}
-    for _, old, nw in sorted(scored, reverse=True):
-        if old in taken_old or nw in taken_new:
-            continue
-        taken_old.add(old)
-        taken_new.add(nw)
-        pairs[nw] = old
-    return pairs
-
-
-# --------------------------------------------------------------------------- #
-# a test that was rewritten, not replaced
-# --------------------------------------------------------------------------- #
-# Eval run 11: a rename that also moved — `a search is not overwritten by the initial load
-# answering late` became `so a late initial load does not overwrite a search`, sixty lines
-# up, inside a new describe — and a test rewritten under a new name in place — `should
-# return expected owners (called once)` → `lists the first page by name by default, as one
-# typed page`, the same skeleton against the new API — came out as two tests the run lost
-# and two nobody had written, on the −8 and on the +56.
-#
-# So what neither name nor position paired is compared on content alone, still within one
-# file and under the same tags, and a pair has to show it one of two ways:
-#
-#   * the same test said again   — the titles share most of their words (REWRITE_NAME_SIM,
-#                                  at least REWRITE_NAME_MIN of them) and the bodies still
-#                                  share something (REWRITE_BODY_WITH_NAME);
-#   * the same test, renamed     — the bodies share most of their tokens (REWRITE_BODY_SIM)
-#                                  *and* their statement-by-statement shape
-#                                  (REWRITE_SHAPE_SIM), each RENAME_MIN_BODY lines or more.
-#
-# Tokens are the body's identifiers split on case, its numbers and its string literals,
-# without the words every test in every language is made of (`expect`, `const`, `Given`).
-# Shape is each statement with every name and literal blanked out: `x.x().x((x) => x(x).x(x), x)`.
-# Shared vocabulary alone never pairs — two specs of one component share every word.
-REWRITE_NAME_SIM = 0.6
-REWRITE_NAME_MIN = 3
-REWRITE_BODY_WITH_NAME = 0.2
-REWRITE_BODY_SIM = 0.6
-REWRITE_SHAPE_SIM = 0.6
-_REWRITE_STOP = frozenset("""
-a an the and or but not no to of in on at by for with as is are be it its this that so
-do does did should must will can when then given i we
-const let var new return void public private protected final static async await function
-expect assert assertthat to tobe toequal fixture detectchanges it test describe
-""".split())
-
-
-def _body_tokens(body: list[str]) -> list[str]:
-    out = []
-    for line in body:
-        for m in re.finditer(r"'[^']*'|\"[^\"]*\"|`[^`]*`|[A-Za-z_$][\w$]*|\d+", line):
-            w = m.group(0)
-            if w[0] in "'\"`":
-                out.append(w.lower())
-                continue
-            for p in re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", w):
-                if p.lower() not in _REWRITE_STOP:
-                    out.append(p.lower())
-    return out
-
-
-def _shape(line: str) -> str:
-    line = re.sub(r"'[^']*'|\"[^\"]*\"|`[^`]*`", "s", line)
-    return re.sub(r"\s+", "", re.sub(r"[A-Za-z_$][\w$]*|\d+", "x", line))
-
-
-def _title_words(name: str) -> set[str]:
-    """A title's words, a crude stem each (its first five letters): `overwritten` and
-    `overwrite` are one word, `search` and `searching` too."""
-    words = re.findall(r"[A-Za-z]+", re.sub(r"([a-z])([A-Z])", r"\1 \2", name))
-    return {w.lower()[:5] for w in words if w.lower() not in _REWRITE_STOP}
-
-
-def _rewrites(rel: str, gone: list[dict], new: list[dict], b_lines: list[str],
-              a_lines: list[str], b_cases: dict, a_cases: dict) -> list[tuple]:
-    """`(score, old name, new name)` for every pair that reads as one test rewritten."""
-    if not gone or not new:
-        return []
-    b_spans = _spans(rel, "\n".join(b_lines), b_cases)
-    a_spans = _spans(rel, "\n".join(a_lines), a_cases)
-
-    def body(lines, spans, cases, name):
-        _, last = spans[name]
-        return [" ".join(x.split()) for x in lines[cases[name][0]:last]
-                if re.search(r"\w", x) and not _TRAILING.match(x)]
-
-    out = []
-    for g in gone:
-        b_body = body(b_lines, b_spans, b_cases, g["name"])
-        b_tags = _tags_above(b_lines, b_cases[g["name"]][0])
-        b_words = _title_words(g["name"])
-        for n in new:
-            if _tags_above(a_lines, n["line"]) != b_tags:
-                continue
-            a_body = body(a_lines, a_spans, a_cases, n["name"])
-            if not b_body or not a_body:
-                continue
-            tokens = _similar(_body_tokens(b_body), _body_tokens(a_body))
-            a_words = _title_words(n["name"])
-            both = len(b_words & a_words)
-            name = both / max(1, len(b_words | a_words))
-            said_again = (name >= REWRITE_NAME_SIM and both >= REWRITE_NAME_MIN
-                          and tokens >= REWRITE_BODY_WITH_NAME)
-            renamed = (tokens >= REWRITE_BODY_SIM
-                       and min(len(b_body), len(a_body)) >= RENAME_MIN_BODY
-                       and _similar([_shape(x) for x in b_body],
-                                    [_shape(x) for x in a_body]) >= REWRITE_SHAPE_SIM)
-            if said_again or renamed:
-                out.append((name + tokens, g["name"], n["name"]))
-    return out
-
-
-# --------------------------------------------------------------------------- #
 # where a test case's own lines end
 # --------------------------------------------------------------------------- #
 # "Modified" means the diff touched a line of the test's own: its tags or annotations, its
@@ -695,10 +461,10 @@ def _removed_within(span: tuple[int, int] | None, removed: dict[int, int]) -> bo
 # which *directly* calls a function declared in the same file whose body the diff touched
 # is `modified` too, carrying `viaHelper` — which helper, where, and how much of it moved.
 #
-# Conservative on purpose, the same way `pair_renames` is: same file only, a call written
-# in the test's own lines only (`helper(`, `this.helper(`, `self.helper(` — not a method
-# reference, not a helper reached through another helper, not a `@BeforeEach` nobody calls
-# by name), and the helper must be a declaration outside every test's own lines.
+# Conservative on purpose: same file only, a call written in the test's own lines only
+# (`helper(`, `this.helper(`, `self.helper(` — not a method reference, not a helper reached
+# through another helper, not a `@BeforeEach` nobody calls by name), and the helper must
+# be a declaration outside every test's own lines.
 _NOT_A_DECL = frozenset(("return", "new", "else", "throw", "if", "for", "while", "switch",
                          "catch", "synchronized", "do", "try", "case", "assert", "yield",
                          "await"))
@@ -868,8 +634,6 @@ def classify_file(rel: str, status: str, before: str | None, after: str | None,
             row["gone"] = True
             row["line"] = None
         rows.append(row)
-    if before is not None and after is not None:
-        rows = pair_renames(rel, before, after, rows, added, removed)
     return rows
 
 
@@ -889,14 +653,11 @@ def totals(rows: list[dict]) -> dict:
     are worse than no chip."""
     t = dict.fromkeys(("added", "modified", "deleted", "unchanged", "commented",
                        "disabled", "reenabled", "runningBefore", "runningAfter",
-                       "gained", "lost", "renamed", "rewritten", "viaHelper"), 0)
+                       "gained", "lost", "viaHelper"), 0)
     for r in rows:
         t[r["status"]] += 1
-        # A rename is one of the `modified`: the run kept the test under a new title.
-        t["renamed"] += bool(r.get("renamedFrom"))
-        # …and so is a test rewritten under a new title, or moved (`_rewrites`).
-        t["rewritten"] += bool(r.get("rewrittenFrom"))
-        # So is a test edited only through a same-file helper it calls (`helpers_called`).
+        # One of the `modified`: edited only through a same-file helper it calls
+        # (`helpers_called`).
         t["viaHelper"] += bool(r.get("viaHelper"))
         ran_before = r["status"] != "added" and not r.get("wasSilenced")
         runs_now = r["status"] != "deleted" and not r.get("silenced")
@@ -993,8 +754,7 @@ def main(argv=None) -> int:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(text, encoding="utf-8")
         detail = ", ".join(f"{t[k]} {k}" for k in
-                           ("added", "modified", "renamed", "rewritten", "viaHelper", "deleted",
-                            "commented",
+                           ("added", "modified", "viaHelper", "deleted", "commented",
                             "disabled", "reenabled")
                            if t[k])
         print(f"[test-changes] {len(rows)} test cases in changed test files -> {args.out}"

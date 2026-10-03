@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -231,15 +232,16 @@ def test_a_test_the_branch_wrote_that_ran_no_changed_line_is_still_listed(tmp_pa
     doc = json.loads((review / "assets" / "test-changes.json").read_text(encoding="utf-8"))
     doc["tests"] += [{"name": "freshDatabase", "path": "test/MigrationTest.java", "line": 3,
                       "status": "added"},
-                     {"name": "gone", "path": "test/GoneTest.java", "line": 3,
-                      "status": "deleted"}]
+                     {"name": "gone", "path": "test/GoneTest.java", "line": None,
+                      "baseLine": 3, "status": "deleted", "gone": True}]
     (review / "assets" / "test-changes.json").write_text(json.dumps(doc), encoding="utf-8")
     rows, measured = S.covering_tests(S._spec(review), review, root)
     assert measured
     assert [r["id"] for r in rows] == ["test/VisitTest.java:3", "test/VisitTest.java:8",
-                                       "test/MigrationTest.java:3"], \
-        "the measured ones first; a deleted test has no run to place"
-    extra = rows[-1]
+                                       "test/MigrationTest.java:3",
+                                       "test/GoneTest.java:3@base"], \
+        "the measured ones first, then the unmeasured, then the deleted"
+    extra = rows[-2]
     assert extra["status"] == "new" and extra["unmeasured"] and extra["hits"] == {}
     assert S.test_rank(extra, set()) == 2 and S.test_rank(extra, {extra["id"]}) == 0
     g = S.gather(S._spec(review), review, root)
@@ -783,22 +785,55 @@ def test_every_test_says_why_it_is_listed_and_the_ones_about_the_change_come_fir
     rows["test/VisitTest.java:8"]["aimed"] = False
     paired = {"test/VisitTest.java:3"}
     assert S.test_rank(rows["test/VisitTest.java:3"], paired) == 0
-    assert S.test_rank(rows["test/VisitTest.java:8"], set()) == 4
-    assert S.test_rank({**rows["test/VisitTest.java:8"], "aimed": True}, set()) == 3
+    assert S.test_rank(rows["test/VisitTest.java:8"], set()) == 5
+    assert S.test_rank({**rows["test/VisitTest.java:8"], "aimed": True}, set()) == 4
     assert S.test_rank({**rows["test/VisitTest.java:8"], "status": "new"}, set()) == 1
     assert S.test_rank({**rows["test/VisitTest.java:8"], "status": "new",
                         "unmeasured": True}, set()) == 2
-    assert S.test_why(rows["test/VisitTest.java:3"]) == \
-        "its coverage ran changed lines of Visit.java 3–4"
+    # A deleted test has a group of its own, paired or not: it pins nothing any more.
+    gone = {**rows["test/VisitTest.java:8"], "status": "deleted"}
+    assert S.test_rank(gone, set()) == 3 and S.test_rank(gone, {gone["id"]}) == 3
+    assert S.test_why(rows["test/VisitTest.java:3"]) == "Visit.java:3–4"
     page = S.render(g["ticket"], g["blocks"], g["rows"],
                     S.merge(g["sentences"], g["scripted"], None), root)
     data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
-    assert data["tests"]["test/VisitTest.java:3"]["why"].startswith("its coverage ran")
-    assert set(data["ranks"]) == {"0", "1", "2", "3", "4"}
+    assert data["tests"]["test/VisitTest.java:3"]["why"] == "Visit.java:3–4"
+    assert set(data["ranks"]) == {"0", "1", "2", "3", "4", "5"}
+    assert data["ranks"]["3"] == "Deleted by this branch"
     js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
     assert "rank(a)-rank(b)" in js and "rm-tgroup" in js
-    # Copy pass (3 Oct 2026): the coverage lines stay in the data, out of the stamp's hover.
-    assert "esc(t.why)" not in js
+    # Copy pass (3 Oct 2026): the coverage lines left the stamp's hover…
+    assert "st[1]+(t.via?" in js and "'+esc(t.why)" not in js.split("function stamp")[1] \
+        .split("function ran")[0]
+
+
+def test_why_is_a_few_words_the_busiest_file_first():
+    hits = {"a/Big.java": [1, 2, 3, 7, 9], "b/Mid.java": [4, 5], "c/One.java": [8],
+            "d/Two.java": [8]}
+    assert S.test_why({"hits": hits}) == "Big.java:1–3, 7… +3 files"
+    assert S.test_why({"hits": {"b/Mid.java": [4, 5], "c/One.java": [8]}}) == \
+        "Mid.java:4–5 +1 file"
+    assert S.test_why({"hits": {}}) == "" and S.test_why({}) == ""
+
+
+def test_a_test_whose_coverage_ran_changed_code_wears_the_route_mark(tmp_path):
+    """Proven, not inferred: its own per-test coverage hit a changed line. One glyph, a
+    few words on the hover — which file, which lines (`test_why`). Every row keeps the
+    slot so the marks stand in one column; a row with nothing proven leaves it empty."""
+    root, review = _repo(tmp_path)
+    g = S.gather(S._spec(review), review, root)
+    page = S.render(g["ticket"], g["blocks"], g["rows"],
+                    S.merge(g["sentences"], g["scripted"], None), root)
+    data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
+    assert data["tests"]["test/VisitTest.java:3"]["why"]
+    js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
+    ran = js.split("function ran(t){")[1].split("\n  }")[0]
+    assert "if(!t.why)return '<span class=\"rm-run\" aria-hidden=\"true\"></span>'" in ran
+    assert 'aria-label="runs changed code" data-tip="Runs changed code: \'' in ran
+    assert "+ran(t)+stamp(t)+" in js
+    assert "🤖" not in ran
+    css = (S.ASSETS / "reqmap.css").read_text(encoding="utf-8")
+    assert ".reqmap .rm-run{flex:0 0 15px;" in css
 
 
 def test_the_untouched_and_unpaired_groups_start_folded_behind_a_count(tmp_path):
@@ -811,8 +846,8 @@ def test_the_untouched_and_unpaired_groups_start_folded_behind_a_count(tmp_path)
     page = S.render(g["ticket"], g["blocks"], g["rows"],
                     S.merge(g["sentences"], g["scripted"], None), root)
     data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
-    assert data["fold"] == {"from": 3, "label": "more tests that only pass through changed code"}
-    assert S.FOLD_FROM_RANK == 3, "rank 0 (paired) and 1 (written by the branch) stay open"
+    assert data["fold"] == {"from": 4, "label": "more tests that only pass through changed code"}
+    assert S.FOLD_FROM_RANK == 4, "paired, written by the branch and deleted come first"
     # The branch's own tests that ran no measured changed line fold behind a count of their
     # own, between the two.
     assert data["foldOwn"] == {"from": 2, "to": 3,
@@ -821,12 +856,17 @@ def test_the_untouched_and_unpaired_groups_start_folded_behind_a_count(tmp_path)
     # Folded only when something stays open above; counted on the button; toggled by it.
     assert "rank(id)<F.from" in js and "r>=F.from&&r<to" in js
     assert "f.n+' '" in js and "'hide':'show'" in js
-    assert "mkFold(D.foldOwn,'own','unown'),mkFold(D.fold,'fold','unfold')" in js
+    assert ("mkFold(D.foldOwn,'own','unown'),mkFold(D.foldGone,'del','undel'),\n"
+            "             mkFold(D.fold,'fold','unfold')") in js
     assert "row.dataset[f.mark]='yes'" in js and "g.dataset[f.mark]='yes'" in js
     assert "closest('.rm-fold')" in js
     css = (S.ASSETS / "reqmap.css").read_text(encoding="utf-8")
     assert ".rm-list[data-unfold=no] [data-fold=yes]{display:none}" in css
     assert ".rm-list[data-unown=no] [data-own=yes]{display:none}" in css
+    # The deleted ones: their own group, folded past a few.
+    assert data["foldGone"] == {"from": 3, "to": 4, "label": "deleted tests", "min": 3}
+    assert "if(F.min&&f.n<=F.min)f.n=0;" in js
+    assert ".rm-list[data-undel=no] [data-del=yes]{display:none}" in css
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node is not installed")
@@ -879,24 +919,105 @@ def test_a_long_decision_is_cut_on_the_hover_and_kept_whole_in_the_box():
     assert S.decision_name({}) == ""
 
 
-def test_a_deleted_test_on_an_unmeasured_card_links_to_the_base_commit(tmp_path):
-    """Its HEAD `line` is where the removal landed — unrelated code. The card links the
-    blob at the base commit instead, and says so on the hover."""
+def _with_a_deleted_test(tmp_path, url=None):
+    """`_repo`, under git: the base commit also declares `obsolete()`, which the branch
+    deleted — and the manifest says so, the way `test-changes.py` writes it."""
     root, review = _repo(tmp_path)
-    (review / "assets" / "test-coverage.json").unlink()
-    url = "https://github.com/acme/clinic/blob/abc123/test/VisitTest.java#L20"
+    test = root / "test" / "VisitTest.java"
+    now = test.read_text(encoding="utf-8")
+    before = now.replace("  @Test\n  void owners_areListed", "  @Test\n  void obsolete() {\n"
+                         "    assertThat(legacy()).isTrue();\n  }\n  @Test\n"
+                         "  void owners_areListed")
+    git = lambda *a: subprocess.run(["git", "-C", str(root), *a], check=True,
+                                    capture_output=True, text=True).stdout.strip()
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    test.write_text(before, encoding="utf-8")
+    git("add", "test")
+    git("commit", "-qm", "base")
+    sha = git("rev-parse", "HEAD")
+    test.write_text(now, encoding="utf-8")
     doc = json.loads((review / "assets" / "test-changes.json").read_text())
-    doc["tests"].append({"name": "obsolete", "path": "test/VisitTest.java", "line": 16,
-                         "status": "deleted", "baseLine": 20, "baseUrl": url})
+    row = {"name": "obsolete", "path": "test/VisitTest.java", "line": 12,
+           "status": "deleted", "baseLine": 13, "baseSha": sha}
+    if url:
+        row["baseUrl"] = url
+    doc["tests"].append(row)
     (review / "assets" / "test-changes.json").write_text(json.dumps(doc))
+    return root, review, sha
+
+
+def _card(root, review):
     g = S.gather(S._spec(review), review, root)
     page = S.render(g["ticket"], g["blocks"], g["rows"],
                     S.merge(g["sentences"], g["scripted"], None), root, g["measured"])
-    data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
-    gone = next(t for t in data["tests"].values() if t["title"] == "obsolete")
-    assert gone["status"] == "deleted" and gone["href"] == url
-    assert gone["hrefTip"] == S.DELETED_HREF_TIP and gone["parts"] == []
-    assert "t.hrefTip||'Open in VS Code'" in (S.ASSETS / "reqmap.js").read_text()
+    return g, json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
+
+
+@pytest.mark.parametrize("measured", [True, False])
+def test_a_deleted_test_is_listed_struck_through_and_opens_as_it_was_at_the_base(
+        tmp_path, measured):
+    """Every deleted test is on the card — measured or not — in a group of its own, keyed
+    where it stood at the base (its HEAD `line` is only where the removal landed). On
+    expand it shows its ORIGINAL source, read from the base commit, linked to the blob."""
+    url = "https://github.com/acme/clinic/blob/abc123/test/VisitTest.java#L13"
+    root, review, sha = _with_a_deleted_test(tmp_path, url)
+    if not measured:
+        (review / "assets" / "test-coverage.json").unlink()
+    g, data = _card(root, review)
+    gone = data["tests"]["test/VisitTest.java:13@base"]
+    assert gone["status"] == "deleted" and gone["rank"] == 3
+    assert gone["href"] == url and gone["hrefTip"] == S.DELETED_HREF_TIP
+    assert gone["where"] == "VisitTest.java:13"
+    part, = gone["parts"]
+    assert part["from"] == 12 and part["href"] == url and part["hrefTip"] == S.DELETED_HREF_TIP
+    assert "obsolete" in "".join(part["html"]) and "legacy" in "".join(part["html"])
+    assert data["ranks"]["3"] == "Deleted by this branch"
+    # A deleted test pins nothing: never paired, never offered to the model.
+    asked = S.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"])
+    assert "test/VisitTest.java:13@base" not in {t["id"] for t in asked["tests"]}
+    assert "test/VisitTest.java:13@base" not in g["docs"]
+    js = (S.ASSETS / "reqmap.js").read_text()
+    assert "t.hrefTip||'Open in VS Code'" in js
+    assert "if(t.status==='deleted'&&!t.parts.length)row.dataset.shut='yes';" in js
+    assert "if(row.dataset.shut==='yes')return;" in js
+    css = (S.ASSETS / "reqmap.css").read_text()
+    assert ".rm-t[data-gone=yes] .rm-tt{text-decoration:line-through" in css
+
+
+def test_without_github_a_deleted_test_says_how_to_see_it(tmp_path):
+    """No GitHub remote, no blob URL: the location and the excerpt's bar carry the
+    `git show <base>:<path>` that shows it — never a vscode:// into HEAD."""
+    root, review, sha = _with_a_deleted_test(tmp_path)
+    _, data = _card(root, review)
+    gone = data["tests"]["test/VisitTest.java:13@base"]
+    assert "href" not in gone and gone["goneTip"] == f"git show {sha[:8]}:test/VisitTest.java"
+    part, = gone["parts"]
+    assert part["href"] == "" and part["hrefTip"] == gone["goneTip"]
+    js = (S.ASSETS / "reqmap.js").read_text()
+    assert "esc(t.goneTip||'the file is gone')" in js
+    assert ":'<span class=\"srcref\" data-tip=\"'+tip+'\">'+face+'</span>'" in js
+
+
+def test_a_deleted_test_is_the_kind_of_its_live_siblings():
+    doc = {"base": "abc", "tests": [{"name": "old", "path": "f/o.feature", "line": 9,
+                                     "status": "deleted", "baseLine": 7}]}
+    row, = S.deleted_rows(doc, Path("/nowhere"), [{"file": "f/o.feature", "cat": "e2e"}])
+    assert row["cat"] == "e2e" and row["id"] == "f/o.feature:7@base"
+    assert row["baseRef"] == "abc" and row["line"] == 7
+
+
+def test_a_deleted_test_whose_base_cannot_be_read_stays_listed_and_shut(tmp_path):
+    root, review = _repo(tmp_path)
+    (review / "assets" / "test-coverage.json").unlink()
+    doc = json.loads((review / "assets" / "test-changes.json").read_text())
+    doc["tests"].append({"name": "obsolete", "path": "test/VisitTest.java", "line": 16,
+                         "status": "deleted", "baseLine": 20, "baseSha": "f" * 40})
+    (review / "assets" / "test-changes.json").write_text(json.dumps(doc))
+    _, data = _card(root, review)
+    gone = data["tests"]["test/VisitTest.java:20@base"]
+    assert gone["status"] == "deleted" and gone["parts"] == []
 
 
 # --- the model step, end to end, with `claude` stubbed --------------------------------------

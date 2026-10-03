@@ -271,14 +271,13 @@
 .reqmap .rm-fbadge[data-kind=edited]{--st:var(--rm-o-edge)}
 .reqmap .rm-fbadge[data-kind=unchanged]{--st:var(--muted,#6b6b6b)}
 .reqmap .rm-fbadge svg{display:block;width:15px;height:15px;overflow:visible}
-/* A deleted test has no source in this checkout to quote, so its row does not open: no
-   disclosure arrow, and the name struck through the way the run struck it. It is in this
-   list at all because the alternative was a second list at the foot of the tab, repeating
-   every row above it for the sake of the one kind of row that could not be here. */
-.reqmap .rm-t[data-gone=yes] .rm-thead{cursor:default}
-.reqmap .rm-t[data-gone=yes] .rm-thead:hover{background:none}
+/* A deleted test: the name struck through the way the run struck it. It opens on its
+   source as it was at the base commit (`semcov.py:base_part`); only one whose base could
+   not be read is shut - no disclosure arrow, nothing to press. */
 .reqmap .rm-t[data-gone=yes] .rm-tt{text-decoration:line-through;opacity:.65}
-.reqmap .rm-t[data-gone=yes] .rm-chev{visibility:hidden}
+.reqmap .rm-t[data-shut=yes] .rm-thead{cursor:default}
+.reqmap .rm-t[data-shut=yes] .rm-thead:hover{background:none}
+.reqmap .rm-t[data-shut=yes] .rm-chev{visibility:hidden}
 .reqmap .rm-chev{flex:0 0 auto;font-size:8px;opacity:.55;transition:transform .15s ease}
 .reqmap .rm-t[data-open=yes] .rm-chev{transform:rotate(90deg)}
 .reqmap .rm-t[data-open=yes] .rm-thead{color:var(--fg,#1c1c1c);font-weight:600}
@@ -462,7 +461,7 @@
 /* The covering-tests card, grouped by why a test is on it. */
 .reqmap .rm-tgroup{padding:8px 10px 3px;font-size:11px;font-weight:600;letter-spacing:.04em;
   text-transform:uppercase;color:var(--muted,#6b6b6b);border-bottom:1px solid var(--line,#e2e2e2)}
-.reqmap .rm-tgroup[data-rank="4"]{opacity:.8}
+.reqmap .rm-tgroup[data-rank="5"]{opacity:.8}
 .reqmap .rm-rej{margin:.2em 0 0;padding-left:1.2em;font-size:12.5px}
 .reqmap .rm-rid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
 .reqmap .rm-dec{margin:.2em 0 0;font-size:12.5px;color:var(--muted,#6b6b6b)}
@@ -472,6 +471,7 @@
    to action. */
 .reqmap .rm-list[data-unfold=no] [data-fold=yes]{display:none}
 .reqmap .rm-list[data-unown=no] [data-own=yes]{display:none}
+.reqmap .rm-list[data-undel=no] [data-del=yes]{display:none}
 .reqmap .rm-fold{display:block;width:100%;margin:0;padding:8px 10px;border:0;
   border-bottom:1px solid var(--line,#e2e2e2);background:none;text-align:left;font:inherit;
   font-size:12.5px;color:var(--muted,#6b6b6b);cursor:pointer}
@@ -481,3 +481,15 @@
    padded) opened a gap under the line it sat on. */
 .reqmap .rm-dec a{color:inherit;display:inline;padding:0;line-height:inherit;
   vertical-align:baseline}
+/* Proven by coverage: the test's own run went through a line this branch changed. A route,
+   start dot to end dot, in the page's link blue - neither a status colour (green, orange,
+   red are what the branch did to the test) nor a kind (the UI/API/unit pills). Its slot
+   is the same width on every row, empty where nothing was proven, so the marks line up. */
+.reqmap{--rm-run:#0969da}
+@media (prefers-color-scheme:dark){.reqmap{--rm-run:#58a6ff}}
+.reqmap .rm-run{flex:0 0 15px;width:15px;height:15px;align-self:center;display:inline-flex;
+  cursor:help}
+.reqmap .rm-run:empty{cursor:default}
+.reqmap .rm-run svg{display:block;width:15px;height:15px;overflow:visible;fill:var(--rm-run)}
+.reqmap .rm-run .rm-route{fill:none;stroke:var(--rm-run);stroke-width:1.6;
+  stroke-linecap:round;stroke-dasharray:2.2 2}

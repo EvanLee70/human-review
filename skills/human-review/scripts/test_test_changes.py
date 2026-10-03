@@ -594,11 +594,14 @@ def test_deleting_a_test_nobody_was_running_moves_nothing():
 
 
 # --------------------------------------------------------------------------- #
-# a test renamed in place is one test, edited
+# the key is the name: a test retitled is one gone and one new
 # --------------------------------------------------------------------------- #
 # Run 6: owner-search.feature:26 'Searching with an empty last name lists every owner'
 # became '… shows the first page of every owner' — same line, same @generate_sequence tag,
-# its last step rewritten — and was counted as one test gone and one new, on the chip too.
+# its last step rewritten. Runs 6 to 12 paired such a retitle into one `modified` row with
+# heuristics on place, tags and body; Victor (3 Oct 2026): keep it as simple as possible.
+# A name at the base and not at HEAD is deleted, a name at HEAD and not at the base is new,
+# and the reader sees both halves — the deleted one opens as it was at the base commit.
 FEATURE_BEFORE = """Feature: Search owners
 
   Scenario: Search by prefix
@@ -654,54 +657,44 @@ def _git_repo(tmp_path, rel, before, after, remote=None):
     return repo, base
 
 
-def test_a_scenario_retitled_in_place_is_edited_not_gone_and_new(tmp_path):
+def test_a_scenario_retitled_in_place_is_one_deleted_and_one_new(tmp_path):
     rel = "features/owner-search.feature"
     repo, base = _git_repo(tmp_path, rel, FEATURE_BEFORE, FEATURE_AFTER)
     rows = {r["name"]: r for r in tc.collect(repo, base, [])}
-    renamed = rows["Searching with an empty last name shows the first page of every owner"]
-    assert renamed["status"] == "modified" and renamed["line"] == 8
-    assert renamed["renamedFrom"] == "Searching with an empty last name lists every owner"
-    assert "Searching with an empty last name lists every owner" not in rows, \
-        "the old title is not left behind as a deletion"
-    # A scenario that really went, and one that really arrived, stay what they are: the
-    # new one sits where the retired one was, but shares neither its name nor its steps.
+    new = rows["Searching with an empty last name shows the first page of every owner"]
+    assert new["status"] == "added" and new["line"] == 8
+    old = rows["Searching with an empty last name lists every owner"]
+    assert old["status"] == "deleted" and old["baseLine"] == 8 and old["baseSha"] == base
     assert rows["Retired scenario"]["status"] == "deleted"
     assert rows["Every owner is reachable page by page"]["status"] == "added"
+    assert not any(k in r for r in rows.values() for k in ("renamedFrom", "rewrittenFrom"))
     t = tc.totals(list(rows.values()))
-    assert (t["added"], t["modified"], t["deleted"], t["renamed"]) == (1, 1, 1, 1)
-    assert (t["gained"], t["lost"]) == (1, 1), "the rename moves neither half of the chip"
+    assert (t["added"], t["modified"], t["deleted"]) == (2, 0, 2)
+    assert "renamed" not in t and "rewritten" not in t
+    assert (t["gained"], t["lost"]) == (2, 2)
     assert t["runningAfter"] - t["runningBefore"] == t["gained"] - t["lost"]
 
 
-def test_a_changed_tag_is_not_a_rename():
-    """Losing `@generate_sequence` changes what the scenario is for; conservative means
-    the pair is left as gone + new for the reader to judge."""
-    after = FEATURE_AFTER.replace("  @generate_sequence\n", "  @smoke\n")
-    added, removed = tc.hunk_lines(_unified0(FEATURE_BEFORE, after))
-    rows = {r["name"]: r["status"] for r in tc.classify_file(
-        "o.feature", "M", FEATURE_BEFORE, after, added, removed)}
-    assert rows["Searching with an empty last name lists every owner"] == "deleted"
-    assert rows["Searching with an empty last name shows the first page of every owner"] == "added"
-
-
-def test_two_empty_bodies_on_the_same_line_are_not_a_rename():
-    """`void obsolete() {}` replaced by `void create_withVet() {}`: same place, same
-    annotation, bodies "identical" because both are empty — and nothing in common. A wrong
-    pairing hides a real deletion behind a pencil."""
-    rows = _rows()
-    assert rows["obsolete"]["status"] == "deleted"
-    assert rows["create_withVet"]["status"] == "added"
-    assert not any(r.get("renamedFrom") for r in rows.values())
-
-
-def test_a_method_renamed_with_its_body_kept_is_edited():
+def test_a_method_renamed_with_its_body_kept_is_deleted_and_added():
+    """However much of the body it kept: the name is the key, nothing else."""
     before = ("class T {\n  @Test\n  void x() {\n    var a = owner();\n    a.save();\n"
               "    assertThat(a.id()).isPositive();\n  }\n}\n")
     after = before.replace("void x()", "void save_assignsAnId()")
     added, removed = tc.hunk_lines(_unified0(before, after))
     rows = tc.classify_file("T.java", "M", before, after, added, removed)
-    assert rows == [{"name": "save_assignsAnId", "path": "T.java", "status": "modified",
-                     "line": 3, "renamedFrom": "x"}]
+    assert rows == [{"name": "save_assignsAnId", "path": "T.java", "status": "added",
+                     "line": 3},
+                    {"name": "x", "path": "T.java", "status": "deleted", "line": 3,
+                     "baseLine": 3}]
+
+
+def test_the_same_name_with_its_own_lines_changed_is_edited():
+    before = ("class T {\n  @Test\n  void x() {\n    var a = owner();\n"
+              "    assertThat(a.id()).isPositive();\n  }\n}\n")
+    after = before.replace("isPositive()", "isEqualTo(1)")
+    added, removed = tc.hunk_lines(_unified0(before, after))
+    assert tc.classify_file("T.java", "M", before, after, added, removed) == [
+        {"name": "x", "path": "T.java", "status": "modified", "line": 3}]
 
 
 def _unified0(before: str, after: str) -> str:
@@ -727,8 +720,8 @@ def test_a_deleted_test_carries_its_base_line_and_a_blob_url_at_the_base_commit(
     rel = "features/owner-search.feature"
     repo, base = _git_repo(tmp_path, rel, FEATURE_BEFORE, FEATURE_AFTER,
                            remote="git@github.com:acme/clinic.git")
-    gone = next(r for r in tc.collect(repo, base, []) if r["status"] == "deleted")
-    assert gone["name"] == "Retired scenario" and gone["baseLine"] == 13
+    gone = next(r for r in tc.collect(repo, base, []) if r["name"] == "Retired scenario")
+    assert gone["status"] == "deleted" and gone["baseLine"] == 13
     assert gone["baseSha"] == base
     assert gone["baseUrl"] == f"https://github.com/acme/clinic/blob/{base}/{rel}#L13"
 
@@ -736,8 +729,8 @@ def test_a_deleted_test_carries_its_base_line_and_a_blob_url_at_the_base_commit(
 def test_without_a_github_remote_a_deleted_test_gets_no_guessed_url(tmp_path):
     rel = "features/owner-search.feature"
     repo, base = _git_repo(tmp_path, rel, FEATURE_BEFORE, FEATURE_AFTER)
-    gone = next(r for r in tc.collect(repo, base, []) if r["status"] == "deleted")
-    assert gone["baseLine"] == 13 and gone["baseSha"] == base and "baseUrl" not in gone
+    gone = next(r for r in tc.collect(repo, base, []) if r["name"] == "Retired scenario")
+    assert gone["status"] == "deleted" and gone["baseLine"] == 13 and gone["baseSha"] == base and "baseUrl" not in gone
 
 
 @pytest.mark.parametrize("remote, repo", [
@@ -815,11 +808,12 @@ def test_a_case_s_own_lines_never_end_on_a_blank_or_a_comment(rel, text, line, s
 
 
 # --------------------------------------------------------------------------- #
-# a test rewritten is one test, edited — wherever it moved
+# a test rewritten under a new name is one gone and one new — wherever it moved
 # --------------------------------------------------------------------------- #
-# Eval run 11: two rewrites read as two losses and two new tests. One kept its subject and
-# moved sixty lines into a new describe, its title reworded; the other kept its place and
-# its skeleton, and took a new title over the new API.
+# Eval run 11: one test kept its subject and moved sixty lines into a new describe, its
+# title reworded; another kept its place and its skeleton under a new title. Runs 11 and 12
+# paired both on title words, body tokens and statement shape. By name, each is a deletion
+# and an addition — the reviewer opens the deleted one at the base and judges the pair.
 LIST_BEFORE = """describe('OwnerListComponent', () => {
   it('should create OwnerListComponent', () => {
     expect(component).toBeTruthy();
@@ -886,38 +880,23 @@ LIST_AFTER = """describe('OwnerListComponent', () => {
 """
 
 
-def _rewritten_rows(tmp_path):
+def test_a_test_reworded_moved_or_retitled_is_gone_and_new(tmp_path):
     rel = "src/app/owner-list.component.spec.ts"
     repo, base = _git_repo(tmp_path, rel, LIST_BEFORE, LIST_AFTER)
-    return {r["name"]: r for r in tc.collect(repo, base, [])}
-
-
-def test_a_test_reworded_and_moved_is_one_test_rewritten(tmp_path):
-    """Most of the title's words, and something of the body: the same test said again."""
-    row = _rewritten_rows(tmp_path)["so a late initial load does not overwrite a search"]
-    assert row["status"] == "modified"
-    assert row["rewrittenFrom"] == "a search is not overwritten by the initial load answering late"
-    assert row["rewrittenFromLine"] == 6 and "renamedFrom" not in row
-
-
-def test_a_test_retitled_over_the_same_skeleton_is_one_test_rewritten(tmp_path):
-    """No word of the title in common — the body's tokens and its statement-by-statement
-    shape carry it."""
-    row = _rewritten_rows(tmp_path)["lists the first page by name by default, as one typed page"]
-    assert row["status"] == "modified"
-    assert row["rewrittenFrom"] == "should return expected owners (called once)"
-
-
-def test_shared_vocabulary_alone_is_not_a_rewrite(tmp_path):
-    """'search owners by last name prefix' shares most of its words with the new
-    'sends the filter…' — the same service, the same HTTP mock — but neither its title
-    nor its shape: conservative leaves it gone, and the new one new."""
-    rows = _rewritten_rows(tmp_path)
-    assert rows["search owners by last name prefix"]["status"] == "deleted"
-    assert rows["should create OwnerListComponent"]["status"] == "deleted"
-    assert rows["sends the filter, page, size and sort it is given"]["status"] == "added"
-    assert rows["so a late failure does not show an error"]["status"] == "added"
+    rows = {r["name"]: r for r in tc.collect(repo, base, [])}
+    assert {n for n, r in rows.items() if r["status"] == "deleted"} == {
+        "should create OwnerListComponent",
+        "a search is not overwritten by the initial load answering late",
+        "should return expected owners (called once)",
+        "search owners by last name prefix"}
+    assert {n for n, r in rows.items() if r["status"] == "added"} == {
+        "lists the first page by name by default, as one typed page",
+        "sends the filter, page, size and sort it is given",
+        "so a late initial load does not overwrite a search",
+        "so a late failure does not show an error"}
+    assert all(r["baseLine"] and r["baseSha"] == base
+               for r in rows.values() if r["status"] == "deleted")
     t = tc.totals(list(rows.values()))
-    assert (t["added"], t["modified"], t["deleted"], t["rewritten"]) == (2, 2, 2, 2)
-    assert (t["gained"], t["lost"]) == (2, 2), "a rewrite moves neither half of the chip"
+    assert (t["added"], t["modified"], t["deleted"]) == (4, 0, 4)
+    assert (t["gained"], t["lost"]) == (4, 4)
     assert t["runningAfter"] - t["runningBefore"] == t["gained"] - t["lost"]

@@ -183,17 +183,6 @@ def render_tests(rows, root: Path, flags: bool = True) -> str:
             state = ('<span class="tback" data-tip="Was disabled; runs now.">'
                      "back on</span>")
         note = f' <span class="tnote">{r["note"]}</span>' if r.get("note") else ""
-        if r.get("renamedFrom"):
-            # Renamed in place: one test kept under a new title, not one lost and one new.
-            note = (f' <span class="tnote trenamed">renamed from '
-                    f'“{html.escape(r["renamedFrom"])}”</span>') + note
-        elif r.get("rewrittenFrom"):
-            # Rewritten — moved, or retitled over the same skeleton: one word on the row,
-            # the old title on the hover.
-            was = f'“{r["rewrittenFrom"]}”' + (f', line {r["rewrittenFromLine"]} at the base'
-                                               if r.get("rewrittenFromLine") else "")
-            note = (f' <span class="tnote trenamed" data-tip="Rewritten from '
-                    f'{html.escape(was, quote=True)}">rewritten</span>') + note
         if r.get("viaHelper"):
             # Its own lines are as they were; a same-file helper it calls is not.
             note = (f' <span class="tnote tvia" data-tip="'
@@ -234,8 +223,7 @@ def render_test_ledger(rows, root: Path) -> tuple[str, int]:
         ("new", "Written by this change set.", []),
         ("gone", "Deleted, or commented out in place. A deleted one opens where it stood "
                  "at the base commit.", []),
-        ("edited", "Body changed, rewritten, or edited through a same-file helper it "
-                   "calls.", []),
+        ("edited", "Body changed, or edited through a same-file helper it calls.", []),
     ]
     untouched = 0
     for r in rows:
@@ -411,10 +399,6 @@ def tests_chip(doc: dict | None) -> dict | None:
     tip = (f'{t["added"]} new'
            + (f' ({inert} disabled on arrival)' if inert else "")
            + f', {t["modified"]} edited'
-           # A retitled test is counted here and not as one gone plus one new.
-           + (f' ({t["renamed"]} renamed)' if t.get("renamed") else "")
-           # …and so is one rewritten: moved, or retitled over the same skeleton.
-           + (f' ({t["rewritten"]} rewritten)' if t.get("rewritten") else "")
            # Untouched itself, edited through a same-file helper it calls.
            + (f' ({t["viaHelper"]} via a helper)' if t.get("viaHelper") else "")
            + f', {gone}'
@@ -880,14 +864,19 @@ COV_PART_MAX = 60
 _GHERKIN_NEXT = re.compile(r"\s*(Scenario|Rule|Feature|Background|Examples|@)")
 
 
-def _cov_part(root: Path, file: str, line: int) -> dict | None:
+def _cov_part(root: Path, file: str, line: int, text: str | None = None,
+              href: str | None = None) -> dict | None:
     """The test's own body as one excerpt, in the matrix's `parts` shape — the same
     `{label, href, from, html}` the model writes, so the card draws it the same way:
     annotations above the declaration, down to the brace that closes it (a Gherkin
-    scenario down to the next keyword)."""
+    scenario down to the next keyword).
+
+    `text` quotes another version of the file than the working tree's — a deleted test's,
+    read from the base commit (`semcov.py:base_part`) — and `href` is then where it opens
+    ("" for nowhere: a vscode:// into HEAD would open unrelated code)."""
     path = root / file
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = (text if text is not None else path.read_text(encoding="utf-8")).splitlines()
     except OSError:
         return None
     if not 1 <= line <= len(lines):
@@ -917,7 +906,7 @@ def _cov_part(root: Path, file: str, line: int) -> dict | None:
     else:
         rendered = [html.escape(x) for x in dedented]
     return {"label": f"{file}:{start}-{end}",
-            "href": f"vscode://file/{path.resolve()}:{line}:1",
+            "href": f"vscode://file/{path.resolve()}:{line}:1" if href is None else href,
             "from": start, "html": rendered}
 
 

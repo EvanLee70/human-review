@@ -134,6 +134,18 @@
     return '<span class="rm-st" data-st="'+st[3]
       +'" role="img" aria-label="'+st[2]+'" data-tip="'+tip+'">'+st[0]+'</span>';
   }
+  // semcov: proven, not inferred - the test's own per-test coverage ran a line this branch
+  // changed (`t.why`: which file, which lines). A route drawn from a start dot to an end
+  // dot: the test's run passing through the change. Its slot is kept on every row, empty
+  // where nothing was proven, so the marks stand in one column beside the stamps.
+  var ROUTE='<svg viewBox="0 0 16 16" aria-hidden="true">'
+    +'<path class="rm-route" d="M3.5 12.5C3.5 7.5 12.5 8.5 12.5 3.5"/>'
+    +'<circle cx="3.5" cy="12.5" r="2"/><circle cx="12.5" cy="3.5" r="2"/></svg>';
+  function ran(t){
+    if(!t.why)return '<span class="rm-run" aria-hidden="true"></span>';
+    return '<span class="rm-run" role="img" aria-label="runs changed code" data-tip="Runs changed code: '
+      +esc(t.why).replace(/"/g,'&quot;')+'">'+ROUTE+'</span>';
+  }
   // Which of the three the excerpt's own badge is. Keyed off the badge's words, not off
   // `p.diff`: `new file` and `new code` are both `diff:"new"` and are not the same fact -
   // one is a file that did not exist, the other is fresh lines inside one that did.
@@ -179,8 +191,12 @@
                 rel=cut<0?p.label:p.label.slice(0,cut),
                 lines=cut<0?'':p.label.slice(cut),
                 face=esc(rel.split('/').pop()+lines);
-            return '<a class="srcref" href="'+p.href+'" data-tip="Open in VS Code: '
-              +esc(rel)+'" target="_blank" rel="noopener">'+face+'</a>';})()
+            // semcov: a deleted test's excerpt is its source at the base commit, so it
+            // opens there (GitHub), or says how to see it - never a vscode:// into HEAD.
+            var tip=esc(p.hrefTip||'Open in VS Code: '+rel).replace(/"/g,'&quot;');
+            return p.href?'<a class="srcref" href="'+p.href+'" data-tip="'+tip
+              +'" target="_blank" rel="noopener">'+face+'</a>'
+              :'<span class="srcref" data-tip="'+tip+'">'+face+'</span>';})()
          // ...and the badge last, because `new file` is a fact ABOUT a file: leading with
          // it made the reader hold it in mind across the whole bar before the bar said
          // which file was new.
@@ -207,16 +223,20 @@
   // changed line. Folded only when something stays open above them: a card of nothing but
   // pass-through tests shows them, rather than an empty card and a button. The branch's own
   // tests that ran no measured changed line (D.foldOwn, ranks from..to) fold the same way,
-  // behind a count of their own: listed, never silently left out (eval run 12).
+  // behind a count of their own: listed, never silently left out (eval run 12). The tests
+  // the branch deleted (D.foldGone) fold only past a few (`F.min`): two struck-through rows
+  // say more than a button that hides them.
   function mkFold(F,mark,flag){
     if(!F)return null;
     var to=F.to===undefined?Infinity:F.to,f={F:F,n:0,btn:null,mark:mark,flag:flag};
     f.has=function(id){var r=rank(id);return r>=F.from&&r<to;};
     if(ids.some(function(id){return rank(id)<F.from;}))
       ids.forEach(function(id){if(f.has(id))f.n++;});
+    if(F.min&&f.n<=F.min)f.n=0;
     return f;
   }
-  var FOLDS=[mkFold(D.foldOwn,'own','unown'),mkFold(D.fold,'fold','unfold')]
+  var FOLDS=[mkFold(D.foldOwn,'own','unown'),mkFold(D.foldGone,'del','undel'),
+             mkFold(D.fold,'fold','unfold')]
     .filter(function(f){return f&&f.n>0;});
   function foldOf(id){
     for(var i=0;i<FOLDS.length;i++)if(FOLDS[i].has(id))return FOLDS[i];return null;}
@@ -245,9 +265,10 @@
     var t=D.tests[id],row=document.createElement('div');
     row.className='rm-t';row.dataset.open='no';row.dataset.id=id;
     if(f)row.dataset[f.mark]='yes';
-    // A test the branch deleted is listed and not openable: this checkout has no source
-    // for it, and the run has no assertion from it.
+    // A test the branch deleted is listed struck through. semcov: it opens on its source
+    // as it was at the base commit; only one whose base could not be read stays shut.
     if(t.status==='deleted')row.dataset.gone='yes';
+    if(t.status==='deleted'&&!t.parts.length)row.dataset.shut='yes';
     // The location is a link in its own right, not decoration on a button: the row opens
     // the source here, the link opens the file in the editor, and both are wanted.
     var pins=(COVERS[id]||[]).length;
@@ -278,18 +299,19 @@
          // semcov: a deleted test's href is its blob at the base commit, and says so.
          return href?'<a class="rm-tw srcref" href="'+href+'" data-tip="'+esc(t.hrefTip||'Open in VS Code')+'" target="_blank" rel="noopener">'
                      +face+'</a>'
-                   :'<span class="rm-tw srcref tgone" data-tip="the file is gone">'
+                   :'<span class="rm-tw srcref tgone" data-tip="'
+                     +esc(t.goneTip||'the file is gone').replace(/"/g,'&quot;')+'">'
                      +face+'</span>';})()
       // The stamp closes the row, on the right of the file it is about - the same order
       // the source bar inside the row reads in, and the same reason: "new" is a fact ABOUT
       // a file, so it comes after the file has been named. Between the title and the
       // location it sat between two things that belong together and was read as part of
       // the sentence naming the test.
-      +stamp(t)+'</div>'
+      +ran(t)+stamp(t)+'</div>'
       +'<div class="rm-tbody"><div class="rm-tinner"></div></div>';
     // Not a button if there is nothing to press: a row that cannot open should not tell a
     // screen reader that it expands, nor take a tab stop to do nothing with.
-    if(t.status==='deleted'){
+    if(row.dataset.shut==='yes'){
       var h=row.querySelector('.rm-thead');
       h.removeAttribute('role');h.removeAttribute('tabindex');
       h.removeAttribute('aria-expanded');
@@ -373,7 +395,7 @@
   // click: follow them to where they land.
   list.addEventListener('transitionend',redraw);
   function toggle(row){
-    if(row.dataset.gone==='yes')return;   // there is no source left to show
+    if(row.dataset.shut==='yes')return;   // there is no source to show
     var open=row.dataset.open==='yes';
     // An accordion, not a stack: opening one closes the rest, so the list never turns
     // into three screens of source with the row you wanted somewhere in the middle.

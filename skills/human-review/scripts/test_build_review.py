@@ -1820,12 +1820,15 @@ def test_a_deleted_test_with_no_github_remote_says_how_to_see_it_and_links_nothi
     assert "vscode://" not in old and 'class="srcref testref tgone"' in old
 
 
-def test_a_renamed_test_is_edited_and_says_what_it_was_called():
+def test_a_stale_rename_key_in_an_old_manifest_says_nothing():
+    """Renames are not paired any more (`test-changes.py` keys on the name): an old
+    manifest's `renamedFrom` / `rewrittenFrom` is ignored, never printed."""
     out = build.render_tests(
         [{"name": "shows the first page", "path": "f/o.feature", "status": "modified",
-          "line": 26, "renamedFrom": "lists every owner"}], Path("/repo"))
+          "line": 26, "renamedFrom": "lists every owner", "rewrittenFrom": "x"}],
+        Path("/repo"))
     assert '<span class="tflag changed">modified</span>' in out
-    assert "renamed from “lists every owner”" in out
+    assert "renamed" not in out and "ewritten" not in out
 
 
 def test_a_test_edited_through_a_helper_is_filed_under_edited_and_names_the_helper():
@@ -1984,19 +1987,6 @@ def test_the_ledger_has_no_heading_of_its_own(tmp_path):
     assert '<details class="tledger" id="test-ledger">' in page
 
 
-def test_a_rewritten_test_says_one_word_and_names_its_old_title_on_the_hover():
-    out = build.render_tests(
-        [{"name": "so a late initial load does not overwrite a search",
-          "path": "src/app/l.spec.ts", "status": "modified", "line": 198,
-          "rewrittenFrom": "a search is not overwritten by the initial load answering late",
-          "rewrittenFromLine": 131}], Path("/repo"))
-    assert '<span class="tflag changed">modified</span>' in out
-    assert ('data-tip="Rewritten from “a search is not overwritten by the initial load '
-            'answering late”, line 131 at the base">rewritten</span>') in out
-    chip = build.tests_chip({"totals": dict(TOTALS, rewritten=2)})
-    assert "(2 rewritten)" in chip["tip"]
-
-
 def test_a_page_with_a_manifest_and_no_tests_block_still_shows_the_ledger(tmp_path):
     """The ledger is derived data, like the requirement lists it sits under: a content
     file written before the block existed must not leave the manifest computed and
@@ -2054,13 +2044,12 @@ def test_a_new_test_that_arrives_disabled_is_named_rather_than_left_as_a_discrep
     assert "22 new (1 disabled on arrival)" in tip
 
 
-def test_a_renamed_test_is_counted_once_as_edited_and_named_in_the_tooltip():
-    """Run 6's `+57 / −8` held a scenario retitled in place, counted gone and new. Paired
-    by `test-changes.py`, it is one of the edited — and the hover says how many were."""
-    chip = build.tests_chip({"totals": dict(TOTALS, modified=5, renamed=1)})
+def test_the_chip_never_counts_renames_apart():
+    """A retitled test is one deleted and one new (`test-changes.py`): the hover has no
+    "renamed" clause, even fed an old manifest's totals."""
+    chip = build.tests_chip({"totals": dict(TOTALS, modified=5, renamed=1, rewritten=2)})
     assert f'{build.PENCIL}5' in chip["value"]
-    assert "5 edited (1 renamed)" in chip["tip"]
-    assert "renamed" not in build.tests_chip({"totals": TOTALS})["tip"]
+    assert "renamed" not in chip["tip"] and "rewritten" not in chip["tip"]
 
 
 def test_a_test_edited_through_a_helper_is_counted_once_as_edited_and_named_in_the_tooltip():

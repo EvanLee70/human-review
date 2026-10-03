@@ -669,14 +669,49 @@ def _stamp(st: dict) -> str:
     return STAMP.get(st.get("status"), "unchanged")
 
 
+def deleted_rows(test_doc: dict | None, root: Path, live: list[dict] = ()) -> list[dict]:
+    """Every test the branch deleted (a name at the base that HEAD no longer declares —
+    `test-changes.py`), as card rows, in manifest order.
+
+    Keyed where the test stood at the base (`file:baseLine@base`): its HEAD `line` is only
+    where the removal landed, and a plain `file:line` key could collide with a live test at
+    that line, whose 📺 and sequence diagram hang off the same key. `baseRef` is the commit
+    its original source is read from (`render` → `base_part`). Its kind is the kind of the
+    live tests in the same file (`live`), when there are any: a deleted scenario of a
+    feature the browser suite runs is UI like its siblings, not whatever the file's text
+    alone suggests."""
+    T = _tests_tab()
+    kind = {r["file"]: r["cat"] for r in live}
+    out, seen = [], set()
+    for t in (test_doc or {}).get("tests") or []:
+        file, line = t.get("path"), t.get("baseLine")
+        if t.get("status") != "deleted" or not file or not line:
+            continue
+        rid = f"{file}:{line}@base"
+        if rid in seen:
+            continue
+        seen.add(rid)
+        row = {"id": rid, "file": file, "line": int(line), "title": t.get("name") or "",
+               "suite": "", "cat": kind.get(file) or T._cov_cat({"file": file}, root),
+               "status": "deleted",
+               "viaHelper": [], "hits": {}, "aimed": True,
+               "baseRef": t.get("baseSha") or (test_doc or {}).get("base") or ""}
+        if t.get("baseUrl"):
+            row["baseUrl"] = t["baseUrl"]
+        out.append(row)
+    return out
+
+
 def covering_tests(spec: dict, out_dir: Path, root: Path) -> tuple[list[dict], bool]:
     """`(rows, measured)` — the right-hand column, before any pairing.
 
     Measured: every test whose own coverage ran a line this PR changed
-    (`tests.py:coverage_join` over `assets/test-coverage.json`), in that join's order.
-    Unmeasured: the tests the branch's test files declare (`test-changes.py`'s manifest),
-    which is the honest list when nothing was run. Each row is `{"id": "file:line", "file",
-    "line", "title", "suite", "cat", "status", "hits", "aimed"}`."""
+    (`tests.py:coverage_join` over `assets/test-coverage.json`), in that join's order, then
+    every test the branch wrote or edited that the join did not name. Unmeasured: the tests
+    the branch's test files declare (`test-changes.py`'s manifest), which is the honest list
+    when nothing was run. Either way the tests the branch deleted come last
+    (`deleted_rows`). Each row is `{"id": "file:line", "file", "line", "title", "suite",
+    "cat", "status", "hits", "aimed"}`."""
     T = _tests_tab()
     test_doc = T._load_test_changes(spec, out_dir) or _read_json(out_dir / "assets/test-changes.json")
     states = _states(test_doc)
@@ -713,22 +748,25 @@ def covering_tests(spec: dict, out_dir: Path, root: Path) -> tuple[list[dict], b
                          "cat": T._cov_cat({"file": file}, root),
                          "status": _stamp(t), "viaHelper": t.get("viaHelper") or [],
                          "hits": {}, "aimed": True, "unmeasured": True})
-        return rows, True
+        return rows + deleted_rows(test_doc, root, rows), True
     for t in (test_doc or {}).get("tests") or []:
         file, line = t.get("path"), t.get("line")
+        if t.get("status") == "deleted":
+            continue
         if not file or not line or f"{file}:{line}" in seen:
             continue
         seen.add(f"{file}:{line}")
-        row = {"id": f"{file}:{line}", "file": file, "line": int(line),
-               "title": t.get("name") or "", "suite": "",
-               "cat": T._cov_cat({"file": file}, root),
-               "status": _stamp(t), "viaHelper": t.get("viaHelper") or [],
-               "hits": {}, "aimed": True}
-        # A deleted test is linked where it stood at the base, never at its HEAD `line`.
-        if t.get("baseUrl") and t.get("status") == "deleted":
-            row["baseUrl"] = t["baseUrl"]
-        rows.append(row)
-    return rows, False
+        rows.append({"id": f"{file}:{line}", "file": file, "line": int(line),
+                     "title": t.get("name") or "", "suite": "",
+                     "cat": T._cov_cat({"file": file}, root),
+                     "status": _stamp(t), "viaHelper": t.get("viaHelper") or [],
+                     "hits": {}, "aimed": True})
+    return rows + deleted_rows(test_doc, root, rows), False
+
+
+def live_rows(rows: list[dict]) -> list[dict]:
+    """The rows a sentence can be paired with: a deleted test pins nothing any more."""
+    return [r for r in rows if r.get("status") != "deleted"]
 
 
 def _read_json(path: Path):
@@ -2070,8 +2108,9 @@ RANK_LABELS = {
     "0": "Paired with a sentence of the ticket",
     "1": "Written or edited by this branch, paired with no sentence",
     "2": "Written or edited by this branch — no changed line measured",
-    "3": "Untouched and unpaired — run a changed line few other tests run",
-    "4": "Untouched and unpaired — only pass through changed code most tests run",
+    "3": "Deleted by this branch",
+    "4": "Untouched and unpaired — run a changed line few other tests run",
+    "5": "Untouched and unpaired — only pass through changed code most tests run",
 }
 
 
@@ -2080,44 +2119,76 @@ RANK_LABELS = {
 #: else that happen to run a changed line, and listing them open doubled the tab's height.
 #: They stay one click away, counted on the button that shows them (`reqmap.js`); the
 #: paired and the branch-written groups are never folded.
-FOLD_FROM_RANK = 3
+FOLD_FROM_RANK = 4
 FOLD_LABEL = "more tests that only pass through changed code"
 #: The branch's own tests that ran no changed line a probe measured (rank 2): listed, never
 #: dropped, but folded behind their count — one line, not six rows of tests the coverage
 #: column has nothing to say about.
-FOLD_OWN = {"from": 2, "to": FOLD_FROM_RANK,
+FOLD_OWN = {"from": 2, "to": 3,
             "label": "more written by this branch, no changed line measured"}
+#: The tests the branch deleted (rank 3), in a small group of their own — open while they
+#: are a few (`min`), folded behind their count past that.
+FOLD_GONE = {"from": 3, "to": 4, "label": "deleted tests", "min": 3}
 #: The hover on a deleted test's location: it opens the base commit, not this checkout.
-DELETED_HREF_TIP = "Deleted on this branch — open it as it was at the base commit, on GitHub"
+DELETED_HREF_TIP = "As it was at the base commit, on GitHub"
 
 
 def test_rank(r: dict, paired: set) -> int:
-    """0 paired with a sentence; 1 a test the branch wrote, edited or deleted; 2 one it
-    wrote or edited whose coverage ran no changed line (`covering_tests`' `unmeasured`);
-    3 an untouched test aimed at the change (`coverage_join`'s `aimed`); 4 one that only
-    passes through changed lines most of its suite runs."""
+    """0 paired with a sentence; 1 a test the branch wrote or edited; 2 one it wrote or
+    edited whose coverage ran no changed line (`covering_tests`' `unmeasured`); 3 one it
+    deleted — never paired, it pins nothing any more; 4 an untouched test aimed at the
+    change (`coverage_join`'s `aimed`); 5 one that only passes through changed lines most
+    of its suite runs."""
+    if r.get("status") == "deleted":
+        return 3
     if r["id"] in paired:
         return 0
-    if r.get("status") in ("new", "changed", "helper", "deleted"):
+    if r.get("status") in ("new", "changed", "helper"):
         return 2 if r.get("unmeasured") else 1
-    return 3 if r.get("aimed", True) else 4
+    return 4 if r.get("aimed", True) else 5
 
 
 def test_why(r: dict) -> str:
-    """Why the test is on the card, in a line: the changed lines its own coverage ran, per
-    file — `ExceptionControllerAdvice.java 56–58, 70`. Empty without a coverage run."""
+    """Which changed lines the test's own coverage ran — `ExceptionControllerAdvice.java:
+    56–58, 70 +2 files`: the busiest file and its first two runs of lines, the other files
+    counted. Empty when it ran none (or nothing was measured): it is the proof behind the
+    card's "runs changed code" mark, and a hover, so it stays a few words."""
     hits = r.get("hits") or {}
     if not hits:
         return ""
     T = _tests_tab()
     files = sorted(hits.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-    def lines(ls) -> str:
-        runs = T._cov_ranges(ls).split(", ")
-        return ", ".join(runs[:3]) + (f" and {len(runs) - 3} more" if len(runs) > 3 else "")
-    parts = [f"{Path(f).name} {lines(ls)}" for f, ls in files[:4]]
-    if len(files) > 4:
-        parts.append(f"{len(files) - 4} more file{'s' if len(files) > 5 else ''}")
-    return "its coverage ran changed lines of " + "; ".join(parts)
+    f, ls = files[0]
+    runs = T._cov_ranges(ls).split(", ")
+    more = len(files) - 1
+    return (f"{Path(f).name}:{', '.join(runs[:2])}" + ("…" if len(runs) > 2 else "")
+            + (f" +{more} file{'s' if more > 1 else ''}" if more else ""))
+
+
+def base_part(root: Path, r: dict, cache: dict) -> dict | None:
+    """A deleted test's original source, read from the base commit — the card's one excerpt
+    for it, in the same `parts` shape as a live test's, linked to its blob on GitHub when
+    there is one. None when the base cannot be read (no ref, a shallow clone)."""
+    ref, file = r.get("baseRef"), r["file"]
+    if not ref:
+        return None
+    key = (ref, file)
+    if key not in cache:
+        got = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{file}"],
+                             capture_output=True, text=True)
+        cache[key] = got.stdout if got.returncode == 0 else None
+    if cache[key] is None:
+        return None
+    part = _tests_tab()._cov_part(root, file, r["line"], text=cache[key],
+                                  href=r.get("baseUrl") or "")
+    if part is not None:
+        part["hrefTip"] = DELETED_HREF_TIP if r.get("baseUrl") else git_show_hint(r)
+    return part
+
+
+def git_show_hint(r: dict) -> str:
+    """Where a deleted test still exists without GitHub: `git show <base>:<path>`."""
+    return f"git show {(r.get('baseRef') or 'BASE')[:8]}:{r['file']}"
 
 
 def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dict],
@@ -2127,15 +2198,21 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
     by_sid = {e["id"]: e for e in entries}
     rows_by = {r["id"]: r for r in rows}
     paired = {t["id"] for e in entries for t in e["tests"]}
-    tests = {}
+    tests, base_src = {}, {}
     for r in rows:
-        part = T._cov_part(root, r["file"], r["line"]) if r["status"] != "deleted" else None
+        gone = r["status"] == "deleted"
+        part = base_part(root, r, base_src) if gone else T._cov_part(root, r["file"], r["line"])
         tests[r["id"]] = {"title": r["title"] or r["id"], "cat": r["cat"],
                           "status": r["status"], "parts": [part] if part else [],
                           "rank": test_rank(r, paired), "why": test_why(r)}
-        if r["status"] == "deleted" and r.get("baseUrl"):
-            tests[r["id"]]["href"] = r["baseUrl"]
-            tests[r["id"]]["hrefTip"] = DELETED_HREF_TIP
+        if gone:
+            # Linked, and named, where it stood at the base — its key is not a HEAD line.
+            tests[r["id"]]["where"] = f'{Path(r["file"]).name}:{r["line"]}'
+            if r.get("baseUrl"):
+                tests[r["id"]]["href"] = r["baseUrl"]
+                tests[r["id"]]["hrefTip"] = DELETED_HREF_TIP
+            else:
+                tests[r["id"]]["goneTip"] = git_show_hint(r)
         if r.get("viaHelper"):
             # Which helper, on the stamp's hover: the row's own source shows no edit.
             tests[r["id"]]["via"] = T.via_helper_tip(r["viaHelper"])
@@ -2144,7 +2221,7 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
                                               if k in used) + "</div>")
     data = {"cats": CATS, "tests": tests, "ranks": RANK_LABELS,
             "fold": {"from": FOLD_FROM_RANK, "label": FOLD_LABEL},
-            "foldOwn": FOLD_OWN,
+            "foldOwn": FOLD_OWN, "foldGone": FOLD_GONE,
             "sentences": {e["id"]: _sentence_data(e, rows_by) for e in entries
                           if e["coverage"] != "n/a"},
             # For the layout's title row (`tests.py:reqmap_layout`): the ticket this matrix
@@ -2194,8 +2271,8 @@ def gather(spec: dict, out_dir: Path, root: Path) -> dict | None:
         _attach_scenarios(blocks, SPEC_HEADING.format(name=name), reqs)
     sentences = ticket_sentences(blocks)
     rows, measured = covering_tests(spec, out_dir, root)
-    docs = test_documents(rows, root)
-    scripted = match(sentences, rows, root, docs)
+    docs = test_documents(live_rows(rows), root)
+    scripted = match(sentences, live_rows(rows), root, docs)
     change_dir = root / "openspec" / "changes" / name if name else None
     return {"ticket": ticket, "blocks": blocks, "sentences": sentences, "rows": rows,
             "measured": measured, "docs": docs, "scripted": scripted,
@@ -2353,7 +2430,7 @@ def main(argv=None) -> int:
         doc = _read_json(path)
         g = gather(spec, review, root)
         sids = {s["id"] for s in g["sentences"]} if g else None
-        tids = {r["id"] for r in g["rows"]} if g else None
+        tids = {r["id"] for r in live_rows(g["rows"])} if g else None
         links = scripted_links(g["scripted"]) if g else None
         dids = {d["id"] for d in g["decisions"]} if g else None
         bad = problems(doc, sids, tids, links, dids) if doc is not None \
