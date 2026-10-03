@@ -44,10 +44,16 @@
   // about vets that runs the exception advice this PR touched belongs at the bottom, not
   // between the two that prove the ticket.
   function rank(id){var r=D.tests[id].rank;return r===undefined?0:r;}
+  // semcov: a paired test sits under the first sentence it covers, in the ticket's
+  // reading order (`seq`, `sec`), so the card reads down the spec; one heading per
+  // requirement (`D.sections`) in place of "Paired with a sentence of the ticket".
+  function seq(id){var q=D.tests[id].seq;return q===undefined?1e9:q;}
+  function group(id){var t=D.tests[id];
+    return t.sec!==undefined&&D.sections?'s'+t.sec:'r'+rank(id);}
   var ids=Object.keys(D.tests).sort(function(a,b){
-    var d=rank(a)-rank(b)||ORDER[D.tests[a].cat]-ORDER[D.tests[b].cat];
+    var d=rank(a)-rank(b)||seq(a)-seq(b)||ORDER[D.tests[a].cat]-ORDER[D.tests[b].cat];
     return d||human(D.tests[a].title).localeCompare(human(D.tests[b].title));});
-  var groupsShown=ids.length&&D.ranks&&rank(ids[0])!==rank(ids[ids.length-1]);
+  var groupsShown=ids.length&&D.ranks&&group(ids[0])!==group(ids[ids.length-1]);
 
   // The first part of a test is the test's own body, so its diff is the test's own story:
   // new, edited, or (no stamp) one this branch left exactly as it found it.
@@ -254,12 +260,14 @@
       f.btn.type='button';f.btn.className='rm-fold';f.btn.dataset.which=f.mark;
       list.appendChild(f.btn);setFold(f,false);
     }
-    if(groupsShown&&rank(id)!==lastRank){
-      lastRank=rank(id);
+    if(groupsShown&&group(id)!==lastRank){
+      lastRank=group(id);
       var g=document.createElement('div');
-      g.className='rm-tgroup';g.dataset.rank=lastRank;
+      g.className='rm-tgroup';g.dataset.rank=rank(id);
       if(f)g.dataset[f.mark]='yes';
-      g.textContent=D.ranks[String(lastRank)]||'';
+      g.textContent=lastRank.charAt(0)==='s'?D.sections[lastRank.slice(1)]
+                                            :D.ranks[String(rank(id))]||'';
+      if(lastRank.charAt(0)==='s')g.dataset.sec='yes';
       list.appendChild(g);
     }
     var t=D.tests[id],row=document.createElement('div');

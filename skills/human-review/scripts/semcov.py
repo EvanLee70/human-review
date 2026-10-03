@@ -2192,6 +2192,40 @@ def git_show_hint(r: dict) -> str:
     return f"git show {(r.get('baseRef') or 'BASE')[:8]}:{r['file']}"
 
 
+def spec_sections(blocks: list[dict]) -> tuple[dict, dict]:
+    """Where each sentence sits in the ticket: `{sid: (section, sentence)}` in reading
+    order, and `{section: label}` — a list item or a paragraph is a section, named the
+    way the reader sees it: `3. Business-key sorting` for a numbered requirement (its
+    bold lead), the opening words otherwise."""
+    where, labels, n_sec, n_sent = {}, {}, 0, 0
+
+    def label(sents, num=None):
+        md = sents[0]["md"] if sents else ""
+        bold = re.match(r"\s*\*\*(.+?)\*\*", md)
+        text = bold.group(1) if bold else re.sub(r"[*`_]", "", md)
+        if not bold and len(text) > 48:
+            text = text[:48].rsplit(" ", 1)[0].rstrip(",;:—-. ") + "…"
+        return f"{num}. {text}" if num is not None else text
+
+    def add(sents, num=None):
+        nonlocal n_sec, n_sent
+        if not sents:
+            return
+        labels[str(n_sec)] = label(sents, num)
+        for x in sents:
+            where[x["id"]] = (n_sec, n_sent)
+            n_sent += 1
+        n_sec += 1
+    for b in blocks:
+        if b["kind"] in ("p", "quote"):
+            add(b.get("sentences") or [])
+        elif b["kind"] in ("ol", "ul"):
+            for i, it in enumerate(b.get("items") or []):
+                add(it.get("sentences") or [],
+                    (b.get("start") or 1) + i if b["kind"] == "ol" else None)
+    return where, labels
+
+
 def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dict],
            root: Path, measured: bool = True, who: str | None = None) -> str:
     """The matrix fragment: same inputs, same bytes."""
@@ -2217,10 +2251,21 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
         if r.get("viaHelper"):
             # Which helper, on the stamp's hover: the row's own source shows no edit.
             tests[r["id"]]["via"] = T.via_helper_tip(r["viaHelper"])
+    # A test paired with the ticket is listed under the first sentence it covers, in the
+    # ticket's reading order (Victor, 4 Oct 2026): the card reads down the spec.
+    where, sections = spec_sections(blocks)
+    for e in entries:
+        at = where.get(e["id"])
+        if at is None:
+            continue
+        for t in e["tests"]:
+            d = tests.get(t["id"])
+            if d is not None and d["rank"] == 0 and at[1] < d.get("seq", 1 << 30):
+                d["sec"], d["seq"] = at
     used = {e["coverage"] for e in entries}
     legend = LEGEND.replace("</div>", "".join(v for k, v in LEGEND_EXTRA.items()
                                               if k in used) + "</div>")
-    data = {"cats": CATS, "tests": tests, "ranks": RANK_LABELS,
+    data = {"cats": CATS, "tests": tests, "ranks": RANK_LABELS, "sections": sections,
             "fold": {"from": FOLD_FROM_RANK, "label": FOLD_LABEL},
             "foldOwn": FOLD_OWN, "foldGone": FOLD_GONE,
             "sentences": {e["id"]: _sentence_data(e, rows_by) for e in entries
