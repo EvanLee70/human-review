@@ -1,0 +1,3 @@
+[refresh] $ python3 build-review-html.py .human-review/content.json --out .human-review/review.html --no-model
+[refresh] $ python3 serve-review.py .human-review
+http://127.0.0.1:7656/review.html

@@ -3,23 +3,23 @@
  "head": "HEAD",
  "points_file": "review-points.md",
  "commits": 2,
- "implementation": "4405c85388bb015c4a17793f0d19c163b464b2b5",
- "review": "968b254358688e4266130189bb5cf9be442c86d2",
- "session": "13acbd66-def8-408d-be02-ce18a318f509",
+ "implementation": "5904ae081a46ac1f15c144d33846cbf6fe5635a6",
+ "review": "de10408f602bbc32fd88c14951cbd83500d54036",
+ "session": "ca22c4c3-183a-49e8-b215-28211e9e12b7",
  "fallback": false,
  "after": [],
  "after_detail": [],
- "review_when": "2026-10-03T15:36:04+03:00",
+ "review_when": "2026-10-03T19:33:03+03:00",
  "takeover": null,
  "auto_fixes": [
   {
-   "sha": "968b254358688e4266130189bb5cf9be442c86d2",
-   "when": "2026-10-03T15:36:04+03:00",
-   "subject": "[auto-fix] Owners list review: no raw input echoed in 400s, grid stays retryable on error, offset boundary tested"
+   "sha": "de10408f602bbc32fd88c14951cbd83500d54036",
+   "when": "2026-10-03T19:33:03+03:00",
+   "subject": "[auto-fix] Keep the sort header in step after a rebuild, stop echoing caller input into logs, tighten list tests"
   }
  ],
  "review_commits": [
-  "968b254358688e4266130189bb5cf9be442c86d2"
+  "de10408f602bbc32fd88c14951cbd83500d54036"
  ],
  "warnings": []
 }

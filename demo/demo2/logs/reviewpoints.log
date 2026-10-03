@@ -1,39 +1,40 @@
   * reviewpoints -> review
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/review-points.py --root . --out .human-review/review-points.json
-review-points.md: 28 item(s) in 6 fixed, 12 ignored, 10 assumptions
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/review-points.py --root . --out .human-review/review-points.json
+review-points.md: 28 item(s) in 6 fixed, 11 ignored, 11 assumptions
   Fixed        (Fixed)
-      · Rejected query values echoed into the 400 body and the WARN log   [3 ref, 3 snippet, medium, from correctness + security reviewers]
-      · Page-offset overflow boundary only tested at far extremes   [1 ref, 1 snippet, low, from tests reviewer]
-      · A failed page hid the grid, so the user could not retry in place   [2 ref, 2 snippet, low, from ticket-fit reviewer]
-      · Unpaged findByLastNameStartingWith overload left in the repository   [2 ref, 2 snippet, low, from ticket-fit reviewer]
-      · Duplicated validation literals in the exception advice   [1 ref, 1 snippet, info, from CI (SonarCloud java:S1192)]
-      · Generic length assertions and mutable injected fields in the grid   [2 ref, 2 snippet, info, from CI (SonarCloud typescript:S5906, S2933)]
+      · Sort header snapped back to Name asc when the table was rebuilt   [2 ref, 2 snippet, medium, from correctness reviewer, ticket-fit reviewer]
+      · Caller-supplied values echoed into the log on 400s   [2 ref, 2 snippet, medium, from security reviewer]
+      · Query-budget ordering assertion passed when no pets query existed   [1 ref, 1 snippet, low, from tests reviewer]
+      · Invalid-input test accepted any 400   [1 ref, 1 snippet, low, from tests reviewer]
+      · Add Owner in the error state was not pinned by any test   [1 ref, 1 snippet, low, from tests reviewer]
+      · Two added lines over 119 characters   [2 ref, 2 snippet, low, from pre-push hook]
   Ignored      (Ignored)
-      · A &quot;+&quot; in the last-name prefix is sent unencoded   [1 ref, 1 snippet, info, from correctness reviewer]
-      · Owner deleted between page and graph fetch fails the whole page   [1 ref, 1 snippet, low, from correctness + security + tests reviewers]
-      · Repeated sort=name&amp;sort=asc is joined and accepted   [1 ref, 1 snippet, low, from correctness reviewer]
-      · Huge page numbers trigger a deep OFFSET scan   [1 ref, 1 snippet, low, from security reviewer]
-      · No test pins the V4 indexes   [1 ref, 1 snippet, info, from tests reviewer]
-      · Latency-proxy test assertions compiled but never run   [1 ref, 1 snippet, low, from tests reviewer]
-      · Ordering assertions depend on seed contents and collation   [1 ref, 1 snippet, low, from tests reviewer]
-      · OwnerTest.getAll lost its George Franklin assertion   [1 ref, 1 snippet, info, from tests reviewer]
-      · Vanished-owner 500 path has no test   [1 ref, 1 snippet, low, from tests reviewer]
-      · Task 4.4 not done: #25 not commented, Bizu not notified   [1 ref, 1 snippet, medium, from ticket-fit reviewer]
-      · Type-mismatch handler changes errors on every REST endpoint   [1 ref, 1 snippet, low, from ticket-fit reviewer]
-      · size documented without an enum of 5/10/20   [1 ref, 1 snippet, low, from ticket-fit reviewer]
+      · Owner deleted between page query and graph fetch fails the list with 5   [1 ref, 1 snippet, medium, from correctness, security and tests reviewers]
+      · Error view hides the paginator, so a failed page cannot be retried   [1 ref, 1 snippet, low, from correctness reviewer]
+      · Prefix index may be skipped under a generic prepared-statement plan   [1 ref, 1 snippet, low, from correctness reviewer]
+      · Index tests check existence, not that queries use them   [1 ref, 1 snippet, low, from tests reviewer]
+      · Deep page index runs a deep OFFSET plus a COUNT   [1 ref, 1 snippet, low, from security reviewer]
+      · Unbounded lastName length in the prefix query   [1 ref, 1 snippet, low, from security reviewer]
+      · Component error spec feeds a plain string, not the service&#x27;s erro   [1 ref, 1 snippet, low, from tests reviewer]
+      · HttpParams sends &quot;+&quot; unencoded, read back as a space   [1 ref, 1 snippet, info, from ticket-fit reviewer]
+      · Name shows &quot;First Last&quot; but sorts by last name   [1 ref, 1 snippet, low, from ticket-fit reviewer]
+      · Comment on #25 and Bizu notification left undone   [1 ref, 1 snippet, low, from ticket-fit reviewer]
+      · First/last buttons and index migration were not asked for   [1 ref, 1 snippet, info, from ticket-fit reviewer]
   Assumptions  (Assumptions)
-      · An OFFSET overflowing an int counts as an unrepresentable page: 400   [1 ref, 1 snippet, confidence 0.6]
-      · Sort tokens are strictly lowercase: name,ASC is a 400   [1 ref, 1 snippet, confidence 0.7]
-      · An empty sort= / size= / page= means &quot;omitted&quot;, not malforme   [1 ref, 1 snippet, confidence 0.65]
-      · The service sends only the parameters it is given; the grid always sen   [1 ref, 1 snippet, confidence 0.8]
-      · Add Owner is always shown, not only after the first load   [1 ref, 1 snippet, confidence 0.75]
-      · A non-empty total with an empty page shows an empty table plus paginat   [1 ref, 1 snippet, confidence 0.7]
-      · V4 copied byte-for-byte from origin/db27oct, so the index name differs   [1 ref, 1 snippet, confidence 0.5]
-      · Malformed typed params get a 400 on every REST endpoint   [1 ref, 1 snippet, confidence 0.65]
-      · Material&#x27;s default &quot;Items per page&quot; label, not the sket   [1 ref, 1 snippet, confidence 0.6]
-      · End-to-end traversal checks the UI against the API&#x27;s own order   [1 ref, 1 snippet, confidence 0.7]
+      · A non-numeric parameter is a 400 on every endpoint, not just the list   [1 ref, 1 snippet, confidence 0.65]
+      · On a failed request, rows are cleared and the table hidden   [1 ref, 1 snippet, confidence 0.55]
+      · Add Owner is shown in every state, including loading and error   [1 ref, 1 snippet, confidence 0.8]
+      · An empty sort= or size= falls back to the default instead of a 400   [1 ref, 1 snippet, confidence 0.6]
+      · Sort tokens are exact lowercase; name,ASC is rejected   [1 ref, 1 snippet, confidence 0.7]
+      · &quot;Unrepresentable page&quot; means page times size overflows the o   [1 ref, 1 snippet, confidence 0.8]
+      · Page size documented as a 5–20 range, not an enum   [1 ref, 1 snippet, confidence 0.7]
+      · The service omits absent parameters; the component always sends all fo   [1 ref, 1 snippet, confidence 0.85]
+      · Graph fetch without SQL DISTINCT   [1 ref, 1 snippet, confidence 0.9]
+      · Pets cell rendered as divs, not nested table rows   [1 ref, 1 snippet, confidence 0.85]
+      · User manual text updated, screenshot left stale   [1 ref, 1 snippet, confidence 0.6]
   fixed in     HEAD
-  base: eb6a0d1f58053105682bba4325dcc66f808b29f5 · implementation: 4405c85388bb015c4a17793f0d19c163b464b2b5 · reviewers: 4 read-only Plan subagents on Sonnet (correctness, security, tests, ticket-fit) + CI/SonarCloud · session: 13acbd66-def8-408d-be02-ce18a318f509
+  base: eb6a0d1f58053105682bba4325dcc66f808b29f5 · implementation: 5904ae081a46ac1f15c144d33846cbf6fe5635a6 · reviewers: 4 read-only Sonnet subagents (correctness, security, tests, ticket-fit) + pre-push hook · session: ca22c4c3-183a-49e8-b215-28211e9e12b7
   wrote  .human-review/review-points.json
+[review-points] WARNING: Fixed: 'Sort header snapped back to Name asc when the table was rebu' (line 16) — `file: petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts:259-276` spans 18 lines; anchor the lines that do the thing (the page opens 12 and folds the rest).
     $ git merge-base eb6a0d1f58053105682bba4325dcc66f808b29f5 HEAD
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/review-commits.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --json
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/review-commits.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --json

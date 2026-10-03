@@ -1,9 +1,9 @@
+[review] review-points: Fixed: 'Sort header snapped back to Name asc when the table was rebu' (line 16) — `file: petclinic-frontend/src/app/owners/owner-list/owner-list.component.spec.ts:259-276` spans 18 lines; anchor the lines that do the thing (the page opens 12 and folds the rest).
 [review] content.json's findings title ('Read and declined') is ignored — the Review tab's headings are the builder's
 [review] content.json's autofixes title ('Fixed after review') is ignored — the Review tab's headings are the builder's
 [review] content.json's assumptions title ('Decided where the ticket did not') is ignored — the Review tab's headings are the builder's
 [review] no pull request named in content.json (`pr.number` / `pr.url`) — the Review tab offers no 'Publish comment on GitHub PR'
-[review] Tests matrix: 27 sentences × 89 tests — 0 links by script (unconfirmed), 63 by model, 39 rejected, 0 sentences not paired yet
-[review] WARNING: verdict line dropped from the grade panel — it repeats the computed api-breaking line: 'GET /api/owners now answers {content, totalElements} instead of an array; the Angular owne'
+[review] Tests matrix: 27 sentences × 79 tests — 0 links by script (unconfirmed), 74 by model, 29 rejected, 0 sentences not paired yet
 [review] verdict carries 1 lines of its own; the grade panel shows the first 0 — the rest of its reasons are computed
 [review] difflink: petclinic-test/src/add-visit.spec.ts is identical at eb6a0d1f58053105682bba4325dcc66f808b29f5 and in the working tree — link dropped rather than opening an empty diff
 [review] tabs kept as context (struck through, no delta): Structure

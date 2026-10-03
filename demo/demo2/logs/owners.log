@@ -1,3 +1,3 @@
   * owners -> owners
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/codeowners-check.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --state
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/codeowners-check.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --state
 approval_required

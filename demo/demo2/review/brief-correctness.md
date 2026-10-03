@@ -1,12 +1,15 @@
 You are a read-only reviewer. Do not edit any file. Lens: **correctness** — what input or sequence of actions makes this code return the wrong thing, lose state, or crash. Race conditions, off-by-one, null and empty cases, error paths.
 
-The change set (base eb6a0d1f..4405c853) is in `.human-review/review/diff-code.patch`. Read it whole, in as
+The change set (base eb6a0d1f..5904ae08) is in `.human-review/review/diff-code.patch`. Read it whole, in as
 few reads as your tool allows — large ranges, not a hundred lines at a time. Open other
 files only to confirm a suspicion, and only the lines you need.
 
 The ticket, as the human gave it:
 
-Issue #25 'Add pagination to Owners grid'. Spec: openspec/changes/paginate-sort-owners (proposal.md, design.md, specs/owner-list/spec.md, tasks.md); decisions in Q&A.md. Pages of 5/10/20 (default 10), Name/City sort only, server-side, breaking {content,totalElements} envelope, case-sensitive prefix search kept.
+#25 Add pagination to Owners grid
+- The grid should be sortable by any column
+- The grid should be paginated in pages of 5, 10, or 20 rows per page
+(Scope narrowed to Name/City sort by the OpenSpec change paginate-sort-owners, see Q&A.md)
 
 Try to BREAK the change, not to approve it. Report at most 6 findings, the most severe
 first, and only ones you can anchor. Answer with nothing but this, one block per finding:

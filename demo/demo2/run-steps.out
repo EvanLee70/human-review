@@ -1,43 +1,43 @@
 [run-steps] base eb6a0d1f5805: the base the review audited (review-points.md), inside origin/main
     $ git merge-base eb6a0d1f58053105682bba4325dcc66f808b29f5 HEAD
   > city: started at +0 s (log: .human-review/logs/city.log)
-  > basestack: started at +0 s (log: .human-review/logs/basestack.log)
   > sequence: started at +0 s (log: .human-review/logs/sequence.log)
-  > diagrams: started at +0 s (log: .human-review/logs/diagrams.log)
   > tests: started at +0 s (log: .human-review/logs/tests.log)
+  > complexity: started at +0 s (log: .human-review/logs/complexity.log)
   > api: started at +0 s (log: .human-review/logs/api.log)
-  < tests: ran in 1.0 s, at +1 s
-  > complexity: started at +1 s (log: .human-review/logs/complexity.log)
-  < api: ran in 3.3 s, at +3 s
-  > reviewpoints: started at +3 s (log: .human-review/logs/reviewpoints.log)
-  < complexity: ran in 2.8 s, at +4 s
-  > logging: started at +4 s (log: .human-review/logs/logging.log)
-/Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/review-commits.py:2: SyntaxWarning: invalid escape sequence '\['
+  > diagrams: started at +0 s (log: .human-review/logs/diagrams.log)
+  < tests: ran in 0.9 s, at +1 s
+  > basestack: started at +1 s (log: .human-review/logs/basestack.log)
+  < basestack: ran in 1.0 s, at +2 s
+  > logging: started at +2 s (log: .human-review/logs/logging.log)
+  < complexity: ran in 2.4 s, at +2 s
+  > reviewpoints: started at +2 s (log: .human-review/logs/reviewpoints.log)
+  < logging: ran in 0.6 s, at +3 s
+  > specchanges: started at +3 s (log: .human-review/logs/specchanges.log)
+/Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/review-commits.py:2: SyntaxWarning: invalid escape sequence '\['
   """Which commit is the implementation, which one is the review, and what came after.
-  < reviewpoints: ran in 0.6 s, at +4 s
-  > owners: started at +4 s (log: .human-review/logs/owners.log)
-  < owners: ran in 0.5 s, at +4 s
-  > specchanges: started at +4 s (log: .human-review/logs/specchanges.log)
-  < logging: ran in 0.7 s, at +5 s
-  > aftermath: started at +5 s (log: .human-review/logs/aftermath.log)
-  < aftermath: ran in 0.1 s, at +5 s
-  < specchanges: ran in 0.5 s, at +5 s
-  < diagrams: ran in 21.8 s, at +22 s
-  < basestack: ran in 25.5 s, at +26 s
-  < city: ran in 95.9 s, at +96 s
-  > traces: started at +96 s (log: .human-review/logs/traces.log)
-  < traces: ran in 25.7 s, at +122 s
-  > video: started at +122 s (log: .human-review/logs/video.log)
-  < sequence: ran in 207.4 s, at +207 s
-  > c2: started at +207 s (log: .human-review/logs/c2.log)
-  > testcov: started at +207 s (log: .human-review/logs/testcov.log)
-  < c2: ran in 5.9 s, at +213 s
-  < testcov: ran in 65.8 s, at +273 s
-  < video: ran in 259.2 s, at +381 s
-  > dsaudit: started at +381 s (log: .human-review/logs/dsaudit.log)
-  < dsaudit: ran in 38.2 s, at +419 s
+  < api: ran in 2.7 s, at +3 s
+  > owners: started at +3 s (log: .human-review/logs/owners.log)
+  < reviewpoints: ran in 0.4 s, at +3 s
+  > aftermath: started at +3 s (log: .human-review/logs/aftermath.log)
+  < aftermath: ran in 0.1 s, at +3 s
+  < specchanges: ran in 0.4 s, at +3 s
+  < owners: ran in 0.3 s, at +3 s
+  < diagrams: ran in 15.2 s, at +15 s
+  < city: ran in 32.2 s, at +32 s
+  > traces: started at +32 s (log: .human-review/logs/traces.log)
+  < traces: ran in 23.8 s, at +56 s
+  > video: started at +56 s (log: .human-review/logs/video.log)
+  < sequence: ran in 163.4 s, at +163 s
+  > c2: started at +163 s (log: .human-review/logs/c2.log)
+  > testcov: started at +163 s (log: .human-review/logs/testcov.log)
+  < c2: ran in 4.7 s, at +168 s
+  < testcov: ran in 121.9 s, at +285 s
+  < video: ran in 527.3 s, at +583 s
+  > dsaudit: started at +583 s (log: .human-review/logs/dsaudit.log)
+  < dsaudit: ran in 40.9 s, at +624 s
 
-[run-steps] 17 step(s) in 419 s wall clock, 6 at a time; each step's output is in .human-review/logs/
+[run-steps] 17 step(s) in 624 s wall clock, 6 at a time; each step's output is in .human-review/logs/
 
   step         status   why / what to say
   basestack    ran      
@@ -46,13 +46,13 @@
   aftermath    ran      
   diagrams     ran      
   sequence     ran      
-               note     also traced 6 test(s) this branch wrote or edited, untagged: owner-search.feature: Paging to the end shows every owner exactly once; OwnerListTest.java: defaultRequest_returnsFirstTenByNameAndTheTotal; owner-search.feature: Sort by Name or City, never by nothing; OwnerListTest.java: ownerInAPage_carriesTheSameNestedDataAsItsDetail; owner-search.feature: A new page size goes back to the first page; owner-search.feature: A new sort goes back to the first page — 25 more over the cap of 6
-               note     the traced suites ran against http://localhost:61414, started by this run from the commit under review — not whatever was already listening
+               note     also traced 6 test(s) this branch wrote or edited, untagged: owner-search.feature: Paging through every owner, 5 at a time; OwnerListTest.java: defaultRequest_returnsTheFirstTenByNameWithTheTotal; owner-search.feature: Sorting by city, then reversing it; OwnerListTest.java: envelope_hasExactlyContentAndTotalElements; owner-search.feature: Changing the page size returns to the first page; owner-search.feature: Searching from a later page returns to the first page of the matches — 25 more over the cap of 6
+               note     the traced suites ran against http://localhost:64095, started by this run from the commit under review — not whatever was already listening
   c2           ran      
   city         ran      
                note     codecity lit: 6 changed (put this measured number under the image; never type one)
   video        ran      
-               note     filmed against http://localhost:61112, started by this run from the commit under review — not whatever was already listening on :4200
+               note     filmed against http://localhost:62217, started by this run from the commit under review — not whatever was already listening on :4200
   complexity   ran      
   api          ran      
   specchanges  ran      
@@ -62,4 +62,3 @@
   tests        ran      
   traces       ran      
   testcov      ran      
-exit=0

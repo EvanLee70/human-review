@@ -1,10 +1,10 @@
 {
   "title": "Owners grid: paged and sorted by Name or City",
-  "subtitle": "hr-claude-13 — issue #25",
+  "subtitle": "hr-claude-15 — issue #25",
   "pr": {
     "title": "Paginate and sort the owners grid by Name or City",
     "repo": "https://github.com/victorrentea/petclinic",
-    "branch": "hr-claude-13",
+    "branch": "hr-claude-15",
     "base": "main",
     "ticket": {
       "number": 25,
@@ -28,8 +28,7 @@
   "verdict": {
     "score": 7,
     "bullets": [
-      "<code>GET /api/owners</code> now answers <code>{content, totalElements}</code> instead of an array; the Angular owners grid is its only production caller, so backend and frontend ship and roll back together.",
-      "<code>V4__owner_list_indexes.sql</code> adds three indexes on <code>owners</code>: the case-sensitive prefix search (<code>text_pattern_ops</code>) and one per sort order, sized for the 100k owners expected by Sep 2027."
+      "The new <code>MethodArgumentTypeMismatchException</code> handler is global: a malformed path id on endpoints this ticket never touched (<code>/api/owners/abc</code>) turns from 500 into 400."
     ]
   },
   "findings": {
@@ -221,5 +220,5 @@
     }
   ],
   "sections": [],
-  "footer": "Built by /human-review from hr-claude-13 on 3 Oct 2026."
+  "footer": "Built by /human-review from hr-claude-15 on 3 Oct 2026."
 }

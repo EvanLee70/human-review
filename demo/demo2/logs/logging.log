@@ -1,15 +1,6 @@
   * logging -> logging
     $ git merge-base eb6a0d1f58053105682bba4325dcc66f808b29f5 HEAD
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/logextract.py petclinic-backend --repo . --since eb6a0d1f58053105682bba4325dcc66f808b29f5 --json .human-review/assets/logging.json
-4 logging statement(s) on added/modified lines
-  petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java:56:9  [WARN ] log.warn  (SLF4J, declared)  modified (same text logged)
-        was: log.warn("Validation failed: {}", errors)
-        log.warn(VALIDATION_FAILED_LOG, errors);
-  petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java:70:9  [WARN ] log.warn  (SLF4J, declared)  modified (same text logged)
-        was: log.warn("Validation failed: {}", errors)
-        log.warn(VALIDATION_FAILED_LOG, errors);
-  petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java:81:9  [WARN ] log.warn  (SLF4J, declared)  modified (same text logged)
-        was: log.warn("Validation failed: {}", ex.getMessage())
-        log.warn(VALIDATION_FAILED_LOG, ex.getMessage());
-  petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java:91:9  [WARN ] log.warn  (SLF4J, declared)  added
-        log.warn(VALIDATION_FAILED_LOG, detail);
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/76ff43fe16b6/skills/human-review/scripts/logextract.py petclinic-backend --repo . --since eb6a0d1f58053105682bba4325dcc66f808b29f5 --json .human-review/assets/logging.json
+1 logging statement(s) on added/modified lines
+  petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java:90:9  [WARN ] log.warn  (SLF4J, declared)  added
+        log.warn("Invalid value for parameter '{}'", ex.getName());

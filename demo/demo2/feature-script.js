@@ -8,10 +8,7 @@ const APP_DIR = "petclinic-frontend/src/app";
 const walk = d => fs.readdirSync(d, {withFileTypes: true}).flatMap(e =>
   e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
 
-const baseRef = () => {
-  try { return JSON.parse(fs.readFileSync("human-review.json", "utf8")).base || "origin/main"; }
-  catch { return "origin/main"; }
-};
+const baseRef = () => process.env.HUMAN_REVIEW_BASE || "eb6a0d1f";
 
 const parse = f => ts.createSourceFile(f, fs.readFileSync(f, "utf8"), ts.ScriptTarget.Latest, true);
 
@@ -88,29 +85,47 @@ function deriveScreens() {
 module.exports = async ({page, say, pause, get, app, apiUrl}) => {
   const rangeLabel = page.locator(".mat-mdc-paginator-range-label");
   const nextButton = page.locator(".mat-mdc-paginator-navigation-next");
-  const firstNames = () => page.locator("#ownersTable td.ownerFullName").allTextContents();
-  const settled = async () => {
-    await page.locator("#ownersTable[aria-busy='false']").waitFor();
+  const lastButton = page.locator(".mat-mdc-paginator-navigation-last");
+  const firstButton = page.locator(".mat-mdc-paginator-navigation-first");
+  const pageSizeSelect = page.locator(".mat-mdc-paginator-page-size-select");
+  const names = page.locator("#ownersTable td.ownerFullName");
+  const sortHeader = key => page.locator(`#ownersTable th[mat-sort-header="${key}"]`);
+  const isOwnersCall = r => r.request().method() === "GET" && /\/owners(\?|$)/.test(r.url());
+
+  // run an action and wait for the owners request it triggers to be answered and rendered
+  const afterReload = async action => {
+    const answered = page.waitForResponse(isOwnersCall);
+    await action();
+    await answered;
+    await pause(400);
   };
-  const sortHeader = label => page.locator("#ownersTable th[mat-sort-header]").filter({hasText: label});
   const search = async lastName => {
     await page.locator("#lastName").fill(lastName);
-    await page.locator("#search-owner-form button[type='submit']").click();
+    await afterReload(() => page.locator("#search-owner-form button[type='submit']").click());
   };
-  const changeRange = async action => {
-    const before = await rangeLabel.textContent();
-    await action();
-    await page.waitForFunction(
-      ([sel, prev]) => document.querySelector(sel)?.textContent !== prev,
-      [".mat-mdc-paginator-range-label", before]);
-    await settled();
+  const clickSort = key => afterReload(() => sortHeader(key).click());
+  const pickPageSize = async size => {
+    await pageSizeSelect.click();
+    const option = page.locator("mat-option").filter({hasText: new RegExp(`^\\s*${size}\\s*$`)});
+    await option.waitFor();
+    await say("The page size is selectable: five, ten or twenty.", page.locator(".mat-mdc-select-panel"));
+    await afterReload(() => option.click());
   };
-  const clickSort = async label => {
-    const header = sortHeader(label);
-    const before = await header.getAttribute("aria-sort");
-    await header.click();
-    for (let i = 0; i < 50 && await header.getAttribute("aria-sort") === before; i++) await pause(100);
-    await settled();
+
+  // a letter that narrows the list: it starts some of the sampled last names, not all of them
+  const pickNarrowingLetter = async () => {
+    try {
+      const res = await get(`${apiUrl}/owners?size=20&sort=name,asc`);
+      const content = (res && (res.content || res.body?.content)) || [];
+      const counts = {};
+      for (const o of content) {
+        const l = (o.lastName || "").charAt(0).toUpperCase();
+        if (l) counts[l] = (counts[l] || 0) + 1;
+      }
+      const letters = Object.keys(counts);
+      return letters.find(l => counts[l] > 1 && counts[l] < content.length)
+        || letters.find(l => counts[l] < content.length) || "D";
+    } catch { return "D"; }
   };
 
   const handlers = {
@@ -118,63 +133,75 @@ module.exports = async ({page, say, pause, get, app, apiUrl}) => {
       await page.goto(`${app}${route}`);
       const table = page.locator("#ownersTable");
       await table.waitFor();
-      await settled();
+      await names.first().waitFor();
+      await say("The Owners grid shows one page at a time. Ten owners to start with.", table);
+      await pause(1500);
+
       await rangeLabel.waitFor();
-      await say("The Owners grid now shows one page at a time, ten owners to start with.", table);
-      await pause(1500);
-      await say("A paginator under the grid shows the range and the total, fetched from the server.", rangeLabel);
-      await pause(1500);
-
-      await changeRange(() => nextButton.click());
-      await say("Next page: the server returns the following slice, and the range moves on.", rangeLabel);
+      const range = (await rangeLabel.textContent()).trim();
+      await say(`The paginator shows the range and the total: ${range}. The total comes from the server.`, rangeLabel);
       await pause(1500);
 
-      await page.locator(".mat-mdc-paginator-page-size-select").click();
-      await page.locator("mat-option").filter({hasText: /^\s*5\s*$/}).waitFor();
-      await say("The page size is selectable: five, ten or twenty.", page.locator(".mat-mdc-select-panel"));
-      await changeRange(() => page.locator("mat-option").filter({hasText: /^\s*5\s*$/}).click());
-      await say("Changing the size starts again from the first page.", rangeLabel);
+      await nextButton.waitFor();
+      await afterReload(() => nextButton.click());
+      await rangeLabel.waitFor();
+      await say("Next page: the range moves on.", rangeLabel);
       await pause(1500);
 
-      const nameHeader = sortHeader("Name");
+      await lastButton.waitFor();
+      await afterReload(() => lastButton.click());
+      await firstButton.waitFor();
+      await say("First and last page buttons jump to either end.", lastButton);
+      await pause(1500);
+      await afterReload(() => firstButton.click());
+
+      await pageSizeSelect.waitFor();
+      await afterReload(() => nextButton.click());
+      await pickPageSize(5);
+      await rangeLabel.waitFor();
+      await say("Changing the page size goes back to the first page.", rangeLabel);
+      await pause(1500);
+
+      const nameHeader = sortHeader("name");
       await nameHeader.waitFor();
-      await say("Name is the default sort, ascending, by last name.", nameHeader);
-      await clickSort("Name");
-      await say("Sort by Name again, now descending. Sorting returns to page one.", nameHeader);
+      await say("Name is the default sort, ascending.", nameHeader);
+      await pause(1000);
+      await clickSort("name");
+      await names.first().waitFor();
+      await say("Clicking Name again sorts descending.", nameHeader);
       await pause(1500);
-      const sample = (await firstNames())[0];
-      await say(`The server now returns ${sample} first.`, page.locator("#ownersTable td.ownerFullName").first());
+      const sample = (await names.first().textContent()).trim();
+      await say(`The first row is now ${sample}.`, names.first());
       await pause(1500);
 
-      const cityHeader = sortHeader("City");
+      const cityHeader = sortHeader("city");
       await cityHeader.waitFor();
-      await clickSort("City");
-      await say("City is sortable too: ascending first.", cityHeader);
+      await clickSort("city");
+      await say("City is sortable too. First click: ascending.", cityHeader);
       await pause(1500);
-      await clickSort("City");
-      await say("A second click reverses it: descending.", cityHeader);
+      await clickSort("city");
+      await say("Second click: descending.", cityHeader);
       await pause(1500);
 
-      await page.locator("#lastName").waitFor();
-      await search("D");
-      await settled();
+      const letter = await pickNarrowingLetter();
+      const lastNameInput = page.locator("#lastName");
+      await lastNameInput.waitFor();
+      await search(letter);
       await rangeLabel.waitFor();
-      await say("Searching by last name filters on the server, and the paginator counts only the matches.", rangeLabel);
+      const narrowed = (await rangeLabel.textContent()).trim();
+      await say(`Searching last names starting with ${letter} narrows the count to ${narrowed}.`, rangeLabel);
       await pause(1500);
-
-      const matches = await get(`${apiUrl}/owners?lastName=D&page=0&size=5&sort=name,asc`).catch(() => null);
-      const total = matches && (matches.totalElements ?? matches.body?.totalElements);
-      if (total > 5) {
-        await changeRange(() => nextButton.click());
-        await say("Paging works inside the search results as well.", rangeLabel);
-        await pause(1500);
-      }
 
       await search("Zzzz");
       const none = page.locator("#noOwners");
       await none.waitFor();
-      await say("A search with no match now shows a clear message instead of an empty grid.", none);
+      await say("A search with no match shows a message instead of an empty grid.", none);
       await pause(2000);
+
+      const addOwner = page.locator("#addOwner");
+      await addOwner.waitFor();
+      await say("Add Owner stays below the list.", addOwner);
+      await pause(1500);
     }
   };
 

@@ -1,25 +1,25 @@
 <p class="oad-lede">Read from <code>openapi.yaml</code> as a structure, not as text: <b>1</b> operation and <b>1</b> schema moved. Each line is classified by what it does to somebody already calling this API — <span class="oad-chip oad-breaking">2 breaking</span> <span class="oad-chip oad-additive">2 additive</span> <span class="oad-chip oad-changed">2 changed</span> <span class="oad-chip oad-cosmetic">3 cosmetic</span></p>
 <div class="oad-group"><div class="oad-kind">Operations <span class="oad-count">1</span></div>
-<div class="oad-subject oad-is-modified"><div class="oad-head"><a class="oad-link" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/openapi.yaml:191:1" data-tip="open the spec at this definition"><span class="oad-verb oad-get">GET</span><code class="oad-path">/api/owners</code></a><span class="oad-chip oad-breaking">modified</span><span class="oad-note">List owners, one page at a time</span></div><ul class="oad-changes"><li class="oad-breaking"><span class="oad-chip oad-breaking">breaking</span><code>responses.200</code> replaced: OwnerDto[] &rarr; OwnerPageDto</li><li class="oad-breaking"><span class="oad-chip oad-breaking">breaking</span><code>responses.400.*/*</code> removed (was {&quot;schema&quot;: {&quot;$ref&quot;: &quot;#/components/schemas/ProblemDetail&quot;}})</li><li class="oad-additive"><span class="oad-chip oad-additive">additive</span><code>responses.400.application/problem+json</code> added: {&quot;schema&quot;: {&quot;$ref&quot;: &quot;#/components/schemas/ProblemDetail&quot;}}</li><li class="oad-changed"><span class="oad-chip oad-changed">changed</span><code>parameters</code> [{&quot;in&quot;: &quot;query&quot;, &quot;name&quot;: &quot;lastName&quot;, &quot;required&quot;: false, &quot;schema&quot;: {&quot;default&quot;: &quot;&quot;, &quot;type&quot;: &quot;string&quot;}}] &rarr; [{&quot;description&quot;: &quot;Prefix of the last name, case-sensitive; empty matches every owner&quot;, &quot;in&quot;: &quot;query&quot;, &quot;name&quot;: &quot;lastName&quot;, &quot;required&quot;: false, &quot;schema&quot;: {&quot;default… (showing 160 of 800 characters)</li><li class="oad-changed"><span class="oad-chip oad-changed">changed</span><code>responses.200.examples.sample.value</code> [{&quot;address&quot;: &quot;110 W. Liberty St.&quot;, &quot;city&quot;: &quot;Madison&quot;, &quot;firstName&quot;: &quot;George&quot;, &quot;id&quot;: 1, &quot;lastName&quot;: &quot;Franklin&quot;, &quot;pets&quot;: [{&quot;birthDate&quot;: &quot;2010-09-07&quot;, &quot;id&quot;: 1, &quot;nam… (showing 160 of 410 characters) &rarr; {&quot;content&quot;: [{&quot;address&quot;: &quot;638 Cardinal Ave.&quot;, &quot;city&quot;: &quot;Sun Prairie&quot;, &quot;firstName&quot;: &quot;Betty&quot;, &quot;id&quot;: 2, &quot;lastName&quot;: &quot;Davis&quot;, &quot;pets&quot;: [], &quot;telephone&quot;: &quot;6085551749&quot;},… (showing 160 of 443 characters)</li><li class="oad-cosmetic"><span class="oad-chip oad-cosmetic">cosmetic</span><code>description</code> added: Owners whose last name starts with lastName (case-sensitive), sorted by a business key; totalElements counts every match across all pages.</li><li class="oad-cosmetic"><span class="oad-chip oad-cosmetic">cosmetic</span><code>responses.400.description</code> Bad Request &rarr; page, size or sort is not one of the allowed values</li><li class="oad-cosmetic"><span class="oad-chip oad-cosmetic">cosmetic</span><code>summary</code> List owners &rarr; List owners, one page at a time</li></ul></div>
+<div class="oad-subject oad-is-modified"><div class="oad-head"><a class="oad-link" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/openapi.yaml:191:1" data-tip="open the spec at this definition"><span class="oad-verb oad-get">GET</span><code class="oad-path">/api/owners</code></a><span class="oad-chip oad-breaking">modified</span><span class="oad-note">List owners, one page at a time</span></div><ul class="oad-changes"><li class="oad-breaking"><span class="oad-chip oad-breaking">breaking</span><code>responses.200</code> replaced: OwnerDto[] &rarr; OwnerPageDto</li><li class="oad-breaking"><span class="oad-chip oad-breaking">breaking</span><code>responses.400.*/*</code> removed (was {&quot;schema&quot;: {&quot;$ref&quot;: &quot;#/components/schemas/ProblemDetail&quot;}})</li><li class="oad-additive"><span class="oad-chip oad-additive">additive</span><code>responses.400.application/problem+json</code> added: {&quot;schema&quot;: {&quot;$ref&quot;: &quot;#/components/schemas/ProblemDetail&quot;}}</li><li class="oad-changed"><span class="oad-chip oad-changed">changed</span><code>parameters</code> [{&quot;in&quot;: &quot;query&quot;, &quot;name&quot;: &quot;lastName&quot;, &quot;required&quot;: false, &quot;schema&quot;: {&quot;default&quot;: &quot;&quot;, &quot;type&quot;: &quot;string&quot;}}] &rarr; [{&quot;description&quot;: &quot;Case-sensitive prefix of the last name; empty matches everyone&quot;, &quot;in&quot;: &quot;query&quot;, &quot;name&quot;: &quot;lastName&quot;, &quot;required&quot;: false, &quot;schema&quot;: {&quot;default&quot;: &quot;… (showing 160 of 797 characters)</li><li class="oad-changed"><span class="oad-chip oad-changed">changed</span><code>responses.200.examples.sample.value</code> [{&quot;address&quot;: &quot;110 W. Liberty St.&quot;, &quot;city&quot;: &quot;Madison&quot;, &quot;firstName&quot;: &quot;George&quot;, &quot;id&quot;: 1, &quot;lastName&quot;: &quot;Franklin&quot;, &quot;pets&quot;: [{&quot;birthDate&quot;: &quot;2010-09-07&quot;, &quot;id&quot;: 1, &quot;nam… (showing 160 of 410 characters) &rarr; {&quot;content&quot;: [{&quot;address&quot;: &quot;638 Cardinal Ave.&quot;, &quot;city&quot;: &quot;Sun Prairie&quot;, &quot;firstName&quot;: &quot;Betty&quot;, &quot;id&quot;: 1, &quot;lastName&quot;: &quot;Davis&quot;, &quot;pets&quot;: [], &quot;telephone&quot;: &quot;6085551749&quot;},… (showing 160 of 517 characters)</li><li class="oad-cosmetic"><span class="oad-chip oad-cosmetic">cosmetic</span><code>description</code> added: Filters by a case-sensitive last-name prefix, then returns the requested page together with the number of matching owners. A page past the last one is empty.</li><li class="oad-cosmetic"><span class="oad-chip oad-cosmetic">cosmetic</span><code>responses.400.description</code> Bad Request &rarr; Invalid page, size or sort</li><li class="oad-cosmetic"><span class="oad-chip oad-cosmetic">cosmetic</span><code>summary</code> List owners &rarr; List owners, one page at a time</li></ul></div>
 </div>
 <div class="oad-group"><div class="oad-kind">Schemas <span class="oad-count">1</span></div>
-<div class="oad-subject oad-is-added"><div class="oad-head"><a class="oad-link" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/openapi.yaml:1722:1" data-tip="open the spec at this definition"><code class="oad-path">OwnerPageDto</code></a><span class="oad-chip oad-additive">added</span><span class="oad-note">2 properties</span></div></div>
+<div class="oad-subject oad-is-added"><div class="oad-head"><a class="oad-link" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/openapi.yaml:1729:1" data-tip="open the spec at this definition"><code class="oad-path">OwnerPageDto</code></a><span class="oad-chip oad-additive">added</span><span class="oad-note">2 properties</span></div></div>
 </div>
 <details class="oad-raw"><summary>The unified diff this was read from</summary><pre><span>diff --git a/openapi.yaml b/openapi.yaml</span>
-<span>index c49186b3..a20f3d6c 100644</span>
+<span>index c49186b3..54b2bd1b 100644</span>
 <span>--- a/openapi.yaml</span>
 <span>+++ b/openapi.yaml</span>
-<span class=oad-hunk>@@ -189,14 +189,47 @@ paths:</span>
+<span class=oad-hunk>@@ -189,14 +189,50 @@ paths:</span>
 <span>       - root-rest-controller</span>
 <span>   /api/owners:</span>
 <span>     get:</span>
-<span class=oad-add>+      description: &quot;Owners whose last name starts with lastName (case-sensitive),\</span>
-<span class=oad-add>+        \ sorted by a business key; totalElements counts every match across all pages.&quot;</span>
+<span class=oad-add>+      description: &quot;Filters by a case-sensitive last-name prefix, then returns the\</span>
+<span class=oad-add>+        \ requested page together with the number of matching owners. A page past\</span>
+<span class=oad-add>+        \ the last one is empty.&quot;</span>
 <span>       operationId: listOwners</span>
 <span>       parameters:</span>
 <span class=oad-del>-      - in: query</span>
-<span class=oad-add>+      - description: &quot;Prefix of the last name, case-sensitive; empty matches every\</span>
-<span class=oad-add>+          \ owner&quot;</span>
+<span class=oad-add>+      - description: Case-sensitive prefix of the last name; empty matches everyone</span>
 <span class=oad-add>+        in: query</span>
 <span>         name: lastName</span>
 <span>         required: false</span>
@@ -43,13 +43,16 @@
 <span class=oad-add>+          type: integer</span>
 <span class=oad-add>+          format: int32</span>
 <span class=oad-add>+          default: 10</span>
-<span class=oad-add>+      - description: &quot;name sorts by last name, first name, id; city by city, last\</span>
-<span class=oad-add>+          \ name, first name, id. The direction applies to every field.&quot;</span>
+<span class=oad-add>+          maximum: 20</span>
+<span class=oad-add>+          minimum: 5</span>
+<span class=oad-add>+      - description: &quot;Name sorts by last name, first name, id; City by city, then\</span>
+<span class=oad-add>+          \ the same&quot;</span>
 <span class=oad-add>+        in: query</span>
 <span class=oad-add>+        name: sort</span>
 <span class=oad-add>+        required: false</span>
 <span class=oad-add>+        schema:</span>
 <span class=oad-add>+          type: string</span>
+<span class=oad-add>+          default: &quot;name,asc&quot;</span>
 <span class=oad-add>+          enum:</span>
 <span class=oad-add>+          - &quot;name,asc&quot;</span>
 <span class=oad-add>+          - &quot;name,desc&quot;</span>
@@ -58,7 +61,7 @@
 <span>       responses:</span>
 <span>         &quot;200&quot;:</span>
 <span>           content:</span>
-<span class=oad-hunk>@@ -205,39 +238,39 @@ paths:</span>
+<span class=oad-hunk>@@ -205,39 +241,43 @@ paths:</span>
 <span>                 sample:</span>
 <span>                   description: sample</span>
 <span>                   value:</span>
@@ -70,13 +73,6 @@
 <span class=oad-del>-                    telephone: &quot;6085551023&quot;</span>
 <span class=oad-del>-                    pets:</span>
 <span class=oad-add>+                    content:</span>
-<span class=oad-add>+                    - id: 2</span>
-<span class=oad-add>+                      firstName: Betty</span>
-<span class=oad-add>+                      lastName: Davis</span>
-<span class=oad-add>+                      address: 638 Cardinal Ave.</span>
-<span class=oad-add>+                      city: Sun Prairie</span>
-<span class=oad-add>+                      telephone: &quot;6085551749&quot;</span>
-<span class=oad-add>+                      pets: []</span>
 <span>                     - id: 1</span>
 <span class=oad-del>-                      name: Leo</span>
 <span class=oad-del>-                      birthDate: 2010-09-07</span>
@@ -96,6 +92,13 @@
 <span class=oad-del>-                type: array</span>
 <span class=oad-del>-                items:</span>
 <span class=oad-del>-                  $ref: &quot;#/components/schemas/OwnerDto&quot;</span>
+<span class=oad-add>+                      firstName: Betty</span>
+<span class=oad-add>+                      lastName: Davis</span>
+<span class=oad-add>+                      address: 638 Cardinal Ave.</span>
+<span class=oad-add>+                      city: Sun Prairie</span>
+<span class=oad-add>+                      telephone: &quot;6085551749&quot;</span>
+<span class=oad-add>+                      pets: []</span>
+<span class=oad-add>+                    - id: 2</span>
 <span class=oad-add>+                      firstName: George</span>
 <span class=oad-add>+                      lastName: Franklin</span>
 <span class=oad-add>+                      address: 110 W. Liberty St.</span>
@@ -108,9 +111,13 @@
 <span class=oad-add>+                        type:</span>
 <span class=oad-add>+                          id: 1</span>
 <span class=oad-add>+                          name: cat</span>
-<span class=oad-add>+                        ownerId: 1</span>
-<span class=oad-add>+                        visits: []</span>
-<span class=oad-add>+                    totalElements: 2</span>
+<span class=oad-add>+                        ownerId: 2</span>
+<span class=oad-add>+                        visits:</span>
+<span class=oad-add>+                        - id: 1</span>
+<span class=oad-add>+                          date: 2013-01-01</span>
+<span class=oad-add>+                          description: rabies shot</span>
+<span class=oad-add>+                          petId: 1</span>
+<span class=oad-add>+                    totalElements: 26</span>
 <span class=oad-add>+              schema:</span>
 <span class=oad-add>+                $ref: &quot;#/components/schemas/OwnerPageDto&quot;</span>
 <span>           description: OK</span>
@@ -121,11 +128,11 @@
 <span>               schema:</span>
 <span>                 $ref: &quot;#/components/schemas/ProblemDetail&quot;</span>
 <span class=oad-del>-          description: Bad Request</span>
-<span class=oad-add>+          description: &quot;page, size or sort is not one of the allowed values&quot;</span>
+<span class=oad-add>+          description: &quot;Invalid page, size or sort&quot;</span>
 <span>         &quot;404&quot;:</span>
 <span>           content:</span>
 <span>             &#x27;*/*&#x27;:</span>
-<span class=oad-hunk>@@ -250,7 +283,7 @@ paths:</span>
+<span class=oad-hunk>@@ -250,7 +290,7 @@ paths:</span>
 <span>               schema:</span>
 <span>                 $ref: &quot;#/components/schemas/ProblemDetail&quot;</span>
 <span>           description: Internal Server Error</span>
@@ -134,23 +141,23 @@
 <span>       tags:</span>
 <span>       - owner-rest-controller</span>
 <span>     post:</span>
-<span class=oad-hunk>@@ -1686,6 +1719,23 @@ components:</span>
+<span class=oad-hunk>@@ -1686,6 +1726,23 @@ components:</span>
 <span>       - firstName</span>
 <span>       - lastName</span>
 <span>       - telephone</span>
 <span class=oad-add>+    OwnerPageDto:</span>
 <span class=oad-add>+      type: object</span>
-<span class=oad-add>+      description: One page of owners matching a search.</span>
+<span class=oad-add>+      description: &quot;One page of owners, plus how many owners match the filter in total.&quot;</span>
 <span class=oad-add>+      properties:</span>
 <span class=oad-add>+        content:</span>
 <span class=oad-add>+          type: array</span>
-<span class=oad-add>+          description: &quot;The owners on the requested page, with their pets and visits.&quot;</span>
+<span class=oad-add>+          description: The owners on the requested page.</span>
 <span class=oad-add>+          items:</span>
 <span class=oad-add>+            $ref: &quot;#/components/schemas/OwnerDto&quot;</span>
 <span class=oad-add>+        totalElements:</span>
 <span class=oad-add>+          type: integer</span>
 <span class=oad-add>+          format: int64</span>
-<span class=oad-add>+          description: &quot;How many owners match the search, across all pages.&quot;</span>
+<span class=oad-add>+          description: &quot;The number of owners matching the filter, across all pages.&quot;</span>
 <span class=oad-add>+          example: 26</span>
 <span class=oad-add>+      required:</span>
 <span class=oad-add>+      - content</span>
