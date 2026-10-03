@@ -4,7 +4,7 @@
 HIDE_STEREOTYPE()
 skinparam hyperlinkUnderline false
 skinparam hyperlinkColor #1A4FA0
-title [[https://c4model.com/diagrams/container{What a container diagram is, on Simon Brown's own site} C2 Containers]]
+title [[https://c4model.com/diagrams/container{What is a C2 diagram?} C2 Containers]]
 System_Boundary(c2_system, "PetClinic") {
   Container(Backend, "Backend", "Java 21 / Spring Boot 3.5", "")
   Container(Browser, "Browser", "Angular 16", "")
@@ -14,7 +14,7 @@ System_Boundary(c2_system, "PetClinic") {
 }
 Rel(Backend, DB, "SQL", "")
 Rel(Backend, NotificationService, "[[genseq://c2-279a196c9d{Click for the calls behind this line} HTTP ⊕]]", "1 ops")
-Rel(Browser, Backend, "[[genseq://c2-75fafaa11f{Click for the calls behind this line} HTTP ⊕]]", "6 ops (was 5)")
+Rel(Browser, Backend, "[[genseq://c2-75fafaa11f{Click for the calls behind this line} HTTP ⊕]]", "6 ops")
 Rel(NotificationService, SMS_gateway, "[[genseq://c2-cb01a30b7a{Click for the calls behind this line} calls ⊕]]", "1 ops")
 caption Diagram generated from sequence diagrams of the test traces
 @enduml

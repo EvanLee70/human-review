@@ -1,0 +1,8 @@
+  * complexity -> complexity
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/endpoint-complexity.py --base origin/main --out .human-review/assets/complexity-before.json
+[complexity] 52 entry points -> .human-review/assets/complexity-before.json
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/endpoint-complexity.py --out .human-review/assets/complexity-after.json
+[complexity] 52 entry points -> .human-review/assets/complexity-after.json
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/endpoint-complexity-delta.py .human-review/assets/complexity-before.json .human-review/assets/complexity-after.json --base origin/main --out .human-review/assets/complexity-delta.html
+[complexity-delta] wrote .human-review/assets/complexity-delta.html
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/endpoint-complexity-delta.py --css > .human-review/assets/complexity-delta.css

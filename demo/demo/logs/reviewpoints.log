@@ -1,0 +1,34 @@
+  * reviewpoints -> review
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/review-points.py --root . --out .human-review/review-points.json
+review-points.md: 14 item(s) in 3 fixed, 5 ignored, 6 assumptions
+  Fixed        (Fixed)
+      · The vet picker could not load on the screens that need it   [1 ref, 1 snippet, 1 diff, from /code-review high (cross-role read on a widened screen)]
+      · Booking a visit read the vet&#x27;s whole specialty list to set one fo   [1 ref, 1 snippet, 1 diff, from /code-review high (efficiency)]
+      · The Cucumber update step dropped the vet out of its PUT body   [1 ref, 1 snippet, 1 diff, from /code-review high (the PUT-clears-the-vet scenario)]
+  Ignored      (Ignored)
+      · Make PUT /api/visits/{id} keep the vet when the body omits vetId   [1 ref, 1 snippet, medium, from /code-review high (the same finding, its design half)]
+      · Collapse the duplicated attendingVet helper   [1 ref, 1 snippet, low, from /code-review high (duplication)]
+      · A denied @PreAuthorize answers 500 instead of 403   [1 ref, 1 snippet, medium, from me, while writing the test for the vet-picker fix]
+      · OwnerRestController&#x27;s constructor is now nine parameters   [1 ref, 1 snippet, low, from me, anticipating SonarCloud java:S107 (this repo lowers the cap to 5)]
+      · The user manual still describes the visit screens without a vet   [1 ref, 1 snippet, low, from me]
+  Assumptions  (Assumptions)
+      · vet_id is ON DELETE SET NULL, so deleting a vet is never blocked   [1 ref, 1 snippet, confidence 0.55]
+      · An unknown vetId is a 404, not a quietly unattended visit   [1 ref, 1 snippet, confidence 0.7]
+      · A visit with no vet reads &quot;none&quot;, and the dropdown offers &q   [1 ref, 1 snippet, confidence 0.9]
+      · The seed gives some visits a vet and deliberately withholds one from o   [1 ref, 1 snippet, confidence 0.45]
+      · The vet rides on VisitDto as three flat fields, not a nested VetDto   [1 ref, 1 snippet, confidence 0.8]
+      · MCP&#x27;s create_visit and the chatbot were left alone   [1 ref, 1 snippet, confidence 0.6]
+  Note         (Taken over without a new pass — 21 Sep 2026) — prose, shown as a band
+  fixed in     HEAD
+  ticket: victorrentea/petclinic#37 · base: 5dcf16c4 · implementation: a8cd9973 · reviewers: /code-review high · session: 47d2ba31-61ef-4ef6-ac2f-7d969121ce34
+  wrote  .human-review/review-points.json
+[review-points] WARNING: Fixed: 'The vet picker could not load on the screens that need it' (line 11) has no `observation:` — the card shows the change but not what the reviewer found wrong. One to three sentences.
+[review-points] WARNING: Fixed: "Booking a visit read the vet's whole specialty list to set o" (line 32) has no `observation:` — the card shows the change but not what the reviewer found wrong. One to three sentences.
+[review-points] WARNING: Fixed: 'The Cucumber update step dropped the vet out of its PUT body' (line 41) has no `observation:` — the card shows the change but not what the reviewer found wrong. One to three sentences.
+[review-points] WARNING: Ignored: 'Make PUT /api/visits/{id} keep the vet when the body omits v' (line 54) has no `observation:` — the card shows the change but not what the reviewer found wrong. One to three sentences.
+[review-points] WARNING: Ignored: 'Collapse the duplicated attendingVet helper' (line 68) has no `observation:` — the card shows the change but not what the reviewer found wrong. One to three sentences.
+[review-points] WARNING: Ignored: 'A denied @PreAuthorize answers 500 instead of 403' (line 81) has no `observation:` — the card shows the change but not what the reviewer found wrong. One to three sentences.
+[review-points] WARNING: Ignored: "OwnerRestController's constructor is now nine parameters" (line 93) has no `observation:` — the card shows the change but not what the reviewer found wrong. One to three sentences.
+[review-points] WARNING: Ignored: 'The user manual still describes the visit screens without a ' (line 104) has no `observation:` — the card shows the change but not what the reviewer found wrong. One to three sentences.
+    $ git merge-base origin/main HEAD
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/review-commits.py --base d4a63eb6606204961ca074ded7f6c90fd11586d6 --json

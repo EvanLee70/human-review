@@ -270,6 +270,15 @@
  },
  "items": 14,
  "dropped": 0,
- "warnings": [],
+ "warnings": [
+  "Fixed: 'The vet picker could not load on the screens that need it' (line 11) has no `observation:` \u2014 the card shows the change but not what the reviewer found wrong. One to three sentences.",
+  "Fixed: \"Booking a visit read the vet's whole specialty list to set o\" (line 32) has no `observation:` \u2014 the card shows the change but not what the reviewer found wrong. One to three sentences.",
+  "Fixed: 'The Cucumber update step dropped the vet out of its PUT body' (line 41) has no `observation:` \u2014 the card shows the change but not what the reviewer found wrong. One to three sentences.",
+  "Ignored: 'Make PUT /api/visits/{id} keep the vet when the body omits v' (line 54) has no `observation:` \u2014 the card shows the change but not what the reviewer found wrong. One to three sentences.",
+  "Ignored: 'Collapse the duplicated attendingVet helper' (line 68) has no `observation:` \u2014 the card shows the change but not what the reviewer found wrong. One to three sentences.",
+  "Ignored: 'A denied @PreAuthorize answers 500 instead of 403' (line 81) has no `observation:` \u2014 the card shows the change but not what the reviewer found wrong. One to three sentences.",
+  "Ignored: \"OwnerRestController's constructor is now nine parameters\" (line 93) has no `observation:` \u2014 the card shows the change but not what the reviewer found wrong. One to three sentences.",
+  "Ignored: 'The user manual still describes the visit screens without a ' (line 104) has no `observation:` \u2014 the card shows the change but not what the reviewer found wrong. One to three sentences."
+ ],
  "empty": false
 }

@@ -3072,7 +3072,7 @@
   "handler": "VetRestController.updateVet(int, VetDto)",
   "metric": "cognitive",
   "flowCc": 5,
-  "methods": 19,
+  "methods": 20,
   "flow": [
    {
     "method": "victor.training.petclinic.rest.VetRestController#updateVet",
@@ -3106,6 +3106,7 @@
     "cognitive": 1,
     "cyclomatic": 2,
     "calls": [
+     "victor.training.petclinic.domain.Specialty#getName",
      "victor.training.petclinic.domain.Vet#getNrOfSpecialties",
      "victor.training.petclinic.domain.Vet#getSpecialties",
      "victor.training.petclinic.domain.Vet#setSpecialties"
@@ -3208,6 +3209,14 @@
    {
     "method": "victor.training.petclinic.rest.dto.VetDto#getSpecialties",
     "display": "VetDto.getSpecialties()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Specialty#getName",
+    "display": "Specialty.getName()",
     "cognitive": 0,
     "cyclomatic": 1,
     "calls": [],
@@ -3563,7 +3572,7 @@
   "handler": "VetRestController.addVet(VetDto)",
   "metric": "cognitive",
   "flowCc": 4,
-  "methods": 24,
+  "methods": 25,
   "flow": [
    {
     "method": "victor.training.petclinic.rest.VetRestController#addVet",
@@ -3583,6 +3592,7 @@
     "cognitive": 1,
     "cyclomatic": 2,
     "calls": [
+     "victor.training.petclinic.domain.Specialty#getName",
      "victor.training.petclinic.domain.Vet#getNrOfSpecialties",
      "victor.training.petclinic.domain.Vet#getSpecialties",
      "victor.training.petclinic.domain.Vet#setSpecialties"
@@ -3624,6 +3634,14 @@
      "victor.training.petclinic.rest.dto.VetFieldsDto#getLastName",
      "victor.training.petclinic.rest.dto.VetFieldsDto#getSpecialties"
     ],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Specialty#getName",
+    "display": "Specialty.getName()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
     "hits": []
    },
    {
@@ -4476,7 +4494,7 @@
   "handler": "OwnerRestController.addVisitToOwner(int, int, VisitFieldsDto)",
   "metric": "cognitive",
   "flowCc": 3,
-  "methods": 27,
+  "methods": 28,
   "flow": [
    {
     "method": "victor.training.petclinic.rest.OwnerRestController#addVisitToOwner",
@@ -4536,6 +4554,7 @@
     "cognitive": 0,
     "cyclomatic": 1,
     "calls": [
+     "victor.training.petclinic.domain.Pet#getName",
      "victor.training.notification.NotificationController#visitBooked",
      "victor.training.petclinic.notification.NotificationServiceClient#visitBooked",
      "victor.training.petclinic.domain.Owner#getPetById",
@@ -4610,6 +4629,14 @@
      "victor.training.petclinic.rest.dto.VisitFieldsDto#getDate",
      "victor.training.petclinic.rest.dto.VisitFieldsDto#getDescription"
     ],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Pet#getName",
+    "display": "Pet.getName()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
     "hits": []
    },
    {
@@ -5607,7 +5634,7 @@
   "handler": "SpecialtyFeedController.feed(String)",
   "metric": "cognitive",
   "flowCc": 1,
-  "methods": 3,
+  "methods": 7,
   "flow": [
    {
     "method": "victor.training.petclinic.rest.SpecialtyFeedController#feed",
@@ -5639,6 +5666,44 @@
    {
     "method": "victor.training.petclinic.rest.SpecialtyFeed#load",
     "display": "SpecialtyFeed.load()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [
+     "victor.training.petclinic.rest.SpecialtyFeed#toItem"
+    ],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.rest.SpecialtyFeed#toItem",
+    "display": "SpecialtyFeed.toItem(Specialty)",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [
+     "victor.training.petclinic.domain.Specialty#getDescription",
+     "victor.training.petclinic.domain.Specialty#getId",
+     "victor.training.petclinic.domain.Specialty#getName"
+    ],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Specialty#getDescription",
+    "display": "Specialty.getDescription()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Specialty#getId",
+    "display": "Specialty.getId()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Specialty#getName",
+    "display": "Specialty.getName()",
     "cognitive": 0,
     "cyclomatic": 1,
     "calls": [],
@@ -5972,6 +6037,143 @@
    {
     "method": "victor.training.petclinic.chatbot.assistant.ChatHistory#append",
     "display": "ChatHistory.append(String, String, String)",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   }
+  ]
+ },
+ {
+  "kind": "mcp",
+  "httpMethod": "MCP",
+  "path": "get_owner_profile",
+  "handler": "PetClinicMcp.getOwnerProfile()",
+  "metric": "cognitive",
+  "flowCc": 1,
+  "methods": 13,
+  "flow": [
+   {
+    "method": "victor.training.petclinic.mcp.PetClinicMcp#getOwnerProfile",
+    "display": "PetClinicMcp.getOwnerProfile()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [
+     "victor.training.petclinic.mcp.McpSecurity#currentOwnerId",
+     "victor.training.petclinic.domain.Owner#getAddress",
+     "victor.training.petclinic.domain.Owner#getCity",
+     "victor.training.petclinic.domain.Owner#getFirstName",
+     "victor.training.petclinic.domain.Owner#getLastName",
+     "victor.training.petclinic.domain.Owner#getPets",
+     "victor.training.petclinic.domain.Owner#getTelephone",
+     "victor.training.petclinic.mcp.PetClinicMcp#formatPet"
+    ],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.mcp.McpSecurity#currentOwnerId",
+    "display": "McpSecurity.currentOwnerId()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Owner#getAddress",
+    "display": "Owner.getAddress()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Owner#getCity",
+    "display": "Owner.getCity()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Owner#getFirstName",
+    "display": "Owner.getFirstName()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Owner#getLastName",
+    "display": "Owner.getLastName()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Owner#getPets",
+    "display": "Owner.getPets()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Owner#getTelephone",
+    "display": "Owner.getTelephone()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.mcp.PetClinicMcp#formatPet",
+    "display": "PetClinicMcp.formatPet(Pet)",
+    "cognitive": 1,
+    "cyclomatic": 2,
+    "calls": [
+     "victor.training.petclinic.domain.Pet#getBirthDate",
+     "victor.training.petclinic.domain.Pet#getId",
+     "victor.training.petclinic.domain.Pet#getName",
+     "victor.training.petclinic.domain.Pet#getType"
+    ],
+    "hits": [
+     {
+      "file": "petclinic-backend/src/main/java/victor/training/petclinic/mcp/PetClinicMcp.java",
+      "line": 120,
+      "code": "String type = pet.getType() == null ? \"?\" : pet.getType().getName();",
+      "inc": 1,
+      "why": "?:"
+     }
+    ]
+   },
+   {
+    "method": "victor.training.petclinic.domain.Pet#getBirthDate",
+    "display": "Pet.getBirthDate()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Pet#getId",
+    "display": "Pet.getId()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Pet#getName",
+    "display": "Pet.getName()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Pet#getType",
+    "display": "Pet.getType()",
     "cognitive": 0,
     "cyclomatic": 1,
     "calls": [],
@@ -6808,89 +7010,6 @@
    {
     "method": "victor.training.petclinic.chatbot.triage.TriageController#triage",
     "display": "TriageController.triage(String)",
-    "cognitive": 0,
-    "cyclomatic": 1,
-    "calls": [],
-    "hits": []
-   }
-  ]
- },
- {
-  "kind": "mcp",
-  "httpMethod": "MCP",
-  "path": "get_owner_profile",
-  "handler": "PetClinicMcp.getOwnerProfile()",
-  "metric": "cognitive",
-  "flowCc": 0,
-  "methods": 8,
-  "flow": [
-   {
-    "method": "victor.training.petclinic.mcp.PetClinicMcp#getOwnerProfile",
-    "display": "PetClinicMcp.getOwnerProfile()",
-    "cognitive": 0,
-    "cyclomatic": 1,
-    "calls": [
-     "victor.training.petclinic.mcp.McpSecurity#currentOwnerId",
-     "victor.training.petclinic.domain.Owner#getAddress",
-     "victor.training.petclinic.domain.Owner#getCity",
-     "victor.training.petclinic.domain.Owner#getFirstName",
-     "victor.training.petclinic.domain.Owner#getLastName",
-     "victor.training.petclinic.domain.Owner#getPets",
-     "victor.training.petclinic.domain.Owner#getTelephone"
-    ],
-    "hits": []
-   },
-   {
-    "method": "victor.training.petclinic.mcp.McpSecurity#currentOwnerId",
-    "display": "McpSecurity.currentOwnerId()",
-    "cognitive": 0,
-    "cyclomatic": 1,
-    "calls": [],
-    "hits": []
-   },
-   {
-    "method": "victor.training.petclinic.domain.Owner#getAddress",
-    "display": "Owner.getAddress()",
-    "cognitive": 0,
-    "cyclomatic": 1,
-    "calls": [],
-    "hits": []
-   },
-   {
-    "method": "victor.training.petclinic.domain.Owner#getCity",
-    "display": "Owner.getCity()",
-    "cognitive": 0,
-    "cyclomatic": 1,
-    "calls": [],
-    "hits": []
-   },
-   {
-    "method": "victor.training.petclinic.domain.Owner#getFirstName",
-    "display": "Owner.getFirstName()",
-    "cognitive": 0,
-    "cyclomatic": 1,
-    "calls": [],
-    "hits": []
-   },
-   {
-    "method": "victor.training.petclinic.domain.Owner#getLastName",
-    "display": "Owner.getLastName()",
-    "cognitive": 0,
-    "cyclomatic": 1,
-    "calls": [],
-    "hits": []
-   },
-   {
-    "method": "victor.training.petclinic.domain.Owner#getPets",
-    "display": "Owner.getPets()",
-    "cognitive": 0,
-    "cyclomatic": 1,
-    "calls": [],
-    "hits": []
-   },
-   {
-    "method": "victor.training.petclinic.domain.Owner#getTelephone",
-    "display": "Owner.getTelephone()",
     "cognitive": 0,
     "cyclomatic": 1,
     "calls": [],

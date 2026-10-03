@@ -1,19 +1,51 @@
 {
   "base": "origin/main",
   "totals": {
-    "added": 19,
-    "modified": 6,
-    "deleted": 0,
-    "unchanged": 21,
+    "added": 17,
+    "modified": 1,
+    "deleted": 5,
+    "unchanged": 29,
     "commented": 0,
     "disabled": 0,
     "reenabled": 0,
-    "runningBefore": 27,
-    "runningAfter": 44,
+    "runningBefore": 35,
+    "runningAfter": 47,
     "gained": 17,
-    "lost": 0
+    "lost": 5,
+    "renamed": 0,
+    "viaHelper": 0
   },
   "tests": [
+    {
+      "name": "selectsByTheSameSyntaxDashDTestTakes",
+      "path": "petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtensionTest.java",
+      "status": "deleted",
+      "line": null,
+      "baseLine": 11,
+      "gone": true,
+      "baseSha": "dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6/petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtensionTest.java#L11"
+    },
+    {
+      "name": "aClassWithoutAMethodSelectsAllOfIt_andANestedTestBelongsToItsOuterClass",
+      "path": "petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtensionTest.java",
+      "status": "deleted",
+      "line": null,
+      "baseLine": 22,
+      "gone": true,
+      "baseSha": "dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6/petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtensionTest.java#L22"
+    },
+    {
+      "name": "readAUnidirectionalManyToManyAsManyAtBothEnds",
+      "path": "petclinic-backend/src/test/java/victor/training/petclinic/guardrail/DomainModelExtractorShould.java",
+      "status": "deleted",
+      "line": null,
+      "baseLine": 13,
+      "gone": true,
+      "baseSha": "dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6/petclinic-backend/src/test/java/victor/training/petclinic/guardrail/DomainModelExtractorShould.java#L13"
+    },
     {
       "name": "getByIdOk",
       "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/VisitTest.java",
@@ -71,7 +103,7 @@
     {
       "name": "update_ok",
       "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/VisitTest.java",
-      "status": "modified",
+      "status": "unchanged",
       "line": 214
     },
     {
@@ -131,7 +163,7 @@
     {
       "name": "adminUser_canAccessOwners",
       "path": "petclinic-backend/src/test/java/victor/training/petclinic/security/BasicAuthenticationConfigTest.java",
-      "status": "modified",
+      "status": "unchanged",
       "line": 45
     },
     {
@@ -155,7 +187,7 @@
     {
       "name": "Edit a visit description",
       "path": "petclinic-backend/src/test/resources/features/functional/visits.feature",
-      "status": "modified",
+      "status": "unchanged",
       "line": 11
     },
     {
@@ -179,7 +211,7 @@
     {
       "name": "should navigate to owner detail via gotoOwnerDetail",
       "path": "petclinic-frontend/src/app/visits/visit-add/visit-add.component.spec.ts",
-      "status": "modified",
+      "status": "unchanged",
       "line": 125
     },
     {
@@ -209,7 +241,7 @@
     {
       "name": "should navigate to owner detail via gotoOwnerDetail",
       "path": "petclinic-frontend/src/app/visits/visit-edit/visit-edit.component.spec.ts",
-      "status": "modified",
+      "status": "unchanged",
       "line": 129
     },
     {
@@ -251,7 +283,7 @@
     {
       "name": "Add a visit to an existing pet from the owner detail page",
       "path": "petclinic-test/src/add-visit.spec.ts",
-      "status": "modified",
+      "status": "unchanged",
       "line": 34
     },
     {
@@ -273,18 +305,40 @@
       "line": 23
     },
     {
-      "name": "A visit cannot predate the pet",
-      "path": "petclinic-test/src/visit-date-range.feature",
-      "status": "added",
-      "line": 8,
-      "silenced": "disabled"
+      "name": "opts in only when the @generate_sequence tag is present",
+      "path": "petclinic-test/src/genseq/sequence-tag.spec.ts",
+      "status": "unchanged",
+      "line": 4
     },
     {
-      "name": "A visit cannot be booked more than a year ahead",
-      "path": "petclinic-test/src/visit-date-range.feature",
-      "status": "added",
-      "line": 12,
-      "silenced": "disabled"
+      "name": "opts out when the tag is absent or there are no tags",
+      "path": "petclinic-test/src/genseq/sequence-tag.spec.ts",
+      "status": "unchanged",
+      "line": 9
+    },
+    {
+      "name": "accepts Playwright-style string tags",
+      "path": "petclinic-test/src/genseq/sequence-tag.spec.ts",
+      "status": "modified",
+      "line": 17
+    },
+    {
+      "name": "an untagged test named in GENSEQ_SELECT is traced too, by file and title",
+      "path": "petclinic-test/src/genseq/sequence-tag.spec.ts",
+      "status": "deleted",
+      "line": 21,
+      "baseLine": 24,
+      "baseSha": "dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6/petclinic-test/src/genseq/sequence-tag.spec.ts#L24"
+    },
+    {
+      "name": "the Playwright grep keeps the tag and adds only spec titles, escaped",
+      "path": "petclinic-test/src/genseq/sequence-tag.spec.ts",
+      "status": "deleted",
+      "line": 21,
+      "baseLine": 38,
+      "baseSha": "dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6/petclinic-test/src/genseq/sequence-tag.spec.ts#L38"
     },
     {
       "name": "csrfDisableBecomesALambda",

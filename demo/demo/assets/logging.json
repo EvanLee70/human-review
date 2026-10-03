@@ -39,7 +39,10 @@
         "arg_types": [
           "String",
           "String"
-        ]
+        ],
+        "change": "",
+        "was": "",
+        "same_output": false
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
@@ -79,7 +82,10 @@
         "arg_types": [
           "Integer",
           "int"
-        ]
+        ],
+        "change": "added",
+        "was": "",
+        "same_output": false
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
@@ -111,7 +117,10 @@
         ],
         "arg_types": [
           "String"
-        ]
+        ],
+        "change": "added",
+        "was": "",
+        "same_output": false
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/VisitRestController.java",
@@ -145,7 +154,10 @@
         "arg_types": [
           "Integer",
           "String"
-        ]
+        ],
+        "change": "",
+        "was": "",
+        "same_output": false
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
@@ -177,7 +189,10 @@
         ],
         "arg_types": [
           "List<String>"
-        ]
+        ],
+        "change": "",
+        "was": "",
+        "same_output": false
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
@@ -209,7 +224,10 @@
         ],
         "arg_types": [
           "List<String>"
-        ]
+        ],
+        "change": "",
+        "was": "",
+        "same_output": false
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
@@ -243,7 +261,10 @@
         "arg_types": [
           "String",
           "Exception"
-        ]
+        ],
+        "change": "",
+        "was": "",
+        "same_output": false
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
@@ -264,7 +285,10 @@
         "method_start": 84,
         "method_end": 89,
         "origins": [],
-        "arg_types": []
+        "arg_types": [],
+        "change": "",
+        "was": "",
+        "same_output": false
       }
     ],
     "antipattern": [
@@ -2354,7 +2378,10 @@
         "arg_types": [
           "Integer",
           "int"
-        ]
+        ],
+        "change": "added",
+        "was": "",
+        "same_output": false
       },
       {
         "file": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
@@ -2386,7 +2413,10 @@
         ],
         "arg_types": [
           "String"
-        ]
+        ],
+        "change": "added",
+        "was": "",
+        "same_output": false
       }
     ],
     "antipattern": []

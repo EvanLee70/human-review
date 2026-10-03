@@ -1,7 +1,7 @@
 {
  "review": "ce56d9124a7ca87b1d8a9fc1045b4109e0f64165",
  "review_short": "ce56d912",
- "head": "c57d3334c7a8c69285ac3c4ed098cb869f3bf4f6",
+ "head": "cbaa17bdf354be94b36996c6c7efbd02e6b4c057",
  "takeover": {
   "sha": "db6b67ece0336532484b6c96e1d080136e0198a0",
   "when": "2026-09-21T07:24:26+03:00",
@@ -14,7 +14,24 @@
   "openapi.yaml",
   "**/*.genseq.*",
   "**/api-types.ts",
-  "**/*.drawio*"
+  "**/*.drawio*",
+  "**/*.min.js",
+  "**/*.min.css",
+  "**/*.snap",
+  "**/*.png",
+  "**/*.jpg",
+  "**/*.jpeg",
+  "**/*.gif",
+  "**/*.webp",
+  "**/*.ico",
+  "**/*.pdf",
+  "**/package-lock.json",
+  "**/yarn.lock",
+  "**/pnpm-lock.yaml",
+  "**/go.sum",
+  "**/Cargo.lock",
+  "**/poetry.lock",
+  ".human-review/**"
  ],
  "commits": [
   {
@@ -2635,22 +2652,99 @@
    "measured": true,
    "taken_over": false,
    "takeover": false
+  },
+  {
+   "sha": "153946bc4ab74054e9587bf346f92f6915615e9b",
+   "short": "153946bc",
+   "when": "2026-09-29T15:49:21+03:00",
+   "subject": "Maven module graph: no groupId on any box",
+   "files": [
+    {
+     "path": "petclinic-backend/docs/generated/MavenModules.puml",
+     "added": 1,
+     "deleted": 1,
+     "binary": false,
+     "generated": true
+    },
+    {
+     "path": "petclinic-backend/docs/scripts/mavenmodules/maven_modules_to_puml.py",
+     "added": 4,
+     "deleted": 8,
+     "binary": false,
+     "generated": false
+    }
+   ],
+   "added": 5,
+   "deleted": 9,
+   "generated_only": false,
+   "measured": true,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "cbaa17bdf354be94b36996c6c7efbd02e6b4c057",
+   "short": "cbaa17bd",
+   "when": "2026-09-29T21:14:04+03:00",
+   "subject": "Reset sidecar: named fixtures on top of the seed, starting with green",
+   "files": [
+    {
+     "path": "docker/docker-compose.yml",
+     "added": 4,
+     "deleted": 0,
+     "binary": false,
+     "generated": false
+    },
+    {
+     "path": "docker/reset/Dockerfile",
+     "added": 6,
+     "deleted": 0,
+     "binary": false,
+     "generated": false
+    },
+    {
+     "path": "docker/reset/reset-server.py",
+     "added": 57,
+     "deleted": 15,
+     "binary": false,
+     "generated": false
+    },
+    {
+     "path": "petclinic-backend/src/main/resources/db/fixtures/green.sql",
+     "added": 47,
+     "deleted": 0,
+     "binary": false,
+     "generated": false
+    },
+    {
+     "path": "petclinic-frontend/nginx.conf",
+     "added": 6,
+     "deleted": 3,
+     "binary": false,
+     "generated": false
+    }
+   ],
+   "added": 120,
+   "deleted": 18,
+   "generated_only": false,
+   "measured": true,
+   "taken_over": false,
+   "takeover": false
   }
  ],
  "totals": {
-  "commits": 58,
-  "files": 161,
-  "added": 7263,
-  "deleted": 3988,
+  "commits": 60,
+  "files": 165,
+  "added": 7380,
+  "deleted": 4007,
   "code": {
-   "files": 146,
-   "added": 6344,
-   "deleted": 3503
+   "files": 150,
+   "added": 6460,
+   "deleted": 3521
   },
   "generated": {
    "files": 15,
-   "added": 919,
-   "deleted": 485
+   "added": 920,
+   "deleted": 486
   }
  },
  "clean": false

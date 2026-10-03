@@ -1,13 +1,20 @@
 <style>
-.apiverdict{display:flex;align-items:center;gap:.6rem;width:100%;box-sizing:border-box;
- padding:.75rem 1.1rem;border-radius:8px;font-weight:600;font-size:1rem;
- margin:.2rem 0 1.2rem;flex-wrap:wrap}
-.apiverdict .dot{width:.7rem;height:.7rem;border-radius:50%;background:currentColor;flex:none}
+/* Running text, not a flex row. As a row the label sat vertically centred beside a
+   two-line count, so the count's second line hung under nothing (eval run 8: "Breaking
+   changes" floating mid-band, "openapi-diff.py (report)" wrapped beneath the counts). Inline,
+   the sentence wraps the way a sentence does: from the left edge, under the label. */
+.apiverdict{display:block;width:100%;box-sizing:border-box;
+ padding:.75rem 1.1rem;border-radius:8px;font-weight:600;font-size:1rem;line-height:1.5;
+ margin:.2rem 0 1.2rem}
+.apiverdict .dot{display:inline-block;width:.7rem;height:.7rem;border-radius:50%;
+ background:currentColor;margin-right:.5rem;vertical-align:.02em}
+.apiverdict .v{white-space:nowrap}
 .apiverdict .n{font-weight:400;opacity:.85;font-size:.94rem}
 .apiverdict a{color:inherit;text-decoration:underline;text-underline-offset:2px}
 /* Smaller and quieter than the name it follows: the verdict is what this band says, and
    the report is where to go and check it. Same colour, so it still reads as one clause. */
 .apiverdict a.rep{font-size:.85em;opacity:.8}
+.apiverdict .who{white-space:nowrap}
 .apiverdict a.rep:hover,.apiverdict a.rep:focus-visible{opacity:1}
 .apiverdict code{font:600 .86em/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
 /* The same two treatments as the score chip beside the page title (.titlescore v-good /
@@ -25,5 +32,4 @@
  .apiverdict.green{color:#6fce93}
  .apiverdict.red{color:#f0757f}}
 </style>
-<div class="apiverdict green"><span class="dot"></span><span class="v">Backwards compatible</span>
-<span class="n">· 25 changes, none breaking · checked by <a href="https://github.com/oasdiff/oasdiff">oasdiff</a> (<a class="rep" href="assets/openapi-compat-report.html" data-tip="Open this differ&#39;s full report in a new tab">report&nbsp;&#8599;</a>), double-checked by our <code>openapi-diff.py</code> (<a class="rep" href="assets/openapi-diff-report.html" data-tip="Open this differ&#39;s full report in a new tab">report&nbsp;&#8599;</a>)</span></div>
+<div class="apiverdict green"><span class="dot"></span><span class="v">Backwards compatible</span>&nbsp;<span class="n">·&nbsp;25 changes, none breaking · checked by <span class="who"><a href="https://github.com/oasdiff/oasdiff">oasdiff</a> (<a class="rep" href="assets/openapi-compat-report.html">report&nbsp;&#8599;</a>)</span>, double-checked by our <span class="who"><code>openapi-diff.py</code> (<a class="rep" href="assets/openapi-diff-report.html">report&nbsp;&#8599;</a>)</span></span></div>

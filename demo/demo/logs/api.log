@@ -1,0 +1,13 @@
+  * api -> api
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-diff.py   --base origin/main --spec openapi.yaml --out .human-review/assets/openapi-diff.html --report .human-review/assets/openapi-diff-report.html
+[openapi-diff] wrote .human-review/assets/openapi-diff-report.html — standalone
+[openapi-diff] wrote .human-review/assets/openapi-diff.html — 2 subjects, 0 breaking
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-diff.py   --css  >  .human-review/assets/openapi-diff.css
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-compat.py --base origin/main --spec openapi.yaml --out .human-review/assets/openapi-compat.html --report .human-review/assets/openapi-compat-report.html
+[openapi-compat] wrote .human-review/assets/openapi-compat-report.html — standalone
+[openapi-compat] wrote .human-review/assets/openapi-compat.html — compatible
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-compat.py --css  >  .human-review/assets/openapi-compat.css
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-compat.py --base origin/main --spec openapi.yaml --panel --out .human-review/assets/openapi-verdict.html
+[openapi-compat] wrote .human-review/assets/openapi-verdict.html — compatible
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-visual-diff.py --base origin/main --spec openapi.yaml --out .human-review/assets/openapi-visual-diff.html
+.human-review/assets/openapi-visual-diff.html  (0 breaking  11 modified  0 added  0 removed  32 untouched)

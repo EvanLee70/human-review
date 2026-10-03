@@ -400,7 +400,7 @@
         "status": "same",
         "protocol": "SQL",
         "operations": 9,
-        "operationsDelta": 1,
+        "operationsDelta": -1,
         "calls": 233,
         "detail": [
           {
@@ -474,7 +474,7 @@
         "status": "same",
         "protocol": "HTTP",
         "operations": 6,
-        "operationsDelta": 1,
+        "operationsDelta": 0,
         "calls": 15,
         "detail": [
           {
@@ -527,7 +527,19 @@
         ],
         "toKind": "external"
       }
-    ]
+    ],
+    "compared": {
+      "both": [
+        "petclinic-test/generated/AddVisitApiTest.java.adds-a-visit-to-an-existing-pet.genseq.puml",
+        "petclinic-test/generated/add-visit.spec.ts.add-a-visit-attended-by-a-vet.genseq.puml",
+        "petclinic-test/generated/add-visit.spec.ts.add-a-visit-to-an-existing-pet-from-the-owner-detail-page.genseq.puml",
+        "petclinic-test/generated/owner-search.feature.searching-with-an-empty-last-name-lists-every-owner.genseq.puml"
+      ],
+      "onlyNew": [
+        "petclinic-test/generated/book-visit-with-vet.feature.the-vet-chosen-while-booking-is-named-everywhere-the-visit-is-listed.genseq.puml"
+      ],
+      "onlyOld": []
+    }
   },
   "base": "d4a63eb6606204961ca074ded7f6c90fd11586d6"
 }
