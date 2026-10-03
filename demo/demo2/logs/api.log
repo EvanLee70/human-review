@@ -1,13 +1,13 @@
   * api -> api
-    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-diff.py   --base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --spec openapi.yaml --out .human-review/assets/openapi-diff.html --report .human-review/assets/openapi-diff-report.html
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/openapi-diff.py   --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --spec openapi.yaml --out .human-review/assets/openapi-diff.html --report .human-review/assets/openapi-diff-report.html
 [openapi-diff] wrote .human-review/assets/openapi-diff-report.html — standalone
-[openapi-diff] wrote .human-review/assets/openapi-diff.html — 2 subjects, 1 breaking
-    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-diff.py   --css  >  .human-review/assets/openapi-diff.css
-    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-compat.py --base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --spec openapi.yaml --out .human-review/assets/openapi-compat.html --report .human-review/assets/openapi-compat-report.html
+[openapi-diff] wrote .human-review/assets/openapi-diff.html — 2 subjects, 2 breaking
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/openapi-diff.py   --css  >  .human-review/assets/openapi-diff.css
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/openapi-compat.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --spec openapi.yaml --out .human-review/assets/openapi-compat.html --report .human-review/assets/openapi-compat-report.html
 [openapi-compat] wrote .human-review/assets/openapi-compat-report.html — standalone
 [openapi-compat] wrote .human-review/assets/openapi-compat.html — incompatible
-    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-compat.py --css  >  .human-review/assets/openapi-compat.css
-    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-compat.py --base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --spec openapi.yaml --panel --out .human-review/assets/openapi-verdict.html
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/openapi-compat.py --css  >  .human-review/assets/openapi-compat.css
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/openapi-compat.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --spec openapi.yaml --panel --out .human-review/assets/openapi-verdict.html
 [openapi-compat] wrote .human-review/assets/openapi-verdict.html — incompatible
-    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/openapi-visual-diff.py --base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --spec openapi.yaml --out .human-review/assets/openapi-visual-diff.html
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/openapi-visual-diff.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --spec openapi.yaml --out .human-review/assets/openapi-visual-diff.html
 .human-review/assets/openapi-visual-diff.html  (1 breaking  0 modified  0 added  0 removed  42 untouched)

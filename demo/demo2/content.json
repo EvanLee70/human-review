@@ -1,10 +1,10 @@
 {
   "title": "Owners grid: paged and sorted by Name or City",
-  "subtitle": "hr-claude-10 — issue #25",
+  "subtitle": "hr-claude-13 — issue #25",
   "pr": {
     "title": "Paginate and sort the owners grid by Name or City",
     "repo": "https://github.com/victorrentea/petclinic",
-    "branch": "hr-claude-10",
+    "branch": "hr-claude-13",
     "base": "main",
     "ticket": {
       "number": 25,
@@ -28,8 +28,8 @@
   "verdict": {
     "score": 7,
     "bullets": [
-      "<code>GET /api/owners</code> now answers <code>{content, totalElements}</code> instead of an array, and the Angular app is its only caller: backend and frontend ship and roll back together.",
-      "Built before the proposal's open questions Q5–Q15 were confirmed, so the assumptions below are the coder's answers to them, not yours."
+      "<code>GET /api/owners</code> now answers <code>{content, totalElements}</code> instead of an array; the Angular owners grid is its only production caller, so backend and frontend ship and roll back together.",
+      "<code>V4__owner_list_indexes.sql</code> adds three indexes on <code>owners</code>: the case-sensitive prefix search (<code>text_pattern_ops</code>) and one per sort order, sized for the 100k owners expected by Sep 2027."
     ]
   },
   "findings": {
@@ -64,12 +64,12 @@
           "title": "Read and declined"
         },
         {
-          "type": "assumptions",
-          "title": "Decided where the ticket did not"
-        },
-        {
           "type": "autofixes",
           "title": "Fixed after review"
+        },
+        {
+          "type": "assumptions",
+          "title": "Decided where the ticket did not"
         }
       ]
     },
@@ -133,12 +133,7 @@
         {
           "type": "testpairs",
           "id": "sequences",
-          "kind": "sequence",
-          "title": "",
-          "unpaired": {
-            "id": "tests-nosequence",
-            "title": "Tagged for tracing, and no diagram came back"
-          }
+          "kind": "sequence"
         }
       ]
     },
@@ -207,7 +202,7 @@
       "blocks": [
         {
           "type": "logging",
-          "base": "98cb82a7",
+          "base": "eb6a0d1f",
           "paths": [
             "petclinic-backend"
           ],
@@ -226,5 +221,5 @@
     }
   ],
   "sections": [],
-  "footer": "Built by /human-review from hr-claude-10 on 3 Oct 2026."
+  "footer": "Built by /human-review from hr-claude-13 on 3 Oct 2026."
 }

@@ -1,7 +1,7 @@
 {
   "report": "petclinic-test/test-results/playwright-report",
   "viewer": "assets/traceviewer/index.html",
-  "recorded": 9,
+  "recorded": 10,
   "omitted": 0,
   "untraced": 1,
   "tests": [
@@ -16,14 +16,14 @@
       "status": "passed",
       "outcome": "expected",
       "retry": 0,
-      "duration": 504,
+      "duration": 526,
       "steps": [],
       "error": "",
       "trace": "assets/traces/001-search-owners-by-last-name-filter-owners-by-a-case-sensitive.zip",
-      "bytes": 407881
+      "bytes": 417266
     },
     {
-      "title": "Opening the owners page shows the first page by name, and how many there are",
+      "title": "Searching with an empty last name shows the first page of every owner",
       "path": [
         "Search owners by last name"
       ],
@@ -33,65 +33,48 @@
       "status": "passed",
       "outcome": "expected",
       "retry": 0,
-      "duration": 470,
+      "duration": 508,
       "steps": [],
       "error": "",
-      "trace": "assets/traces/002-search-owners-by-last-name-opening-the-owners-page-shows-the.zip",
-      "bytes": 189345
+      "trace": "assets/traces/002-search-owners-by-last-name-searching-with-an-empty-last-name.zip",
+      "bytes": 471690
     },
     {
-      "title": "Paging forward reaches every owner exactly once",
+      "title": "Paging to the end shows every owner exactly once",
       "path": [
         "Search owners by last name"
       ],
       "file": "petclinic-test/src/owner-search.feature",
-      "line": 30,
+      "line": 32,
       "project": "cucumber",
       "status": "passed",
       "outcome": "expected",
       "retry": 0,
-      "duration": 899,
+      "duration": 1657,
       "steps": [],
       "error": "",
-      "trace": "assets/traces/003-search-owners-by-last-name-paging-forward-reaches-every-owne.zip",
-      "bytes": 1057134
+      "trace": "assets/traces/003-search-owners-by-last-name-paging-to-the-end-shows-every-own.zip",
+      "bytes": 2025741
     },
     {
-      "title": "Sorting by city, then reversing it, starts again from the first page",
+      "title": "Sort by Name or City, never by nothing",
       "path": [
         "Search owners by last name"
       ],
       "file": "petclinic-test/src/owner-search.feature",
-      "line": 36,
+      "line": 37,
       "project": "cucumber",
       "status": "passed",
       "outcome": "expected",
       "retry": 0,
-      "duration": 672,
+      "duration": 712,
       "steps": [],
       "error": "",
-      "trace": "assets/traces/004-search-owners-by-last-name-sorting-by-city-then-reversing-it.zip",
-      "bytes": 879077
+      "trace": "assets/traces/004-search-owners-by-last-name-sort-by-name-or-city-never-by-not.zip",
+      "bytes": 666035
     },
     {
-      "title": "A new page size starts again from the first page",
-      "path": [
-        "Search owners by last name"
-      ],
-      "file": "petclinic-test/src/owner-search.feature",
-      "line": 44,
-      "project": "cucumber",
-      "status": "passed",
-      "outcome": "expected",
-      "retry": 0,
-      "duration": 876,
-      "steps": [],
-      "error": "",
-      "trace": "assets/traces/005-search-owners-by-last-name-a-new-page-size-starts-again-from.zip",
-      "bytes": 1206272
-    },
-    {
-      "title": "A new search starts again from the first page, keeping the sort",
+      "title": "A new page size goes back to the first page",
       "path": [
         "Search owners by last name"
       ],
@@ -101,11 +84,45 @@
       "status": "passed",
       "outcome": "expected",
       "retry": 0,
-      "duration": 612,
+      "duration": 890,
       "steps": [],
       "error": "",
-      "trace": "assets/traces/006-search-owners-by-last-name-a-new-search-starts-again-from-th.zip",
-      "bytes": 625095
+      "trace": "assets/traces/005-search-owners-by-last-name-a-new-page-size-goes-back-to-the.zip",
+      "bytes": 1261500
+    },
+    {
+      "title": "A new sort goes back to the first page",
+      "path": [
+        "Search owners by last name"
+      ],
+      "file": "petclinic-test/src/owner-search.feature",
+      "line": 56,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 601,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/006-search-owners-by-last-name-a-new-sort-goes-back-to-the-first.zip",
+      "bytes": 753244
+    },
+    {
+      "title": "A new search goes back to the first page and keeps the sort",
+      "path": [
+        "Search owners by last name"
+      ],
+      "file": "petclinic-test/src/owner-search.feature",
+      "line": 62,
+      "project": "cucumber",
+      "status": "passed",
+      "outcome": "expected",
+      "retry": 0,
+      "duration": 668,
+      "steps": [],
+      "error": "",
+      "trace": "assets/traces/007-search-owners-by-last-name-a-new-search-goes-back-to-the-fir.zip",
+      "bytes": 751724
     },
     {
       "title": "A visit cannot predate the pet",
@@ -118,11 +135,11 @@
       "status": "passed",
       "outcome": "expected",
       "retry": 0,
-      "duration": 501,
+      "duration": 507,
       "steps": [],
       "error": "",
-      "trace": "assets/traces/007-a-visit-is-dated-between-the-pet-s-birth-and-one-year-from-t.zip",
-      "bytes": 322786
+      "trace": "assets/traces/008-a-visit-is-dated-between-the-pet-s-birth-and-one-year-from-t.zip",
+      "bytes": 291310
     },
     {
       "title": "The reported year 0009 date is refused",
@@ -135,11 +152,11 @@
       "status": "passed",
       "outcome": "expected",
       "retry": 0,
-      "duration": 412,
+      "duration": 586,
       "steps": [],
       "error": "",
-      "trace": "assets/traces/008-a-visit-is-dated-between-the-pet-s-birth-and-one-year-from-t.zip",
-      "bytes": 261708
+      "trace": "assets/traces/009-a-visit-is-dated-between-the-pet-s-birth-and-one-year-from-t.zip",
+      "bytes": 338796
     },
     {
       "title": "A visit cannot be booked more than a year ahead",
@@ -152,11 +169,11 @@
       "status": "passed",
       "outcome": "expected",
       "retry": 0,
-      "duration": 439,
+      "duration": 499,
       "steps": [],
       "error": "",
-      "trace": "assets/traces/009-a-visit-is-dated-between-the-pet-s-birth-and-one-year-from-t.zip",
-      "bytes": 320528
+      "trace": "assets/traces/010-a-visit-is-dated-between-the-pet-s-birth-and-one-year-from-t.zip",
+      "bytes": 259048
     }
   ]
 }

@@ -3,202 +3,214 @@ const path = require("path");
 const {execSync} = require("child_process");
 const ts = require("typescript");
 
-const ROOT = process.cwd();
-const APP_DIR = path.join(ROOT, "petclinic-frontend/src/app");
+const APP_DIR = "petclinic-frontend/src/app";
 
-const walk = dir => fs.readdirSync(dir, {withFileTypes: true}).flatMap(d =>
-  d.isDirectory() ? walk(path.join(dir, d.name)) : [path.join(dir, d.name)]);
+const walk = d => fs.readdirSync(d, {withFileTypes: true}).flatMap(e =>
+  e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
 
-const parse = file => ts.createSourceFile(file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
-const propName = p => p.name && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name)) ? p.name.text : null;
-const prop = (obj, name) => obj.properties.find(p => ts.isPropertyAssignment(p) && propName(p) === name);
-const str = n => n && ts.isStringLiteralLike(n.initializer) ? n.initializer.text : null;
+const baseRef = () => {
+  try { return JSON.parse(fs.readFileSync("human-review.json", "utf8")).base || "origin/main"; }
+  catch { return "origin/main"; }
+};
 
-// Components: class name -> {file, selector, template}; routes: [{route, component}]
-function scanApp() {
-  const files = walk(APP_DIR).filter(f => f.endsWith(".ts") && !f.endsWith(".spec.ts"));
-  const components = [];
-  const routes = [];
-  for (const file of files) {
-    const sf = parse(file);
-    const visitedArrays = new Set();
-    const readRoutes = (arr, prefix) => {
-      visitedArrays.add(arr);
-      for (const el of arr.elements) {
-        if (!ts.isObjectLiteralExpression(el)) continue;
-        const p = prop(el, "path");
-        if (!p || !ts.isStringLiteralLike(p.initializer)) continue;
-        const full = [prefix, p.initializer.text].filter(Boolean).join("/");
-        const comp = prop(el, "component");
-        if (comp && ts.isIdentifier(comp.initializer)) routes.push({route: "/" + full, component: comp.initializer.text});
-        const ch = prop(el, "children");
-        if (ch && ts.isArrayLiteralExpression(ch.initializer)) readRoutes(ch.initializer, full);
-      }
-    };
-    const visit = node => {
-      if (ts.isClassDeclaration(node) && node.name) {
-        const decorators = (ts.canHaveDecorators(node) ? ts.getDecorators(node) : []) || [];
-        for (const d of decorators) {
-          if (!ts.isCallExpression(d.expression) || d.expression.expression.getText() !== "Component") continue;
-          const arg = d.expression.arguments[0];
-          if (!arg || !ts.isObjectLiteralExpression(arg)) continue;
-          const templateUrl = str(prop(arg, "templateUrl"));
-          const inline = str(prop(arg, "template"));
-          const template = templateUrl ? path.resolve(path.dirname(file), templateUrl) : null;
-          components.push({
-            name: node.name.text, file, selector: str(prop(arg, "selector")), templateFile: template,
-            html: template && fs.existsSync(template) ? fs.readFileSync(template, "utf8") : (inline || "")
-          });
+const parse = f => ts.createSourceFile(f, fs.readFileSync(f, "utf8"), ts.ScriptTarget.Latest, true);
+
+// every @Component class: {cls, selector, file, html}
+function components(files) {
+  const found = [];
+  for (const f of files.filter(f => f.endsWith(".component.ts"))) {
+    const visit = n => {
+      if (ts.isClassDeclaration(n) && n.name) {
+        const deco = (ts.getDecorators ? ts.getDecorators(n) : n.decorators) || [];
+        for (const d of deco) {
+          const call = d.expression;
+          if (!ts.isCallExpression(call) || call.expression.getText() !== "Component") continue;
+          const props = {};
+          const obj = call.arguments[0];
+          if (obj && ts.isObjectLiteralExpression(obj))
+            for (const p of obj.properties)
+              if (ts.isPropertyAssignment(p) && ts.isStringLiteralLike(p.initializer))
+                props[p.name.getText()] = p.initializer.text;
+          const html = props.templateUrl ? path.join(path.dirname(f), props.templateUrl) : null;
+          found.push({cls: n.name.text, selector: props.selector, file: f, html});
         }
       }
-      if (ts.isArrayLiteralExpression(node) && !visitedArrays.has(node)) {
-        const looksLikeRoutes = node.elements.some(e => ts.isObjectLiteralExpression(e) && prop(e, "path"));
-        if (looksLikeRoutes) readRoutes(node, "");
-      }
-      ts.forEachChild(node, visit);
+      ts.forEachChild(n, visit);
     };
-    visit(sf);
+    visit(parse(f));
   }
-  return {components, routes};
+  return found;
 }
 
-// Audited base of this review; merge-base keeps it right if HEAD moves on
-const base = () => execSync("git merge-base 5a97353e HEAD", {cwd: ROOT, encoding: "utf8"}).trim();
-
-function changedFrontendFiles() {
-  return execSync(`git diff --name-only ${base()} HEAD -- petclinic-frontend/src`, {cwd: ROOT, encoding: "utf8"})
-    .split("\n").map(s => s.trim()).filter(Boolean).map(f => path.join(ROOT, f));
+// {path, cls} from every `{path: '...', component: X}` object literal
+function routes(files) {
+  const found = [];
+  for (const f of files.filter(f => f.endsWith(".ts") && !f.endsWith(".spec.ts"))) {
+    const visit = n => {
+      if (ts.isObjectLiteralExpression(n)) {
+        let p, c;
+        for (const prop of n.properties) {
+          if (!ts.isPropertyAssignment(prop)) continue;
+          const name = prop.name.getText();
+          if (name === "path" && ts.isStringLiteralLike(prop.initializer)) p = prop.initializer.text;
+          if (name === "component" && ts.isIdentifier(prop.initializer)) c = prop.initializer.text;
+        }
+        if (p !== undefined && c) found.push({path: p, cls: c});
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(parse(f));
+  }
+  return found;
 }
 
-// changed components -> routes rendering them, climbing through EVERY ancestor that embeds them
-function deriveScreens(changed = changedFrontendFiles()) {
-  const {components, routes} = scanApp();
-  const changedSet = new Set(changed);
-  const seeds = components.filter(c => changedSet.has(c.file) || (c.templateFile && changedSet.has(c.templateFile)));
-  const embeds = (parent, child) => child.selector &&
-    new RegExp(`<${child.selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s>/]`).test(parent.html);
-  const reached = new Map(seeds.map(c => [c.name, c]));
-  const queue = [...seeds];
+// changed components -> routed ancestors, climbing past every routed one
+function deriveScreens() {
+  const files = walk(APP_DIR);
+  const comps = components(files);
+  const routeTable = routes(files);
+  const changed = execSync(`git diff --name-only ${baseRef()}...HEAD -- ${APP_DIR}`, {encoding: "utf8"})
+    .split("\n").filter(Boolean).filter(f => !/\.spec\.ts$|generated/.test(f));
+  const seen = new Set();
+  const queue = comps.filter(c => changed.some(f => f === c.file || f === c.html
+    || path.dirname(f) === path.dirname(c.file) && /\.(css|scss)$/.test(f)));
   while (queue.length) {
-    const child = queue.shift();
-    for (const parent of components) {
-      if (!reached.has(parent.name) && embeds(parent, child)) { reached.set(parent.name, parent); queue.push(parent); }
-    }
+    const c = queue.shift();
+    if (seen.has(c.cls)) continue;
+    seen.add(c.cls);
+    for (const parent of comps)
+      if (parent.html && c.selector && fs.readFileSync(parent.html, "utf8").includes(`<${c.selector}`)) queue.push(parent);
   }
-  const screens = [];
-  for (const r of routes) if (reached.has(r.component) && !screens.some(s => s.route === r.route)) screens.push(r);
-  return {screens, seeds: seeds.map(c => c.name)};
+  const screens = routeTable.filter(r => seen.has(r.cls)).map(r => ({route: "/" + r.path, cls: r.cls}));
+  return {screens, changedComponents: [...seen]};
 }
 
 module.exports = async ({page, say, pause, get, app, apiUrl}) => {
-  const {screens, seeds} = deriveScreens();
-  const visited = [], missed = [], unfilmable = [];
-
-  const range = () => page.locator(".mat-mdc-paginator-range-label");
-  const dash = "\\s*[–-]\\s*";
-  const rangeRe = (from, to, total = "\\d+") => new RegExp(`${from}${dash}${to}\\s+of\\s+${total}`);
-  const settled = async (re) => {
-    await range().filter({hasText: re}).waitFor();
-    await page.locator('#ownersTable table[aria-busy="false"]').waitFor();
+  const rangeLabel = page.locator(".mat-mdc-paginator-range-label");
+  const nextButton = page.locator(".mat-mdc-paginator-navigation-next");
+  const firstNames = () => page.locator("#ownersTable td.ownerFullName").allTextContents();
+  const settled = async () => {
+    await page.locator("#ownersTable[aria-busy='false']").waitFor();
   };
-  const header = col => page.locator(`#ownersTable th[mat-sort-header="${col}"]`);
-  const sortedBy = (col, dir) =>
-    page.locator(`#ownersTable th[mat-sort-header="${col}"][aria-sort="${dir}"]`);
-  const search = async (text) => {
-    await page.locator("#lastName").fill(text);
-    await page.locator('#search-owner-form button[type="submit"]').click();
+  const sortHeader = label => page.locator("#ownersTable th[mat-sort-header]").filter({hasText: label});
+  const search = async lastName => {
+    await page.locator("#lastName").fill(lastName);
+    await page.locator("#search-owner-form button[type='submit']").click();
   };
-
-  const ownersHandler = async () => {
-    await page.goto(`${app}/owners`);
-    await settled(rangeRe(1, 10));
-    await page.locator("#addOwner").waitFor();
-    const paginator = page.locator("mat-paginator");
-    await say("The Owners list is now paginated by the server, one page at a time.", paginator);
-    await sortedBy("name", "ascending").waitFor();
-    await say("It opens on page one, ten owners, sorted by Name.", header("name"));
-    await say("The range shows how many owners match in all.", range());
-    await pause(1500);
-
-    const next = page.locator(".mat-mdc-paginator-navigation-next");
-    await next.waitFor();
-    await next.click();
-    await settled(rangeRe(11, 20));
-    await say("Next page shows owners eleven to twenty.", range());
-
-    const sizeSelect = page.locator(".mat-mdc-paginator-page-size-select");
-    await sizeSelect.waitFor();
-    await sizeSelect.click();
-    const option5 = page.locator("mat-option").filter({hasText: /^\s*5\s*$/});
-    const option20 = page.locator("mat-option").filter({hasText: /^\s*20\s*$/});
-    await option5.waitFor();
-    await option20.waitFor();
-    await say("Page sizes are five, ten or twenty.", option20);
-    await option20.click();
-    await settled(rangeRe(1, 20));
-    await say("Changing the page size restarts from page one.", range());
-
-    await header("name").waitFor();
-    await header("city").waitFor();
-    await say("Name and City are the sortable columns.", header("city"));
-    await header("city").click();
-    await sortedBy("city", "ascending").waitFor();
-    await settled(rangeRe(1, 20));
-    await say("Clicking City sorts ascending, on the server.", header("city"));
-    await header("city").click();
-    await sortedBy("city", "descending").waitFor();
-    await settled(rangeRe(1, 20));
-    await say("Clicking again reverses it.", header("city"));
-
-    await search("Pot");
-    await settled(rangeRe(1, 2, "2"));
-    await sortedBy("city", "descending").waitFor();
-    const beatrix = page.locator("#ownersTable .ownerFullName").filter({hasText: "Beatrix Potter"});
-    const harry = page.locator("#ownersTable .ownerFullName").filter({hasText: "Harry Potter"});
-    await beatrix.waitFor();
-    await harry.waitFor();
-    await say("A search goes back to page one and keeps the City sort.", range());
-    await say("Harry and Beatrix Potter are the two matches.", harry);
-
-    await search("Zzzz");
-    const noOwners = page.locator("#noOwners");
-    await noOwners.waitFor();
-    await paginator.waitFor({state: "detached"});
-    await say("With no match, a message replaces the grid and the paginator.", noOwners);
-
-    await search("");
-    await settled(/of\s+\d+/);
-    await page.locator("#ownersTable").waitFor();
-    await say("An empty search brings every owner back, from page one.", range());
-    await pause(1000);
+  const changeRange = async action => {
+    const before = await rangeLabel.textContent();
+    await action();
+    await page.waitForFunction(
+      ([sel, prev]) => document.querySelector(sel)?.textContent !== prev,
+      [".mat-mdc-paginator-range-label", before]);
+    await settled();
+  };
+  const clickSort = async label => {
+    const header = sortHeader(label);
+    const before = await header.getAttribute("aria-sort");
+    await header.click();
+    for (let i = 0; i < 50 && await header.getAttribute("aria-sort") === before; i++) await pause(100);
+    await settled();
   };
 
-  const plainHandler = async (screen) => {
-    await page.goto(`${app}${screen.route}`);
-    const h2 = page.locator("h2").first();
-    await h2.waitFor();
-    await say("This screen also contains the changed component.", h2);
-  };
+  const handlers = {
+    "/owners": async ({route}) => {
+      await page.goto(`${app}${route}`);
+      const table = page.locator("#ownersTable");
+      await table.waitFor();
+      await settled();
+      await rangeLabel.waitFor();
+      await say("The Owners grid now shows one page at a time, ten owners to start with.", table);
+      await pause(1500);
+      await say("A paginator under the grid shows the range and the total, fetched from the server.", rangeLabel);
+      await pause(1500);
 
-  for (const screen of screens) {
-    if (screen.route.includes(":")) {
-      unfilmable.push(`${screen.route} (route needs a URL parameter)`);
-      continue;
+      await changeRange(() => nextButton.click());
+      await say("Next page: the server returns the following slice, and the range moves on.", rangeLabel);
+      await pause(1500);
+
+      await page.locator(".mat-mdc-paginator-page-size-select").click();
+      await page.locator("mat-option").filter({hasText: /^\s*5\s*$/}).waitFor();
+      await say("The page size is selectable: five, ten or twenty.", page.locator(".mat-mdc-select-panel"));
+      await changeRange(() => page.locator("mat-option").filter({hasText: /^\s*5\s*$/}).click());
+      await say("Changing the size starts again from the first page.", rangeLabel);
+      await pause(1500);
+
+      const nameHeader = sortHeader("Name");
+      await nameHeader.waitFor();
+      await say("Name is the default sort, ascending, by last name.", nameHeader);
+      await clickSort("Name");
+      await say("Sort by Name again, now descending. Sorting returns to page one.", nameHeader);
+      await pause(1500);
+      const sample = (await firstNames())[0];
+      await say(`The server now returns ${sample} first.`, page.locator("#ownersTable td.ownerFullName").first());
+      await pause(1500);
+
+      const cityHeader = sortHeader("City");
+      await cityHeader.waitFor();
+      await clickSort("City");
+      await say("City is sortable too: ascending first.", cityHeader);
+      await pause(1500);
+      await clickSort("City");
+      await say("A second click reverses it: descending.", cityHeader);
+      await pause(1500);
+
+      await page.locator("#lastName").waitFor();
+      await search("D");
+      await settled();
+      await rangeLabel.waitFor();
+      await say("Searching by last name filters on the server, and the paginator counts only the matches.", rangeLabel);
+      await pause(1500);
+
+      const matches = await get(`${apiUrl}/owners?lastName=D&page=0&size=5&sort=name,asc`).catch(() => null);
+      const total = matches && (matches.totalElements ?? matches.body?.totalElements);
+      if (total > 5) {
+        await changeRange(() => nextButton.click());
+        await say("Paging works inside the search results as well.", rangeLabel);
+        await pause(1500);
+      }
+
+      await search("Zzzz");
+      const none = page.locator("#noOwners");
+      await none.waitFor();
+      await say("A search with no match now shows a clear message instead of an empty grid.", none);
+      await pause(2000);
     }
+  };
+
+  const defaultBeat = async ({route}) => {
+    await page.goto(`${app}${route}`);
+    const heading = page.locator("h2").first();
+    await heading.waitFor();
+    await say("This screen embeds a component changed in this branch.", heading);
+    await pause(1500);
+  };
+
+  const {screens, changedComponents} = deriveScreens();
+  const missed = [];
+  const notFilmable = [];
+  const visited = [];
+  const filmable = screens.filter(s => {
+    if (!s.route.includes(":") && !s.route.includes("*")) return true;
+    notFilmable.push(`${s.route} (route parameter, no URL fills it)`);
+    return false;
+  });
+  if (screens.length === 0)
+    return {ok: false, note: `0 changed screens derived | FAILED to reach: no routed screen found for ${changedComponents.join(", ") || "any changed component"}`};
+
+  for (const screen of filmable) {
     try {
-      await (screen.route === "/owners" ? ownersHandler : plainHandler)(screen);
+      await (handlers[screen.route] || defaultBeat)(screen);
       visited.push(screen.route);
     } catch (e) {
       missed.push(`${screen.route} (${e.message.split("\n")[0]})`);
     }
   }
-  if (!screens.length) missed.push(`no routed screen derived from changed components [${seeds.join(", ")}]`);
 
   return {
-    ok: missed.length === 0 && unfilmable.length === 0,
-    note: `${visited.length}/${screens.length} changed screens filmed: ${visited.join(", ")}`
-      + (unfilmable.length ? ` | not filmable: ${unfilmable.join("; ")}` : "")
+    ok: missed.length === 0,
+    note: `${visited.length}/${screens.length} changed screens filmed`
       + (missed.length ? ` | FAILED to reach: ${missed.join("; ")}` : "")
+      + (notFilmable.length ? ` | not filmable: ${notFilmable.join("; ")}` : "")
   };
 };
-module.exports.deriveScreens = deriveScreens;

@@ -1,7 +1,7 @@
 {
  "schema": "report-cost/1",
- "started": "2026-10-03T05:50:44+00:00",
- "recordedAt": "2026-10-03T06:00:19+00:00",
+ "started": "2026-10-03T12:43:42+00:00",
+ "recordedAt": "2026-10-03T12:53:34+00:00",
  "harness": "claude-code",
  "guide": {
   "key": "guide",
@@ -10,8 +10,8 @@
   "reason": null,
   "source": "recorded",
   "window": [
-   "2026-10-03T05:50:44+00:00",
-   "2026-10-03T06:00:19+00:00"
+   "2026-10-03T12:43:42+00:00",
+   "2026-10-03T12:53:34+00:00"
   ],
   "harnesses": [
    "claude-code"
@@ -19,71 +19,64 @@
   "entries": [
    {
     "harness": "claude-code",
-    "session": "a09a5817-9446-4cf1-a1e6-33598f8e674d",
+    "session": "1e1d5b31-1be0-424b-89dd-d3ab52ad9909",
     "what": "the /human-review run",
     "window": [
-     "2026-10-03T05:50:13+00:00",
-     "2026-10-03T06:00:19+00:00"
+     "2026-10-03T12:43:14+00:00",
+     "2026-10-03T12:53:34+00:00"
     ],
-    "tokens": 1796332,
+    "tokens": 2327239,
     "models": {
-     "Opus 5.5": 1796332
+     "Opus 5.5": 2327239
     },
-    "usd": 1.1546,
+    "usd": 1.2955,
     "aic": null,
-    "calls": 23,
-    "modelSeconds": 91.5
+    "calls": 27,
+    "modelSeconds": 79.4
    },
    {
     "harness": "claude-code",
     "session": "claude -p (.model-runs.json)",
     "what": "requirements\u2194tests mapping (rerun-model.py)",
     "window": [
-     "2026-10-03T05:58:18+00:00",
-     "2026-10-03T06:00:11+00:00"
+     "2026-10-03T12:51:04+00:00",
+     "2026-10-03T12:53:30+00:00"
     ],
-    "tokens": 81994,
+    "tokens": 101631,
     "models": {
-     "Sonnet 5.5": 81994
+     "Sonnet 5.5": 101631
     },
-    "usd": 0.4269,
+    "usd": 0.5483,
     "aic": null,
     "calls": 1,
-    "modelSeconds": 112.7,
+    "modelSeconds": 145.3,
     "program": "rerun-model.py"
    }
   ],
-  "tokens": 1878326,
-  "usd": 1.5815,
+  "tokens": 2428870,
+  "usd": 1.8438,
   "aic": null,
-  "modelSeconds": 204.2
+  "modelSeconds": 224.7
  },
  "wallclock": {
-  "started": "2026-10-03T05:50:44+00:00",
-  "ended": "2026-10-03T06:00:19+00:00",
-  "seconds": 575,
-  "modelSeconds": 204.2,
+  "started": "2026-10-03T12:43:42+00:00",
+  "ended": "2026-10-03T12:53:34+00:00",
+  "seconds": 593,
+  "modelSeconds": 224.7,
   "steps": [
    {
     "label": "sequence diagrams from traces",
     "tabs": [
      "sequence"
     ],
-    "seconds": 197
+    "seconds": 207
    },
    {
     "label": "Code City capture",
     "tabs": [
      "city"
     ],
-    "seconds": 90
-   },
-   {
-    "label": "test change manifest",
-    "tabs": [
-     "requirements"
-    ],
-    "seconds": 1
+    "seconds": 96
    },
    {
     "label": "diagram deltas",
@@ -91,7 +84,14 @@
      "data",
      "packages"
     ],
-    "seconds": 17
+    "seconds": 22
+   },
+   {
+    "label": "test change manifest",
+    "tabs": [
+     "requirements"
+    ],
+    "seconds": 1
    },
    {
     "label": "REST contract diff",
@@ -105,7 +105,7 @@
     "tabs": [
      "complexity"
     ],
-    "seconds": 2
+    "seconds": 3
    },
    {
     "label": "review-points.md and the two commits",
@@ -119,14 +119,14 @@
     "tabs": [
      "logging"
     ],
-    "seconds": 1
+    "seconds": 0
    },
    {
     "label": "codeowners check",
     "tabs": [
      "owners"
     ],
-    "seconds": 1
+    "seconds": 0
    },
    {
     "label": "pb33f report",
@@ -140,79 +140,57 @@
     "tabs": [
      "review"
     ],
-    "seconds": 0
+    "seconds": 1
    },
    {
     "label": "assemble content.json and build the page",
     "tabs": [
      "guide"
     ],
-    "seconds": 536
+    "seconds": 546
    },
    {
     "label": "Playwright trace recordings",
     "tabs": [
      "requirements"
     ],
-    "seconds": 22
+    "seconds": 25
    },
    {
     "label": "feature recording",
     "tabs": [
      "behaviour"
     ],
-    "seconds": 38
-   },
-   {
-    "label": "design-system audit",
-    "tabs": [
-     "dsaudit"
-    ],
-    "seconds": 40
+    "seconds": 259
    },
    {
     "label": "per-test coverage of the change",
     "tabs": [
      "requirements"
     ],
-    "seconds": 47
+    "seconds": 66
    },
    {
     "label": "container view projected from the sequences",
     "tabs": [
      "packages"
     ],
-    "seconds": 4
+    "seconds": 6
    },
    {
-    "label": "feature recording",
+    "label": "design-system audit",
     "tabs": [
-     "behaviour"
+     "dsaudit"
     ],
-    "seconds": 166
+    "seconds": 38
    }
   ],
-  "stepSeconds": 1167
+  "stepSeconds": 1275
  },
  "refreshes": [
   {
-   "at": "2026-10-03T06:01:00+00:00",
-   "seconds": 40.8,
-   "steps": "none"
-  },
-  {
-   "at": "2026-10-03T07:38:49+00:00",
-   "seconds": 37.6,
-   "steps": "none"
-  },
-  {
-   "at": "2026-10-03T07:42:20+00:00",
-   "seconds": 41.8,
-   "steps": "static"
-  },
-  {
-   "at": "2026-10-03T07:44:51+00:00",
-   "seconds": 37.8,
+   "at": "2026-10-03T12:54:15+00:00",
+   "seconds": 39.8,
    "steps": "none"
   }
  ]

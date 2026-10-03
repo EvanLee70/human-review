@@ -5539,53 +5539,6 @@
  {
   "kind": "mcp",
   "httpMethod": "MCP",
-  "path": "LocalTools.currentDateTime",
-  "handler": "LocalTools.currentDateTime()",
-  "metric": "cognitive",
-  "flowCc": 1,
-  "methods": 3,
-  "flow": [
-   {
-    "method": "victor.training.petclinic.chatbot.assistant.LocalTools#currentDateTime",
-    "display": "LocalTools.currentDateTime()",
-    "cognitive": 0,
-    "cyclomatic": 1,
-    "calls": [
-     "victor.training.petclinic.domain.Owner#toString"
-    ],
-    "hits": []
-   },
-   {
-    "method": "victor.training.petclinic.domain.Owner#toString",
-    "display": "Owner.toString()",
-    "cognitive": 1,
-    "cyclomatic": 1,
-    "calls": [
-     "victor.training.petclinic.chatbot.assistant.ChatHistory#append"
-    ],
-    "hits": [
-     {
-      "file": "petclinic-backend/src/main/java/victor/training/petclinic/domain/Owner.java",
-      "line": 89,
-      "code": ".toString();",
-      "inc": 1,
-      "why": "recursion"
-     }
-    ]
-   },
-   {
-    "method": "victor.training.petclinic.chatbot.assistant.ChatHistory#append",
-    "display": "ChatHistory.append(String, String, String)",
-    "cognitive": 0,
-    "cyclomatic": 1,
-    "calls": [],
-    "hits": []
-   }
-  ]
- },
- {
-  "kind": "mcp",
-  "httpMethod": "MCP",
   "path": "get_owner_profile",
   "handler": "PetClinicMcp.getOwnerProfile()",
   "metric": "cognitive",
@@ -6549,6 +6502,45 @@
    {
     "method": "victor.training.petclinic.chatbot.triage.TriageController#triage",
     "display": "TriageController.triage(String)",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [],
+    "hits": []
+   }
+  ]
+ },
+ {
+  "kind": "mcp",
+  "httpMethod": "MCP",
+  "path": "LocalTools.currentDateTime",
+  "handler": "LocalTools.currentDateTime()",
+  "metric": "cognitive",
+  "flowCc": 0,
+  "methods": 3,
+  "flow": [
+   {
+    "method": "victor.training.petclinic.chatbot.assistant.LocalTools#currentDateTime",
+    "display": "LocalTools.currentDateTime()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [
+     "victor.training.petclinic.domain.Owner#toString"
+    ],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.domain.Owner#toString",
+    "display": "Owner.toString()",
+    "cognitive": 0,
+    "cyclomatic": 1,
+    "calls": [
+     "victor.training.petclinic.chatbot.assistant.ChatHistory#append"
+    ],
+    "hits": []
+   },
+   {
+    "method": "victor.training.petclinic.chatbot.assistant.ChatHistory#append",
+    "display": "ChatHistory.append(String, String, String)",
     "cognitive": 0,
     "cyclomatic": 1,
     "calls": [],

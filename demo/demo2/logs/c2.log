@@ -1,4 +1,4 @@
   * c2 -> packages
-    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/c2-from-sequence.py --base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --out-dir .human-review/assets/c2
-[c2] 5 container(s), 4 call(s), projected from 9 sequence diagram(s) -> /Users/victorrentea/workspace/petclinic-eval/.human-review/assets/c2
-[c2] against 98cb82a7249f: no change of shape
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/c2-from-sequence.py --base eb6a0d1f58053105682bba4325dcc66f808b29f5 --out-dir .human-review/assets/c2
+[c2] 5 container(s), 4 call(s), projected from 9 sequence diagram(s) -> /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/assets/c2
+[c2] against eb6a0d1f5805: no change of shape

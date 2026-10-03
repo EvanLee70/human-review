@@ -2,23 +2,21 @@
     $ git rev-parse HEAD
     $ git rev-parse --short HEAD
     $ cd petclinic-test && PW_TRACE=on COVERAGE_DIR=../.human-review/coverage ./test-on-own-stack.sh npm run test:cucumber
-↻ petclinic-e7b807e8 is already up
-http://localhost:58890
-📏 per-test coverage → /Users/victorrentea/workspace/petclinic-eval/.human-review/coverage (JaCoCo agent on 127.0.0.1:58882)
-🧪 npm run test:cucumber → app http://127.0.0.1:58890, backend http://127.0.0.1:58883 (petclinic-e7b807e8)
+↻ petclinic-968b2543 is already up
+http://localhost:61112
+📏 per-test coverage → /Users/victorrentea/workspace/petclinic-pr-owner-grid-paginated/.human-review/coverage (JaCoCo agent on 127.0.0.1:61073)
+🧪 npm run test:cucumber → app http://127.0.0.1:61112, backend http://127.0.0.1:61072 (petclinic-968b2543)
 
 > qa@1.0.0 test:cucumber
 > SKIP_SERVER_START=1 cucumber-js
 
 This Node.js version (v26.8.1) has not been tested with this version of Cucumber; it should work normally, but please raise an issue if you see anything unexpected.
-..........................................................................................🎚️  Detail: simplified · click an arrow to reveal its SQL / JSON payloads
-🔭 Tempo behind http://localhost:3300
-⚠️  "Opening the owners page shows the first page by name, and how many there are": fetch failed — skipped
-📊 Generated 0 diagram(s)
+......................................................................................................................🎚️  Detail: simplified · click an arrow to reveal its SQL / JSON payloads
+ℹ️  No trace windows for this runner — no diagrams generated.
 
 
-14 scenarios (14 passed)
-62 steps (62 passed)
-0m17.893s (executing steps: 0m17.851s)
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/bf039454f092/skills/human-review/scripts/playwright-traces.py --report "petclinic-test/test-results/playwright-report" --out .human-review/assets --json .human-review/assets/traces.json --limit 16 --project-dir "petclinic-test" --cucumber "petclinic-test/test-results/cucumber-traces"
-[traces] 9 trace(s), 5.3 MB -> .human-review/assets/traces; 1 result(s) ran untraced
+18 scenarios (18 passed)
+82 steps (82 passed)
+0m22.297s (executing steps: 0m22.265s)
+    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/6267f957964c/skills/human-review/scripts/playwright-traces.py --report "petclinic-test/test-results/playwright-report" --out .human-review/assets --json .human-review/assets/traces.json --limit 16 --project-dir "petclinic-test" --cucumber "petclinic-test/test-results/cucumber-traces"
+[traces] 10 trace(s), 7.2 MB -> .human-review/assets/traces; 1 result(s) ran untraced

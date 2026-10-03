@@ -1,39 +1,25 @@
 {
- "base": "98cb82a7249fe9341595b3a5beb4b7a71a7f22ec",
+ "base": "eb6a0d1f58053105682bba4325dcc66f808b29f5",
  "head": "HEAD",
  "points_file": "review-points.md",
- "commits": 4,
- "implementation": "91905dff4690930507b443b5655573f6802ef608",
- "review": "e7b807e83fd3973993c980e3d5b88c62f947e8db",
- "session": "3c9a707b-94ad-4b3f-8775-28518fc03842",
+ "commits": 2,
+ "implementation": "4405c85388bb015c4a17793f0d19c163b464b2b5",
+ "review": "968b254358688e4266130189bb5cf9be442c86d2",
+ "session": "13acbd66-def8-408d-be02-ce18a318f509",
  "fallback": false,
  "after": [],
  "after_detail": [],
- "review_when": "2026-10-03T08:43:09+03:00",
+ "review_when": "2026-10-03T15:36:04+03:00",
  "takeover": null,
  "auto_fixes": [
   {
-   "sha": "6b14c32b00e923ad6aadd1aed872f787104420bf",
-   "when": "2026-10-03T08:42:10+03:00",
-   "subject": "[auto-fix] Retry a failed owners page, stop echoing rejected input, sturdier paging glue"
-  },
-  {
-   "sha": "1338ed9e7f3dc95c2b51f25898d8c36ff64f4ede",
-   "when": "2026-10-03T08:42:46+03:00",
-   "subject": "[auto-fix] Anchor the type-mismatch assumption at the implementation's line"
-  },
-  {
-   "sha": "e7b807e83fd3973993c980e3d5b88c62f947e8db",
-   "when": "2026-10-03T08:43:09+03:00",
-   "subject": "[auto-fix] Re-anchor the type-mismatch assumption on its handler"
+   "sha": "968b254358688e4266130189bb5cf9be442c86d2",
+   "when": "2026-10-03T15:36:04+03:00",
+   "subject": "[auto-fix] Owners list review: no raw input echoed in 400s, grid stays retryable on error, offset boundary tested"
   }
  ],
  "review_commits": [
-  "6b14c32b00e923ad6aadd1aed872f787104420bf",
-  "1338ed9e7f3dc95c2b51f25898d8c36ff64f4ede",
-  "e7b807e83fd3973993c980e3d5b88c62f947e8db"
+  "968b254358688e4266130189bb5cf9be442c86d2"
  ],
- "warnings": [
-  "3 commits carry a Review-Points trailer (6b14c32b, 1338ed9e, e7b807e8); taking the last one as the review commit. The fixes are read from the implementation to it, so every one of them counts as a fix commit \u2014 one round recorded in 3 commits, or several rounds; record-review's finish now amends its own unpushed commit instead."
- ]
+ "warnings": []
 }
