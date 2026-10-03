@@ -340,8 +340,13 @@ def recorded_decisions(out_dir: Path, change_dir: Path | None = None) -> list[di
 
     From the review record (`review-points.json`): every assumption (what was decided, and
     the alternative it ruled out) and every finding read and declined. From the OpenSpec
-    change, when there is one: its proposal's and design's lines that name a scope cut."""
-    out: list[str] = []
+    change, when there is one: its proposal's and design's lines that name a scope cut.
+
+    Each also carries where it was recorded, so the page can name and link it rather than
+    say "a recorded decision": `where` (`proposal.md:86`, or which Review-tab pile), `quote`
+    (the decision in its own words, without the prefix the model reads) and, for a line of
+    the OpenSpec change, `href` to that line. Only `id` and `text` go to the model."""
+    out: list[tuple[str, dict]] = []
     rp = _read_json(out_dir / "review-points.json") or {}
 
     def clean(x) -> str:
@@ -352,23 +357,30 @@ def recorded_decisions(out_dir: Path, change_dir: Path | None = None) -> list[di
             bits.append(f"instead of: {clean(a['alternative'])}")
         if a.get("why"):
             bits.append(f"because {clean(a['why'])}")
-        out.append("Assumed: " + "; ".join(b for b in bits if b))
+        out.append(("Assumed: " + "; ".join(b for b in bits if b),
+                    {"where": "an assumption on the Review tab", "quote": clean(a.get("title"))}))
     for f in rp.get("findings") or []:
-        out.append(f"Declined: {clean(f.get('title'))} — {clean(f.get('why'))}")
+        out.append((f"Declined: {clean(f.get('title'))} — {clean(f.get('why'))}",
+                    {"where": "a declined finding on the Review tab",
+                     "quote": clean(f.get("title"))}))
     if change_dir is not None:
         for name in ("proposal.md", "design.md"):
-            for ln in _read(change_dir / name).splitlines():
+            for n, ln in enumerate(_read(change_dir / name).splitlines(), start=1):
                 if ln.lstrip().startswith("#"):
                     continue                      # a heading names a section, decides nothing
                 t = _plain(re.sub(r"^\s*[-*]\s+", "", ln))
                 if t and _SCOPE_LINE.search(t):
-                    out.append(f"Scope ({change_dir.name}/{name}): {t}")
+                    out.append((f"Scope ({change_dir.name}/{name}): {t}",
+                                {"where": f"{name}:{n}", "quote": t,
+                                 "path": f"openspec/changes/{change_dir.name}/{name}",
+                                 "href": f"vscode://file/{(change_dir / name).resolve()}:{n}:1"}))
     seen, uniq = set(), []
-    for t in out:
+    for t, ref in out:
         if t and t not in seen:
             seen.add(t)
-            uniq.append(t[:400])
-    return [{"id": f"d{i}", "text": t} for i, t in enumerate(uniq, 1)]
+            uniq.append((t[:400], ref))
+    return [{"id": f"d{i}", "text": t, **{k: v for k, v in ref.items() if v}}
+            for i, (t, ref) in enumerate(uniq, 1)]
 
 
 #: Where the implementation conversation is exported, relative to the review directory.
@@ -681,11 +693,15 @@ def covering_tests(spec: dict, out_dir: Path, root: Path) -> tuple[list[dict], b
         if not file or not line or f"{file}:{line}" in seen:
             continue
         seen.add(f"{file}:{line}")
-        rows.append({"id": f"{file}:{line}", "file": file, "line": int(line),
-                     "title": t.get("name") or "", "suite": "",
-                     "cat": T._cov_cat({"file": file}, root),
-                     "status": STAMP.get(t.get("status"), "unchanged"),
-                     "hits": {}, "aimed": True})
+        row = {"id": f"{file}:{line}", "file": file, "line": int(line),
+               "title": t.get("name") or "", "suite": "",
+               "cat": T._cov_cat({"file": file}, root),
+               "status": STAMP.get(t.get("status"), "unchanged"),
+               "hits": {}, "aimed": True}
+        # A deleted test is linked where it stood at the base, never at its HEAD `line`.
+        if t.get("baseUrl") and t.get("status") == "deleted":
+            row["baseUrl"] = t["baseUrl"]
+        rows.append(row)
     return rows, False
 
 
@@ -1164,7 +1180,8 @@ def model_input(ticket: dict, sentences: list[dict], rows: list[dict], scripted:
         "ticket": {"number": ticket.get("number"), "title": ticket.get("title", "")},
         "sentences": asked,
         "answer": {"schema": SCHEMA_VERSION, "sentences": skeleton},
-        "decisions": decisions or [],
+        # Only what the model judges by; where each was recorded is the page's business.
+        "decisions": [{"id": d["id"], "text": d["text"]} for d in decisions or []],
         "context": [s["text"] for s in sentences],
         "tests": [{"id": t, "title": rows_by[t]["title"], "kind": CATS[rows_by[t]["cat"]],
                    "status": rows_by[t]["status"],
@@ -1315,6 +1332,8 @@ def merge(sentences: list[dict], scripted: dict, model: dict | None,
     script = {e["id"]: e for e in scripted["decided"]}
     answer = {e["id"]: e for e in (model or {}).get("sentences") or []}
     said = {d["id"]: d["text"] for d in decisions or []}
+    refs = {d["id"]: {k: d[k] for k in ("where", "quote", "href", "path") if d.get(k)}
+            for d in decisions or []}
     out = []
     for s in sentences:
         sc = script.get(s["id"])
@@ -1336,6 +1355,8 @@ def merge(sentences: list[dict], scripted: dict, model: dict | None,
                 e["rejected"] = rejected
             if e.get("decision") in said:
                 e["decisionText"] = said[e["decision"]]
+                if refs.get(e["decision"]):
+                    e["decisionRef"] = refs[e["decision"]]
             out.append(e)
         elif sc is not None:
             e = json.loads(json.dumps(sc))
@@ -1356,12 +1377,31 @@ def _when(iso: str) -> str:
     return f"opened on {d:%b} {d.day}, {d.year}"
 
 
+#: How much of a decision's own words a hover quotes before cutting: a tooltip is one glance.
+DECISION_TIP_MAX = 90
+
+
+def decision_name(entry: dict) -> str:
+    """`proposal.md:86 “Sorting is limited to Name and City…”` — the decision a narrowed
+    sentence rests on, named the way a reader can go and find it; "" when the mapping named
+    none the build could resolve."""
+    ref = entry.get("decisionRef") or {}
+    quote = ref.get("quote") or ""
+    if len(quote) > DECISION_TIP_MAX:
+        quote = quote[:DECISION_TIP_MAX].rsplit(" ", 1)[0].rstrip(",;:—-. ") + "…"
+    if ref.get("where") and quote:
+        return f"{ref['where']} “{quote}”"
+    return ref.get("where") or (f"“{quote}”" if quote else "")
+
+
 def _sentence_html(s: dict, entry: dict) -> str:
     cov = entry["coverage"]
     inner = _inline(s["md"])
     if cov == "n/a":
         return f'<span class="rm-plain" data-s="{s["id"]}">{inner}</span>'
     tip = COV_LABEL[cov]
+    if cov == "narrowed" and decision_name(entry):
+        tip += " — by " + decision_name(entry)
     src = ' data-src="model"' if entry.get("by") == "model" else ""
     return (f'<span class="rm-f" data-s="{s["id"]}" data-cov="{COV_ATTR[cov]}"{src} '
             f'role="button" tabindex="0" data-tip="{html.escape(tip, quote=True)}">'
@@ -1429,6 +1469,14 @@ def _sentence_data(entry: dict, rows_by: dict) -> dict:
         d["rejected"] = [{"id": r["id"], "why": r.get("why") or ""} for r in entry["rejected"]]
     if entry.get("decisionText"):
         d["decision"] = entry["decisionText"]
+    ref = entry.get("decisionRef") or {}
+    if ref:
+        # Named and linked on the sentence's hover and in its box — "narrowed by a
+        # recorded decision" sent the reader hunting for which one.
+        d["decisionName"] = decision_name(entry)
+        for k in ("where", "quote", "href"):
+            if ref.get(k):
+                d["decision" + k.capitalize()] = ref[k]
     if entry.get("gap"):
         d["gap"] = entry["gap"]
         # A narrowed sentence is a fact about the requirement, whatever the model tagged it.
@@ -1455,6 +1503,17 @@ RANK_LABELS = {
     "2": "Untouched and unpaired — run a changed line few other tests run",
     "3": "Untouched and unpaired — only pass through changed code most tests run",
 }
+
+
+#: The two "untouched and unpaired" groups start folded. On run 6 they were 33 of the
+#: card's 92 rows — UserTest, SpecialtyTest, VisitDateRangeTest — tests about something
+#: else that happen to run a changed line, and listing them open doubled the tab's height.
+#: They stay one click away, counted on the button that shows them (`reqmap.js`); the
+#: paired and the branch-written groups are never folded.
+FOLD_FROM_RANK = 2
+FOLD_LABEL = "more tests that only pass through changed code"
+#: The hover on a deleted test's location: it opens the base commit, not this checkout.
+DELETED_HREF_TIP = "Deleted on this branch — open it as it was at the base commit, on GitHub"
 
 
 def test_rank(r: dict, paired: set) -> int:
@@ -1498,10 +1557,14 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
         tests[r["id"]] = {"title": r["title"] or r["id"], "cat": r["cat"],
                           "status": r["status"], "parts": [part] if part else [],
                           "rank": test_rank(r, paired), "why": test_why(r)}
+        if r["status"] == "deleted" and r.get("baseUrl"):
+            tests[r["id"]]["href"] = r["baseUrl"]
+            tests[r["id"]]["hrefTip"] = DELETED_HREF_TIP
     used = {e["coverage"] for e in entries}
     legend = LEGEND.replace("</div>", "".join(v for k, v in LEGEND_EXTRA.items()
                                               if k in used) + "</div>")
     data = {"cats": CATS, "tests": tests, "ranks": RANK_LABELS,
+            "fold": {"from": FOLD_FROM_RANK, "label": FOLD_LABEL},
             "sentences": {e["id"]: _sentence_data(e, rows_by) for e in entries
                           if e["coverage"] != "n/a"},
             # For the layout's title row (`tests.py:reqmap_layout`): the ticket this matrix

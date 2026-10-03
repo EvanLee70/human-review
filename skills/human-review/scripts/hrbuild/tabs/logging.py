@@ -257,16 +257,45 @@ def _hint_arguments(snippet: str, h: dict) -> str:
 
 
 def _change_line(h: dict) -> str:
-    """One muted line over a snippet: new logging, or an old statement rewritten — and,
-    when rewritten, the call it replaced. Nothing when the scan ran without a base."""
+    """The snippet's caption: new logging, or an old statement rewritten — and, when
+    rewritten, the call it replaced. Nothing when the scan ran without a base.
+
+    It is the card's own caption (`snippet_html`'s figcaption, inside the frame), not a
+    paragraph between two cards: eval run 6 printed it in the gap, equidistant from the
+    card above and the card below, and a reader could not tell which one it described."""
     if h.get("change") == "added":
-        return '<p class="lg-change lg-new">New log statement</p>'
+        return '<span class="lg-change lg-new">New log statement</span>'
     if h.get("change") != "modified":
         return ""
     what = ("Rewritten, not new — it logs the same text as before"
             if h.get("same_output") else "Rewritten, not new — its arguments changed")
     was = (f'. Was <code>{html.escape(h["was"])}</code>' if h.get("was") else "")
-    return f'<p class="lg-change lg-mod">{what}{was}</p>'
+    return f'<span class="lg-change lg-mod">{what}{was}</span>'
+
+
+#: A gutter row this branch added, as `extract-snippet.py` draws it.
+_ADDED_ROW = re.compile(r'<span class="ln-row added"><span class="dm">\+</span>'
+                        r'(<span class="ln">(\d+)</span>)')
+
+
+def _mark_rewritten(snippet: str, h: dict) -> str:
+    """A rewritten statement's own lines wear a neutral `~`, not the green `+`.
+
+    The `+` is diff vocabulary for "this line is new", and on a statement the caption calls
+    "Rewritten, not new" the two contradicted each other (eval run 6). Only the statement's
+    lines change mark: a declaration pulled in beside it that the branch really added —
+    the new constant it now logs — keeps its `+`, because that line *is* new."""
+    if h.get("change") != "modified":
+        return snippet
+    first, last = h["line"], h.get("end_line") or h["line"]
+
+    def swap(m: re.Match) -> str:
+        if not first <= int(m.group(2)) <= last:
+            return m.group(0)
+        # The mark's span keeps its exact shape (`<span class="dm">`): `_hint_arguments`
+        # and the page's cross-referencer both read rows by it.
+        return '<span class="ln-row added rewritten"><span class="dm">~</span>' + m.group(1)
+    return _ADDED_ROW.sub(swap, snippet)
 
 
 def _logging_listing(added: list, root: Path) -> str:
@@ -301,10 +330,10 @@ def _logging_listing(added: list, root: Path) -> str:
         # lines pulled in is the declaration rather than the statement. Re-aimed at the
         # hit's own line and column: that is where a reader clicking a logging box expects
         # to land.
-        snippet = snippet_html(_logging_ref(h), None, root, exact=True,
+        snippet = snippet_html(_logging_ref(h), _change_line(h) or None, root, exact=True,
                                link_at=(h["line"], h.get("column", 1)))
         snippet = BADGE_RE.sub("", snippet, count=1)
-        boxes.append(_change_line(h) + _hint_arguments(snippet, h))
+        boxes.append(_hint_arguments(_mark_rewritten(snippet, h), h))
     return "".join(boxes)
 
 def logging_fragment(block, root: Path, base: str | None = None):

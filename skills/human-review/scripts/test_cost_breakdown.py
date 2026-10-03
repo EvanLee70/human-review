@@ -485,7 +485,7 @@ def test_the_tab_is_labelled_with_the_money_and_no_cents(built_page):
     label = btn.group(1).strip()
     assert label in ("$1", "$1?")
     assert (label.endswith("?")) == ("unmeasured —" in _panel(built_page))
-    assert "$0.93" in _panel(built_page), "the cents are in the table, not on the pill"
+    assert "$0.90" in _panel(built_page), "the cents are in the table, not on the pill"
 
 
 def test_the_cost_tab_is_the_last_pill_on_the_strip(built_page):
@@ -528,9 +528,13 @@ def test_the_built_page_distinguishes_an_uninstrumented_tab(built_page):
 
 
 def test_the_built_page_totals_the_run_including_the_residual(built_page):
+    """The "this guide" row stops where the run ended (its last step, 10:45 here), and the
+    fold under it is that row's breakdown, so it stops there too: the turn at 11:00 is in
+    neither. Eval run 6 read the fold to "now" and printed a second, larger total."""
     panel = _panel(built_page)
-    assert "$0.03" in panel, "the turn outside every window is the residual"
-    assert "$0.93" in panel, "0.75 + 0.15 + 0.00 + 0.03"
+    assert "$0.03" not in panel, "a turn after the run ended is not the run's"
+    assert "$0.90" in panel, "0.75 + 0.15 + 0.00"
+    assert "the same as the &ldquo;this guide&rdquo; row above" in panel
 
 
 def test_the_built_page_says_it_could_not_find_who_wrote_the_code(built_page):
@@ -538,8 +542,10 @@ def test_the_built_page_says_it_could_not_find_who_wrote_the_code(built_page):
     attribute. The row has to say that in words — a `$0.00` there would read as "writing
     this was free", which is the one thing it does not mean."""
     panel = _panel(built_page)
-    assert "writing the code" in panel
-    assert "nothing to attribute" in panel or "not measured" in panel
+    impl = re.search(r'<tr class="costquiet" data-component="implementation">(.*?)</tr>',
+                     panel, re.S)
+    assert impl, "the implementation row is on the tab, quiet, with no number"
+    assert "unmeasured —" in impl.group(1) and "<td>—</td><td>—</td>" in impl.group(1)
 
 
 def test_the_cost_is_no_longer_a_chip_in_the_scope_bar(built_page):
@@ -987,3 +993,57 @@ def test_the_ledger_is_read_for_the_pinned_session_not_the_one_running_the_build
     # With nothing pinned, the environment is still the answer.
     (out / ".session").unlink()
     assert cost.cost_session(out) == "another-live-conversation"
+
+
+# --------------------------------------------------------------------------- #
+# eval run 6: under the four components, the fold breaks down "this guide" — and sums to it
+# --------------------------------------------------------------------------- #
+
+def _run6_ledger(residual_cost=3.155):
+    guide = {"key": "guide", "label": "this guide", "measured": True, "usd": 3.315,
+             "tokens": 4_208_001, "window": ["2026-10-02T23:50:53+00:00",
+                                             "2026-10-03T00:03:59+00:00"],
+             "entries": [{"harness": "claude-code", "session": "0301c073-x",
+                          "what": "the /human-review run", "usd": 3.155,
+                          "tokens": 4_208_001, "models": {"Opus 5.5": 4_208_001}}]}
+    impl = {"key": "implementation", "label": "implementation", "measured": True,
+            "usd": 21.66, "tokens": 33_530_162, "entries": []}
+    tabs = _report_with_parts(
+        {"review": _row(messages=0), "requirements": {
+            **_row(cost=0.16, tokens=0, messages=1), "tokensUnknown": True,
+            "runs": [{"what": "requirements↔tests mapping", "program": "rerun-model.py",
+                      "cost": 0.16, "tokens": 0, "model": ""}]}},
+        {"measured": True, "cost": residual_cost, "tokens": 4_208_001, "messages": 45,
+         "tip": "…"},
+        _parts(guide=(0.2, 238_385, 2), subagent=(0.35, 317_958, 6),
+               conversation=(residual_cost - 0.55, 3_651_658, 37)))
+    led = _ledger(tabs, writing=WROTE_IT, total=31.39, tokens=47_898_659)
+    led["components"] = {"rows": [impl, guide], "usd": 24.975, "aic": 0.0,
+                         "usdEquivalent": 24.98}
+    return led
+
+
+def test_the_fold_under_the_four_rows_is_the_guide_row_split_by_tab_and_sums_to_it():
+    """Run 6 printed $32.20 / 49.1M in the summary and $31.39 / 47.9M in the fold under it,
+    whose "conversation" row matched none of the three rows it stood in for."""
+    out = build.cost_ledger_html(_run6_ledger(), [_tab("review", "Review"),
+                                                  _tab("requirements", "Tests")])
+    fold = out.split('<details class="costdetail">')[1]
+    assert "&ldquo;this guide&rdquo;, tab by tab" in fold
+    assert "writing the code" not in fold and "conversation <code>" not in fold, \
+        "the writing conversation is the first three rows already, not a second cut"
+    assert "$31.39" not in out and "47.9M" not in out
+    assert "the same as the &ldquo;this guide&rdquo; row above" in fold
+    assert '<td>4.2M</td><td>$3.31</td></tr></tfoot>' in fold, \
+        "printed as the row above prints it, not re-rounded from the parts"
+    # The Tests tab carries the mapping, and is not also listed as spending nothing.
+    assert "Tests<span class=\"costsub\">requirements↔tests mapping, claude -p" in fold
+    assert "tokens not recorded" in fold and "<td>—</td><td>$0.16</td>" in fold
+    assert "1 tab with no model spend — Review" in fold
+    assert "Step 9" not in out and "step&rsquo;s window" not in out, "no skill jargon"
+
+
+def test_a_fold_that_does_not_reach_the_guide_row_says_by_how_much_and_why():
+    out = build.cost_ledger_html(_run6_ledger(residual_cost=3.955), [_tab("review", "Review")])
+    fold = out.split('<details class="costdetail">')[1]
+    assert "row above says $3.31" in fold and "$0.80 more" in fold

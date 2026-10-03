@@ -123,10 +123,29 @@ def render_tests(rows, root: Path, flags: bool = True) -> str:
     items = []
     for r in rows:
         cls, label = TEST_STATES.get(r["status"], TEST_STATES["unchanged"])
-        where = Path(r["path"]).name + (f':{r["line"]}' if r.get("line") else "")
+        # A deleted test (not a commented-out one, which is still on disk) is shown and
+        # linked where it WAS: its working-tree `line` is only where the removal landed,
+        # and unrelated code sits there now. So the location is the base commit's line
+        # and the link is the base commit's blob — never a vscode:// into HEAD.
+        at_base = r["status"] == "deleted" and r.get("silenced") != "commented"
+        line = r.get("baseLine") if at_base else r.get("line")
+        where = Path(r["path"]).name + (f':{line}' if line else "")
         inner = (f'{html.escape(r["name"])} '
                  f'<span class="tloc">{html.escape(where)}</span>')
-        if r.get("line") and not r.get("gone"):
+        if at_base:
+            sha = (r.get("baseSha") or "")[:8]
+            at = f" at the base commit {sha}" if sha else " at the base commit"
+            if r.get("baseUrl"):
+                body = (f'<a class="srcref testref tbase" href="{html.escape(r["baseUrl"])}"'
+                        f' target="_blank" rel="noopener"'
+                        f' data-tip="{html.escape(r["path"])}:{line or ""}{at} — deleted '
+                        f'on this branch; opens on GitHub">{inner}</a>')
+            else:
+                show = f"git show {sha or 'BASE'}:{r['path']}"
+                body = (f'<span class="srcref testref tgone" data-tip="'
+                        f'{html.escape(r["path"])}:{line or ""}{at} — deleted on this '
+                        f'branch; see it with: {html.escape(show)}">{inner}</span>')
+        elif r.get("line") and not r.get("gone"):
             target = (root / r["path"]).resolve()
             body = (f'<a class="srcref testref" href="vscode://file/{target}:{r["line"]}:1"'
                     f' data-tip="{html.escape(r["path"])}">{inner}</a>')
@@ -149,6 +168,10 @@ def render_tests(rows, root: Path, flags: bool = True) -> str:
             state = ('<span class="tback" data-tip="Was disabled; runs now.">'
                      "back on</span>")
         note = f' <span class="tnote">{r["note"]}</span>' if r.get("note") else ""
+        if r.get("renamedFrom"):
+            # Renamed in place: one test kept under a new title, not one lost and one new.
+            note = (f' <span class="tnote trenamed">renamed from '
+                    f'“{html.escape(r["renamedFrom"])}”</span>') + note
         # Off inside the ledger below, where the group heading already says the word and
         # a column repeating `NEW` twenty-two times is a column of noise. Kept everywhere
         # else, and kept even in the ledger's one mixed group.
@@ -178,7 +201,8 @@ def render_test_ledger(rows, root: Path) -> tuple[str, int]:
         ("stopped running", "Still written, and no longer part of any run — nothing "
                             "under them is asserted on any build.", []),
         ("new", "Tests this change set wrote.", []),
-        ("gone", "Tests the run has lost — deleted outright, or commented out in place.", []),
+        ("gone", "Tests the run has lost — deleted outright (each links to where it stood "
+                 "at the base commit), or commented out in place.", []),
         ("edited", "Tests whose body this change set moved: worth reading for what they "
                    "stopped asserting, not only for what they now do.", []),
     ]
@@ -347,7 +371,10 @@ def tests_chip(doc: dict | None) -> dict | None:
     inert = t["added"] - (t["gained"] - t["reenabled"])
     tip = (f'{t["added"]} new'
            + (f' ({inert} disabled on arrival)' if inert else "")
-           + f', {t["modified"]} edited, {gone}'
+           + f', {t["modified"]} edited'
+           # A retitled test is counted here and not as one gone plus one new.
+           + (f' ({t["renamed"]} renamed)' if t.get("renamed") else "")
+           + f', {gone}'
            # The one clause that has to survive the cut: it is why `+10` can stand over
            # `9 new`, and without it the face looks like it cannot add up.
            + (f', {t["reenabled"]} back on' if t["reenabled"] else ""))

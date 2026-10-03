@@ -670,6 +670,124 @@ def test_no_number_in_the_panel_is_typed_into_the_content_file():
     assert not re.search(r"[1-9]\d* change", body), "a count is hardcoded in the panel"
 
 
+
+# ── run 6: the band and the visual diff under it count one way ───────────────────
+SWAP_BEFORE = """
+openapi: 3.0.1
+info: {title: petclinic, version: "1"}
+paths:
+  /api/owners:
+    get:
+      responses:
+        "200":
+          content:
+            application/json: {schema: {type: array, items: {type: string}}}
+        "400":
+          content:
+            '*/*': {schema: {type: string}}
+"""
+SWAP_AFTER = """
+openapi: 3.0.1
+info: {title: petclinic, version: "1"}
+paths:
+  /api/owners:
+    get:
+      parameters:
+        - {name: page, in: query, schema: {type: integer}}
+      responses:
+        "200":
+          content:
+            application/json: {schema: {type: array, items: {type: string}}}
+        "400":
+          content:
+            application/problem+json: {schema: {type: string}}
+  /api/vets:
+    get:
+      responses:
+        "200": {description: ok}
+"""
+
+
+def _swap_entries():
+    """What oasdiff emitted on hr-claude-6 for the 400 response: one swap, two entries."""
+    return [
+        _entry(3, "response-body-type-changed"),
+        {"id": "response-media-type-removed", "operation": "GET", "path": "/api/owners",
+         "level": 3, "text": "removed the media type `*/*` for the response with the "
+                             "status `400`"},
+        _entry(1, "new-optional-request-parameter"),
+        {"id": "response-media-type-added", "operation": "GET", "path": "/api/owners",
+         "level": 1, "text": "added the media type `application/problem+json` for the "
+                             "response with the status `400`"},
+    ]
+
+
+def test_a_swapped_media_type_is_one_change_on_the_band_as_in_the_visual_diff():
+    """Run 6: the band said "8 changes, 2 breaking" over a visual diff listing 7 rows and a
+    toggle reading "expand 7 impacted" — oasdiff counts `*/*` → `problem+json` as a removal
+    plus an addition, the visual diff folds them into one row. One fold, one count."""
+    result = oac.read_changelog(_swap_entries())
+    assert oac.change_count(result) == 3, result
+    assert oac.breaking_count(result) == 2
+    text = _panel_text(oac.panel(result, None))
+    assert text.startswith("Breaking changes · 3 changes, 2 breaking across 1 endpoint"), text
+    # The folded line says what happened, in one sentence, at the higher severity.
+    reasons = " ".join(t for b in result["breaks"] for _, t in b["reasons"])
+    assert "changed from <code>*/*</code> to <code>application/problem+json</code>" in reasons
+    # And it is the visual diff's own fold, not a second copy of the rule.
+    ovd = _load("openapi_visual_diff", "openapi-visual-diff.py")
+    raw = [dict(e, section="paths") for e in _swap_entries()]
+    _, entries, global_changes, _ = ovd.build_model(
+        {"paths": {"/api/owners": {"get": {}}}}, {"paths": {"/api/owners": {"get": {}}}}, raw)
+    assert ovd.change_total(entries, global_changes) == oac.change_count(result)
+
+
+def test_the_band_and_the_toggle_print_the_same_number_end_to_end():
+    if not HAVE_OASDIFF:
+        print(f"skip {SKIP_REASON}")
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        base, head = Path(tmp) / "before.yaml", Path(tmp) / "after.yaml"
+        base.write_text(SWAP_BEFORE, encoding="utf-8")
+        head.write_text(SWAP_AFTER, encoding="utf-8")
+        band = compat(str(base), str(head), "--panel", "--no-cross-check")
+        assert band.returncode == 0, band.stderr
+        out = Path(tmp) / "vd.html"
+        vd = subprocess.run([sys.executable, str(HERE / "openapi-visual-diff.py"),
+                             str(base), str(head), "-o", str(out)],
+                            capture_output=True, text=True)
+        assert vd.returncode == 0, vd.stderr
+        toggle = re.search(r"expand (\d+) impacted", out.read_text(encoding="utf-8"))
+    n = re.search(r"· (\d+) changes?,", _panel_text(band.stdout))
+    assert toggle and n, (band.stdout, toggle)
+    # The swap folded, the added /api/vets counted once: both sides say the same.
+    assert n.group(1) == toggle.group(1), (n.group(1), toggle.group(1))
+
+
+def test_the_report_calls_the_review_base_the_review_base():
+    """Run 6: the report said "openapi.yaml at the merge-base 5a97353e". 5a97353e is the
+    review base `run-steps.py` hands every producer; the merge-base with main is dd9055ef."""
+    sha = "5a97353e" + "0" * 32
+    assert oac.base_name(sha, sha, sha) == "the review base"
+    assert oac.base_name("origin/main", "f" * 40, sha) == \
+        "the merge-base with <code>origin/main</code>"
+    source = COMPAT.read_text(encoding="utf-8")
+    assert "at the merge-base " not in source, "a hardcoded 'merge-base' label is back"
+
+
+def test_a_differ_name_and_its_report_link_wrap_as_one():
+    """Run 6, 1440px: the band broke between `openapi-diff.py` and its "(report ↗)",
+    leaving the arrow alone on the second line."""
+    with tempfile.TemporaryDirectory() as tmp:
+        assets = Path(tmp)
+        for name in oac.REPORTS.values():
+            (assets / name).write_text("x", encoding="utf-8")
+        frag = oac.panel(_result(oac.INCOMPATIBLE, breaks=[_op("GET", "/api/owners", 2)]),
+                         {"breaking": ["a", "b"], "subjects": 1}, assets)
+    units = re.findall(r'<span class="who">(.*?</a>\))</span>', frag)
+    assert len(units) == 2 and all("report" in u for u in units), frag
+    assert ".apiverdict .who{white-space:nowrap}" in oac.PANEL_CSS
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

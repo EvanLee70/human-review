@@ -52,6 +52,7 @@ Usage (from the repository root — the project is resolved from the CWD):
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import html
 import json
@@ -161,6 +162,40 @@ def oas_reason(entry: dict) -> str:
     return f"{chip}{text}{tail}"
 
 
+@functools.lru_cache(maxsize=1)
+def _visual_diff():
+    """`openapi-visual-diff.py`, next door, loaded by path (its name has a hyphen).
+
+    None when it is missing — the band then counts oasdiff's raw entries, as it did."""
+    import importlib.util
+    path = Path(__file__).with_name("openapi-visual-diff.py")
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("openapi_visual_diff_for_compat", path)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception:  # noqa: BLE001 - a broken sibling must not take the verdict down
+        return None
+    return module
+
+
+def fold_swaps(found: list) -> list:
+    """One operation's entries, each swapped media type folded back into one line.
+
+    oasdiff writes `*/*` → `application/problem+json` as two entries (removed, added), and
+    the visual diff below the band draws it as one row. Counting the raw entries put
+    "8 changes" over a diff listing 7 and a toggle reading "expand 7 impacted". Both now
+    fold with the visual diff's own `merge_pairs`: one rule, one count."""
+    vd = _visual_diff()
+    if vd is None or not all(isinstance(e.get("id"), str) and isinstance(e.get("text"), str)
+                             for e in found):
+        return found
+    for e in found:
+        e.setdefault("level", LEVEL_INFO)
+    return vd.merge_pairs(found)
+
+
 def read_changelog(entries: list) -> dict:
     """The same flattened shape `read_report` produces, from a differ that resolves refs.
 
@@ -186,6 +221,7 @@ def read_changelog(entries: list) -> dict:
 
     breaks, additive = [], []
     for (method, path), found in ops.items():
+        found = fold_swaps(found)
         subject = {"method": method, "path": path}
         # Split per *entry*, not per operation. An operation with one breaking change and
         # five optional additions used to land whole under "What breaks", and every count
@@ -594,6 +630,7 @@ PANEL_CSS = """<style>
 /* Smaller and quieter than the name it follows: the verdict is what this band says, and
    the report is where to go and check it. Same colour, so it still reads as one clause. */
 .apiverdict a.rep{font-size:.85em;opacity:.8}
+.apiverdict .who{white-space:nowrap}
 .apiverdict a.rep:hover,.apiverdict a.rep:focus-visible{opacity:1}
 .apiverdict code{font:600 .86em/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
 /* The same two treatments as the score chip beside the page title (.titlescore v-good /
@@ -662,6 +699,11 @@ def report_link(which: str, assets: Path | None, prefix: str) -> str:
             f'report&nbsp;&#8599;</a>)')
 
 
+def who(label: str) -> str:
+    """A differ's name with its report link, kept on one line."""
+    return f'<span class="who">{label}</span>'
+
+
 def panel(result: dict, ours: dict | None,
           assets: Path | None = None, prefix: str = "assets/") -> str:
     """The verdict, the counts, and who checked it — in that order, on one line."""
@@ -669,8 +711,10 @@ def panel(result: dict, ours: dict | None,
     # Built once, with its report already attached, because the name is used in three
     # different sentences below — credited, disputed, or standing alone — and a reader
     # who can open the working in one of them should be able to in all three.
-    engine = engine_link(result) + report_link("engine", assets, prefix)
-    ours_label = OURS_LABEL + report_link("ours", assets, prefix)
+    # Each name and its "(report ↗)" are one unbreakable unit: at 1440px the band wrapped
+    # between them and left the second "(report ↗)" alone on a line of its own.
+    engine = who(engine_link(result) + report_link("engine", assets, prefix))
+    ours_label = who(OURS_LABEL + report_link("ours", assets, prefix))
     total = change_count(result)
     n_break = breaking_count(result)
     s = "" if total == 1 else "s"
@@ -874,6 +918,20 @@ CSS = """
 """
 
 
+def base_name(named: str, named_sha: str, base_ref: str) -> str:
+    """What to call the commit the "before" spec was read from.
+
+    `run-steps.py` hands every producer the page's one base (`run_base`): on a reviewed
+    branch that is the commit the review audited, a commit already on this branch, and its
+    merge-base with HEAD is itself. Calling it "the merge-base" there was wrong twice over —
+    the real fork point from main is a different, older commit. So: the base named is
+    already where the walk landed → "the review base"; a branch ref the branch forked from
+    → "the merge-base with <ref>", which is what it is."""
+    if named_sha and named_sha == base_ref:
+        return "the review base"
+    return f"the merge-base with <code>{html.escape(named)}</code>"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -932,7 +990,10 @@ def main(argv=None) -> int:
             base_ref = merge_base.stdout.strip() if merge_base.returncode == 0 else args.base
             base_spec = run(["git", "show", f"{base_ref}:{spec_rel}"], cwd=root)
             sibling_args = ["--base", args.base, "--spec", args.spec]
-            pair = (f"<code>{html.escape(spec_rel)}</code> at the merge-base "
+            which = base_name(args.base, run(["git", "rev-parse", "--verify", "--quiet",
+                                              f"{args.base}^{{commit}}"],
+                                             cwd=root).stdout.strip(), base_ref)
+            pair = (f"<code>{html.escape(spec_rel)}</code> at {which} "
                     f"<code>{html.escape(base_ref[:8])}</code> against the working tree")
             if base_spec.returncode != 0 or not base_spec.stdout.strip():
                 # No spec at the base means no client compiled against one. Nothing to break.
@@ -941,7 +1002,7 @@ def main(argv=None) -> int:
                 frag = (panel(fresh, None, assets, args.asset_prefix) if args.panel
                         else render(
                     fresh, None,
-                    pair + ". The spec did not exist at the merge-base, so there is "
+                    pair + f". The spec did not exist at {which}, so there is "
                     "no prior contract to break.", ""))
                 return emit(args, frag, {"state": NO_CHANGES})
             before = tmpdir / "before.yaml"

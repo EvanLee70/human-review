@@ -27,6 +27,8 @@ button.tab.quiet:hover { opacity:.85; }
 /* Selected, a struck tab is not dimmed: opacity would reach its flares too, and the line
    they are there to hide would show through them. */
 button.tab.quiet[aria-selected="true"] { opacity:1; }
+/* Why the tab is struck, said once at the top of its panel. */
+.quietline { margin:.2rem 0 .8rem; color:var(--muted); font-size:.85rem; }
 /* Every tab wears its own edge, unpressed. They used to be bare words on the page's own
    background, with a fill on the selected one and nothing at all on the other twelve: a
    row of labels, one of which happened to be highlighted, which is what a *caption* looks

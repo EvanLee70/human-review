@@ -12,7 +12,7 @@ from pathlib import Path
 from ..shared.actions import ACTIONS, declare_action, RERUN_ACTION
 from ..shared.bands import _lede_above, _flush_top_bands
 from ..shared.commands import command_html
-from ..shared.snippets import DIFF_CONTEXT, diff_html
+from ..shared.snippets import DIFF_CONTEXT, diff_html, github_blob_base
 
 # The report's contract lives next to the scripts, beside the parser that writes it: the
 # directory this package sits in is on sys.path whenever the package is importable.
@@ -97,13 +97,16 @@ def resolve_review_points(spec: dict, out_dir: Path) -> dict | None:
     """Make the Review tab's inputs the branch's and the page's, not the content file's.
 
     The piles come off `review-points.md` (`resolve_piles`); each Fixed card is dealt the
-    hunks of the fix commit its anchors reach (`attribute_fix_hunks`); the grade's reasons
+    hunks of the fix commit its anchors reach (`attribute_fix_hunks`); every anchor is
+    carried from the commit it was written at to the tree the page quotes
+    (`reanchor_refs`); the grade's reasons
     are computed from what the page measured and its number capped by them
     (`grade_signals`, `cap_grade`); and the content file's prose `summary`, which opened
     this tab above the grade, is dropped (`drop_model_summary`)."""
     drop_model_summary(spec)
     points = resolve_piles(spec, out_dir)
     attribute_fix_hunks(spec, out_dir)
+    reanchor_refs(spec, out_dir)
     grade_signals(spec, out_dir)
     cap_grade(spec)
     return points
@@ -216,6 +219,7 @@ def resolve_piles(spec: dict, out_dir: Path) -> dict | None:
         "source": doc.get("source") or "review-points.md",
         "fixed_in": doc.get("fixed_in"), "meta": doc.get("meta") or {},
         "provenance": doc.get("provenance") or {},
+        "frontmatter": doc.get("frontmatter") or {},
         "note": doc.get("note") if isinstance(doc.get("note"), dict) else None,
         "path": path.name}
     own_review_tab(spec)
@@ -246,8 +250,11 @@ def pile_intro(kind: str, points: dict | None) -> str:
                 "defect, and nothing here is in the diff: it is the only pile no pass, "
                 "script or reviewer could reconstruct afterwards.")
     if kind == "findings":
-        return ("Findings the agent read and said no to, with its reason. These are closed "
-                "decisions, not a queue: your job here is to agree or disagree.")
+        # "Open", like the chip, the tab's badge and the grade panel that count them: run 6
+        # titled this pile "Open review issues" and then called it "closed decisions, not a
+        # queue" one line down. The agent decided; the item stays open until a human agrees.
+        return ("Findings the agent read and left in the code, each with its reason. They "
+                "stay open until you agree or disagree with that reason.")
     src = html.escape((points or {}).get("source") or "review-points.md")
     impl = ((points or {}).get("provenance") or {}).get("implementation", "")
     against = (f"<code>{html.escape(impl[:8])}</code>, the implementation commit"
@@ -502,17 +509,37 @@ def _raised_by(items, total: int) -> str:
     itself rather than folded into whichever pass happens to be first — an unattributed
     finding is a real state, and a hover that hides it is a hover that lies by rounding.
     With nothing attributed at all the breakdown is dropped entirely: `12 raised, 12 of
-    them unattributed` is the total said twice."""
+    them unattributed` is the total said twice.
+
+    Counted per reviewer, not per spelling of `source`. Run 6's items named several
+    reviewers each (`reviewer correctness, reviewer ticket-fit`), and the hover listed every
+    combination as a group of its own — the same reviewer in three of them. A source is
+    split on commas, `+` and `and` (outside parentheses), the parenthesised detail that
+    tells same-titled findings apart is dropped, and an item two reviewers raised counts
+    once for each; the hover says how many were raised by more than one."""
     counts: dict[str, int] = {}
+    shared = 0
     for it in items:
-        src = (it.get("source") or "").strip()
-        counts[src] = counts.get(src, 0) + 1
+        names = _reviewers(it.get("source") or "")
+        if len(names) > 1:
+            shared += 1
+        for name in names or [""]:
+            counts[name] = counts.get(name, 0) + 1
     named = [f"{n} by {src}" for src, n in counts.items() if src]
     if not named:
         return f"{total} raised"
     if counts.get(""):
         named.append(f'{counts[""]} with no pass named')
-    return f"{total} raised — " + ", ".join(named)
+    return (f"{total} raised — " + ", ".join(named)
+            + (f" ({shared} raised by more than one reviewer)" if shared else ""))
+
+
+def _reviewers(source: str) -> list[str]:
+    """`reviewer correctness, reviewer ticket-fit` → both names, in order, once each;
+    `/code-review high (the PUT scenario)` → `/code-review high`."""
+    src = re.sub(r"\s*\([^()]*\)", "", source).strip()
+    parts = re.split(r"\s*(?:,|\+|;|\band\b)\s*", src)
+    return list(dict.fromkeys(p.strip() for p in parts if p.strip()))
 
 
 def _finding_refs(f) -> str:
@@ -757,12 +784,56 @@ window.addEventListener('scrollend', paint, {passive:true});
 _CLAUSE_END = re.compile(r"(?:[.:;,]\s|\s[\u2014\u2013-]\s|[.:;]$)")
 
 
+#: Past this many characters a bullet with no clause boundary outside code is cut at a word
+#: instead, with an ellipsis — the hover keeps the whole of it.
+CLAUSE_CAP = 120
+
+#: What a clause boundary may never sit inside: a `<code>` span (or a backticked one the
+#: tags were stripped from), and an open brace, bracket or parenthesis.
+_CODE_SPAN = re.compile(r"<code\b[^>]*>.*?</code>|`[^`]*`", re.S)
+_OPENERS, _CLOSERS = "([{", ")]}"
+
+
 def _first_clause(text: str) -> str:
     """`No build proved this commit` out of `No build proved this commit: <code>…</code>
-    failed for … .` — tags stripped, entities kept, cut at the first clause boundary."""
-    plain = html.unescape(re.sub(r"<[^>]+>", "", text or "")).strip()
-    m = _CLAUSE_END.search(plain)
-    return (plain[:m.start()] if m else plain).strip().rstrip(".")
+    failed for … .` — tags stripped, entities kept, cut at the first clause boundary
+    that sits outside code.
+
+    Run 6 cut `GET /api/owners changes shape from an array to <code>{content,
+    totalElements}</code>: backend and frontend must ship…` at the comma inside the code
+    span, and the grade panel read `…from an array to {content`. A boundary inside a code
+    span or an open brace/bracket/parenthesis is not one; with no boundary outside them
+    the whole sentence stands, cut at a word only past `CLAUSE_CAP`."""
+    src = text or ""
+    plain, guarded = [], []
+    pos = 0
+    for m in _CODE_SPAN.finditer(src):
+        before = html.unescape(re.sub(r"<[^>]+>", "", src[pos:m.start()]))
+        inside = html.unescape(re.sub(r"<[^>]+>", "", m.group(0))).strip("`")
+        plain.append(before)
+        guarded.extend([False] * len(before))
+        plain.append(inside)
+        guarded.extend([True] * len(inside))
+        pos = m.end()
+    tail = html.unescape(re.sub(r"<[^>]+>", "", src[pos:]))
+    plain.append(tail)
+    guarded.extend([False] * len(tail))
+    whole = "".join(plain)
+    lead = len(whole) - len(whole.lstrip())
+    depth = 0
+    nested = []
+    for ch, g in zip(whole, guarded):
+        if not g and ch in _OPENERS:
+            depth += 1
+        nested.append(g or depth > 0)
+        if not g and ch in _CLOSERS and depth:
+            depth -= 1
+    cut = next((m.start() for m in _CLAUSE_END.finditer(whole)
+                if m.start() > lead and not nested[m.start()]), None)
+    out = (whole[:cut] if cut is not None else whole).strip().rstrip(".")
+    if len(out) > CLAUSE_CAP:
+        out = out[:CLAUSE_CAP].rsplit(" ", 1)[0].rstrip(",;:—- ") + "…"
+    return out
 
 
 #: Where `preflight.py` leaves the CI gate's verdict on the commit under review.
@@ -928,12 +999,15 @@ def _after_review_signal(out_dir: Path, root: Path | None, base_ref: str | None)
                    GRADE_CAPS["after-review"])
 
 
-def _out_of_range_signal(spec, root: Path | None, base_ref: str | None) -> dict | None:
+def _out_of_range_signal(spec, root: Path | None, base_ref: str | None,
+                        out_dir: Path | None = None) -> dict | None:
     """Commits the PR carries that sit before the range the reviewers read.
 
     The review reads `audited-base..implementation`; the PR is everything since it left
     its base. When the review started later than that, the commits in between are in the
-    diff a merge would ship, and nobody read them."""
+    diff a merge would ship, and nobody read them. With no pull request open they are
+    *on the branch*: run 6 said "in the PR" on a branch that had none, beside a header
+    that correctly showed no PR number."""
     prov = ((spec.get("_reviewPoints") or {}).get("provenance") or {})
     audited = prov.get("auditedBase") or prov.get("base")
     if not (root and base_ref and audited):
@@ -946,12 +1020,119 @@ def _out_of_range_signal(spec, root: Path | None, base_ref: str | None) -> dict 
     if not rows:
         return None
     n = len(rows)
+    where = "in the PR" if out_dir is not None and pr_exists(spec, Path(out_dir)) \
+        else "on the branch"
     return _signal("out-of-range",
-                   f"{n} commit{'' if n == 1 else 's'} in the PR before the reviewed range",
+                   f"{n} commit{'' if n == 1 else 's'} {where} before the reviewed range",
                    f"The reviewers read {audited[:8]}..{str(prov.get('auditedHead', 'HEAD'))[:8]}"
                    f"; these sit between {base_ref} and that range and were never reviewed: "
                    + "; ".join(rows[:5]) + (" …" if n > 5 else ""),
                    GRADE_CAPS["out-of-range"])
+
+
+#: Where `semcov.py` leaves the Tests tab's sentence-to-test mapping, merged copy first;
+#: and the matrix fragment, the one place the ticket's sentences are kept as text.
+TEST_MAPPING_FILES = ("assets/test-mapping.merged.json", "test-mapping.json")
+REQMAP_HTML = "assets/requirements-map.html"
+#: How many narrowed sentences get a line of their own before the rest are one line.
+NARROWED_LINES = 2
+NARROWED_QUOTE = 70
+
+
+def _quote(text: str, limit: int = NARROWED_QUOTE) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0].rstrip(",;:—- ") + "…"
+
+
+def _decision_link(entry: dict, root: Path | None) -> tuple[str, str, str] | None:
+    """`(face, quote, href)` of the recorded decision a narrowed sentence rests on.
+
+    `decisionRef` when `semcov.py` wrote one (`where`, `quote`, `path`, `href`); otherwise
+    out of the decision's own text — `Scope (<change>/<file>): <quote>` names an OpenSpec
+    file, and the quote is looked up in it for the line. A link to github.com when the
+    clone has one, so the panel works off the reviewer's machine too; else the editor."""
+    ref = dict(entry.get("decisionRef") or {})
+    text = str(entry.get("decisionText") or "")
+    m = re.match(r"^Scope \(([^)/]+)/([^)]+)\):\s*(.*)$", text, re.S)
+    if m and not ref.get("path"):
+        ref.setdefault("path", f"openspec/changes/{m[1]}/{m[2]}")
+        ref.setdefault("quote", m[3].strip())
+    quote = str(ref.get("quote") or re.sub(r"^\w+(?: \([^)]*\))?:\s*", "", text)).strip()
+    path, line = ref.get("path"), None
+    where = str(ref.get("where") or "")
+    wm = re.search(r":(\d+)$", where)
+    if wm:
+        line = int(wm[1])
+    if path and root is not None and line is None:
+        try:
+            lines = (Path(root) / path).read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        probe = quote[:60].strip()
+        line = next((i for i, ln in enumerate(lines, 1) if probe and probe in ln), None)
+    if path and not where:
+        where = Path(path).name + (f":{line}" if line else "")
+    if not where:
+        return None
+    href = ref.get("href") or ""
+    gh = github_blob_base(Path(root)) if (root is not None and path) else None
+    head = _git_out(root, "rev-parse", "HEAD") if gh else None
+    if gh and head:
+        href = f"{gh}/blob/{head}/{path}" + (f"#L{line}" if line else "")
+    elif path and root is not None and not href:
+        href = f"vscode://file/{(Path(root) / path).resolve()}" + (f":{line}:1" if line else "")
+    return where, quote, href
+
+
+def _narrowed_signals(out_dir: Path, root: Path | None) -> list[dict]:
+    """A ticket sentence the Tests tab marks *narrowed* — cut by a recorded decision — as a
+    reason on the grade panel, naming and linking that decision.
+
+    Run 6's biggest scope cut ("sortable by any column", delivered for Name and City,
+    recorded in the OpenSpec proposal) reached the page only as a hatched sentence on the
+    Tests tab. A sentence of the ticket not delivered as written is a fact about the
+    change, so the grade's reasons carry it; it does not lower the grade — it was decided,
+    and the decision is the link. Read-only use of `semcov.py`'s mapping."""
+    doc = None
+    for name in TEST_MAPPING_FILES:
+        doc = _read_json(Path(out_dir) / name)
+        if isinstance(doc, dict):
+            break
+    entries = [e for e in (doc or {}).get("sentences") or []
+               if isinstance(e, dict) and e.get("coverage") == "narrowed"] \
+        if isinstance(doc, dict) else []
+    if not entries:
+        return []
+    try:
+        matrix = (Path(out_dir) / REQMAP_HTML).read_text(encoding="utf-8")
+    except OSError:
+        matrix = ""
+
+    def sentence(e: dict) -> str:
+        m = re.search(r'data-s="' + re.escape(str(e.get("id"))) + r'"[^>]*>(.*?)</span>',
+                      matrix, re.S)
+        return _plain_text(m[1]) if m else ""
+    out = []
+    for e in entries[:NARROWED_LINES]:
+        said = sentence(e)
+        dec = _decision_link(e, root)
+        short = (f"Ticket narrowed on purpose: “{_quote(said)}”" if said
+                 else "A ticket sentence was narrowed on purpose")
+        full = " ".join(x for x in (
+            f"Not delivered as written: “{said}”." if said else "",
+            str(e.get("gap") or ""),
+            f"Decided in {dec[0]}: “{dec[1]}”" if dec and dec[1] else
+            (f"Decided in {dec[0]}" if dec else "")) if x)
+        sig = _signal("narrowed", short, full or short)
+        if dec and dec[2]:
+            sig.update(href=dec[2], linkText=dec[0])
+        out.append(sig)
+    rest = len(entries) - NARROWED_LINES
+    if rest > 0:
+        out.append(_signal("narrowed",
+                           f"{rest} more ticket sentence{'' if rest == 1 else 's'} narrowed "
+                           "on purpose", "Listed, with their decisions, on the Tests tab"))
+    return out
 
 
 #: The signals `_pile_signals` produces, which `grade_reasons` recounts at render time.
@@ -1009,9 +1190,10 @@ def grade_signals(spec, out_dir: Path, root: Path | None = None) -> list[dict]:
     out.extend(_pile_signals(spec))
     for sig in (_api_signal(out_dir), _evidence_signal(spec, out_dir),
                 _after_review_signal(out_dir, root, base_ref),
-                _out_of_range_signal(spec, root, base_ref)):
+                _out_of_range_signal(spec, root, base_ref, out_dir)):
         if sig:
             out.append(sig)
+    out.extend(_narrowed_signals(out_dir, root))
     spec["_gradeSignals"] = out
     return out
 
@@ -1039,7 +1221,8 @@ def cap_grade(spec) -> int | None:
 
 
 def grade_reasons(spec) -> list[tuple[str, str]]:
-    """`[(short, full), …]` — why the score is what it is, in a few words each.
+    """`[(short, full), …]` — why the score is what it is, in a few words each
+    (`_grade_rows` without the links).
 
     The computed signals first (`grade_signals`, or — for a spec that never went through
     it — the two piles counted here), then at most `MODEL_GRADE_LINES` of the content
@@ -1048,6 +1231,12 @@ def grade_reasons(spec) -> list[tuple[str, str]]:
     run 5 shipped a green 8/10 whose two reasons were counts — nothing about the breaking
     API change, the tab nobody re-traced, or the CI run. The page states what it measured;
     the model gets two lines for what it alone knows."""
+    return [(short, full) for short, full, _ in _grade_rows(spec)]
+
+
+def _grade_rows(spec) -> list[tuple[str, str, tuple[str, str] | None]]:
+    """`[(short, full, (href, face) or None), …]` — `grade_reasons`, plus the link a
+    signal carries to what it rests on (a narrowed ticket sentence → the decision)."""
     v = spec.get("verdict") or {}
     # The piles are counted here, at render time, not off the list the build computed:
     # the build drops unanchored assumptions after the signals were taken, and the panel
@@ -1061,7 +1250,8 @@ def grade_reasons(spec) -> list[tuple[str, str]]:
         short = s["short"]
         if s.get("cap") and model_score is not None and s["cap"] < model_score:
             short += f" (caps the grade at {s['cap']})"
-        out.append((short, s.get("full") or short))
+        link = (s["href"], s.get("linkText") or "source") if s.get("href") else None
+        out.append((short, s.get("full") or short, link))
     own = list(v.get("why") or v.get("bullets") or [])
     if len(own) > MODEL_GRADE_LINES:
         print(f"[review] verdict carries {len(own)} lines of its own; the grade panel shows "
@@ -1073,7 +1263,7 @@ def grade_reasons(spec) -> list[tuple[str, str]]:
         short = (_first_clause(b) if not v.get("why") or len(_plain_text(b)) > 80
                  else _plain_text(b))
         if short:
-            out.append((short, _plain_text(b)))
+            out.append((short, _plain_text(b), None))
     return out
 
 
@@ -1090,15 +1280,22 @@ def grade_reasons_html(spec) -> str:
     v = spec.get("verdict")
     if not v or "score" not in v:
         return ""
-    reasons = grade_reasons(spec)
+    reasons = _grade_rows(spec)
     if not reasons:
         return ""
     n = int(v["score"])
     band = "v-good" if n >= 8 else ("v-mid" if n >= 5 else "v-bad")
+
+    def link(at) -> str:
+        if not at:
+            return ""
+        href, face = at
+        return (f' — <a href="{html.escape(href, quote=True)}" target="_blank" '
+                f'rel="noopener">{html.escape(face)}</a>')
     items = "".join(
-        f'<li data-tip="{html.escape(full, quote=True)}">{html.escape(short)}</li>'
-        if full and full != short else f"<li>{html.escape(short)}</li>"
-        for short, full in reasons)
+        f'<li data-tip="{html.escape(full, quote=True)}">{html.escape(short)}{link(at)}</li>'
+        if full and full != short else f"<li>{html.escape(short)}{link(at)}</li>"
+        for short, full, at in reasons)
     was = v.get("modelScore")
     capped = (f'<span class="gradewhy-was" title="The model graded it {was}/10; the '
               f'signals marked beside the reasons cap it at {n}">was {was}</span>'
@@ -1236,7 +1433,8 @@ def opening_lede(spec) -> str:
     # reviewed commit, not at the branch's head.
     return (grade_reasons_html(spec) + _flush_top_bands()
             + '<p class="sub counts pilelede">' + " &middot; ".join(parts)
-            + push_pr_button(spec) + "</p>" + push_pr_dialog(spec) + PILELEDE_SPY_JS)
+            + push_pr_button(spec) + "</p>" + push_pr_dialog(spec) + no_pr_line(spec)
+            + PILELEDE_SPY_JS)
 
 
 def render_findings(findings) -> str:
@@ -1262,6 +1460,7 @@ def render_findings(findings) -> str:
             + (f'<p>{f["body"]}</p>' if f.get("body") else "")
             + (f'<p class="f-why">{f["why"]}</p>' if f.get("why") else "")
             + (f"<p>{refs}</p>" if refs else "")
+            + _anchor_note(f)
             + (f.get("_snippets", "") or "")
             + (f.get("_diffs", "") or "")
             + "</li>"
@@ -1379,6 +1578,7 @@ def render_assumptions(items, mode: str = "") -> str:
                if f.get("alternative") else "")
             + _assumption_why(f)
             + (f"<p>{refs}</p>" if refs else "")
+            + _anchor_note(f)
             + (f.get("_snippets", "") or "")
             + (f.get("_diffs", "") or "")
             + "</li>"
@@ -1420,6 +1620,7 @@ def render_autofixes(fixes, badge: str = "auto-fixed") -> str:
             + (f'<p class="f-why">{f["why"]}</p>' if f.get("why") else "")
             + (f'<p>{f["body"]}</p>' if f.get("body") else "")
             + (f"<p>{refs}</p>" if refs else "")
+            + _anchor_note(f)
             + (f.get("_fixDiffs") or f.get("_diffs", "") or "")
             + (f'<p class="f-fix"><b>Fix:</b> {f["fix"]}</p>' if f.get("fix") else "")
             + (f.get("_snippets", "") or "")
@@ -1492,16 +1693,50 @@ def _gap(a: tuple[int, int], b: tuple[int, int]) -> int:
     return max(0, a[0] - b[1], b[0] - a[1])
 
 
-def _fix_range(item: dict, points: dict) -> tuple[str | None, str | None]:
+def fix_commit(points: dict, root: Path | None) -> str | None:
+    """The commit whose hunks are the round's fixes, or None when there is none after the
+    implementation commit.
+
+    The review commit when it descends from the implementation and is not it; else the
+    newest commit after the implementation whose subject opens on `[auto-fix]` or whose
+    message carries a `Review-Points:` trailer. Run 6 recorded `fixed-in: HEAD` in the
+    front-matter only, so no item had `diffs` and every Fixed card fell back to a NEW CODE
+    snapshot against main — though its `[auto-fix]` commit sat right there, one after the
+    implementation. Whether a fix commit exists is the question; how the file spelled
+    `fixed-in` is not."""
+    prov = points.get("provenance") or {}
+    impl = prov.get("implementation") or prov.get("auditedHead")
+    if not (root and impl):
+        return None
+    impl_sha = _git_out(root, "rev-parse", "--verify", "--quiet", f"{impl}^{{commit}}")
+    if not impl_sha:
+        return None
+
+    def after(rev: str | None) -> str | None:
+        sha = rev and _git_out(root, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}")
+        if not sha or sha == impl_sha:
+            return None
+        return sha if _git_out(root, "merge-base", "--is-ancestor", impl_sha, sha) == "" \
+            else None
+    found = after(prov.get("reviewCommit"))
+    if found:
+        return found
+    listed = _git_out(root, "log", "--format=%H", r"--grep=^\[auto-fix\]",
+                      "--grep=^Review-Points:", f"{impl_sha}..HEAD") or ""
+    return next((line for line in listed.splitlines() if line.strip()), None)
+
+
+def _fix_range(item: dict, points: dict,
+               fixed_by: str | None = None) -> tuple[str | None, str | None]:
     """`(base, head)` of the commit(s) a Fixed item's diff is read from.
 
-    The base is the implementation commit the item's diffs already name. The head is the
-    rev the item pins (`fixed-in: <sha>`), else the commit that recorded the report — the
-    `[auto-fix]` commit, which carries every fix of the round — else the working tree."""
+    The base is the implementation commit (or the one the item's diffs name). The head is
+    the rev the item pins (`fixed-in: <sha>`), else the fix commit (`fix_commit`: the
+    `[auto-fix]` commit that carries every fix of the round), else the working tree."""
     d = (item.get("diffs") or [{}])[0]
     prov = points.get("provenance") or {}
     return (d.get("base") or prov.get("implementation"),
-            d.get("head") or prov.get("reviewCommit"))
+            d.get("head") or fixed_by or prov.get("reviewCommit"))
 
 
 def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> None:
@@ -1520,16 +1755,22 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
     through the item's `diffs`: those the build would draw whole. A card whose anchor got
     a hunk loses the snippet of the same lines, which the hunk already shows."""
     points = spec.get("_reviewPoints") or {}
-    fixes = [f for f in spec.get("autofixes") or [] if isinstance(f, dict) and f.get("diffs")]
-    if not fixes or points.get("missing"):
+    if points.get("missing"):
         return
     root = root if root is not None else _git_root(out_dir)
     if root is None:
         return
+    # Every Fixed item with an anchor, not only those carrying `diffs`: whenever a fix
+    # commit follows the implementation, its hunks are what the card shows.
+    fixed_by = fix_commit(points, root)
+    fixes = [f for f in spec.get("autofixes") or [] if isinstance(f, dict)
+             and (f.get("diffs") or (fixed_by and f.get("refs")))]
+    if not fixes:
+        return
     skip = {points.get("source") or "review-points.md"}
     groups: dict[tuple, list[dict]] = {}
     for f in fixes:
-        base, head = _fix_range(f, points)
+        base, head = _fix_range(f, points, fixed_by)
         if base and _git_out(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}") \
                 and (not head or _git_out(root, "rev-parse", "--verify", "--quiet",
                                           f"{head}^{{commit}}")):
@@ -1595,6 +1836,109 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
                 + '</div>')
     if other_html:
         points["fixOther"] = "".join(other_html)
+
+
+# --------------------------------------------------------------------------- #
+# Every anchor, carried to the code the page shows
+# --------------------------------------------------------------------------- #
+
+#: The front-matter key `record-review.py finish` writes once it has carried every ref to
+#: the tree it commits: all of them are then written at the review commit.
+ANCHORS_KEY = "anchors"
+ANCHORS_AT_REVIEW = "review-commit"
+
+
+def _written_at(kind: str, points: dict, fixed_by: str | None) -> list[str]:
+    """The revs a pile's refs were most likely written against, most likely first.
+
+    `record-review.py finish` re-anchors and says so (`anchors: review-commit`), and then
+    there is one answer. A file from before it says nothing, and the piles were written at
+    different times: the assumptions while coding, at the implementation commit; the fixes
+    and the declined findings after the fixes, at the review commit — run 6 to the line."""
+    prov = points.get("provenance") or {}
+    impl = prov.get("implementation") or prov.get("auditedHead")
+    review = prov.get("reviewCommit") or fixed_by
+    if ((points.get("frontmatter") or {}).get(ANCHORS_KEY) or "").strip() == ANCHORS_AT_REVIEW:
+        return [review or "HEAD"]
+    if kind == "assumptions":
+        return [impl, review or "HEAD"]
+    return [review or "HEAD", impl]
+
+
+def reanchor_refs(spec: dict, out_dir: Path, root: Path | None = None) -> None:
+    """Carry every item's `file:line` from the commit it was written against to the tree
+    the page quotes, in place, through `git diff`'s hunks (`review-points.py:reanchor`).
+
+    Run 6's assumptions were written at the implementation commit and rendered at HEAD
+    after the `[auto-fix]` commit had moved them: `ExceptionControllerAdvice.java:85` came
+    out as one blank line, `owner-list.component.ts:82` as an unrelated statement, and
+    nothing on the page said so. A ref the diff removed keeps its file as a link and loses
+    its snippet, and the card says what happened (`_anchorNotes`) instead of quoting
+    whatever line now has that number.
+
+    Runs after `attribute_fix_hunks`, which deals the fix commit's hunks by the Fixed
+    cards' refs as they read at the review commit."""
+    points = spec.get("_reviewPoints") or {}
+    if not points or points.get("missing"):
+        return
+    root = root if root is not None else _git_root(out_dir)
+    if root is None:
+        return
+    rp = _points_parser()
+    fixed_by = fix_commit(points, root)
+    for kind in POINTS_PILES:
+        written = [w for w in _written_at(kind, points, fixed_by)
+                   if w and _git_out(root, "rev-parse", "--verify", "--quiet",
+                                     f"{w}^{{commit}}")]
+        if not written:
+            continue
+        for item in spec.get(kind) or []:
+            if not isinstance(item, dict):
+                continue
+            title = re.sub(r"<[^>]+>", "", str(item.get("title") or ""))[:60]
+            moved: dict[str, str | None] = {}
+            notes = []
+            for ref in item.get("refs") or []:
+                if ref in moved or rp.ref_spans(ref)[1] is None:
+                    continue
+                got = rp.reanchor(root, ref, written)
+                path = rp.ref_spans(ref)[0]
+                face = html.escape(Path(path).name + ref[len(path):])
+                at = html.escape(str(got["from"] or "")[:8])
+                if got["ref"] is None:
+                    moved[ref] = None
+                    notes.append(f"<code>{face}</code> was written at <code>{at}</code>, and "
+                                 "a later commit removed that line — there is no line to "
+                                 "show for it any more.")
+                    print(f"[review] WARNING: {title!r}: {ref} (written at {at}) no longer "
+                          "exists — the card says so instead of quoting another line",
+                          file=sys.stderr)
+                    continue
+                if got["moved"]:
+                    moved[ref] = got["ref"]
+                    print(f"[review] {title!r}: {ref} written at {at} reads as "
+                          f"{got['ref']} now", file=sys.stderr)
+                if got["blank"]:
+                    notes.append(f"<code>{face}</code> points at a blank line — the line "
+                                 "it meant has moved and could not be found again.")
+            if not moved and not notes:
+                continue
+            item["refs"] = list(dict.fromkeys(
+                r if r not in moved else (moved[r] or rp.ref_spans(r)[0])
+                for r in item.get("refs") or []))
+            if isinstance(item.get("snippets"), list):
+                item["snippets"] = [
+                    {**s, "ref": moved[s.get("ref")]} if moved.get(s.get("ref"))
+                    else s for s in item["snippets"]
+                    if not (s.get("ref") in moved and moved[s.get("ref")] is None)]
+            if notes:
+                item["_anchorNotes"] = notes
+
+
+def _anchor_note(f) -> str:
+    """What `reanchor_refs` could not carry across, said on the card itself."""
+    notes = f.get("_anchorNotes") or []
+    return "".join(f'<p class="f-anchor sub">{n}</p>' for n in notes)
 
 #: Where `run-steps.py`'s `aftermath` step leaves what it measured.
 AFTERMATH_JSON = "aftermath.json"
@@ -2133,6 +2477,29 @@ def pr_comment_slug(title: str) -> str:
     return s or "item"
 
 
+def drop_stale_pr_comments(out_dir: Path, root: Path | None, skill_dir: Path) -> None:
+    """Rebuild or delete `pr-comments.json` when its `commit_id` is not on this branch.
+
+    Run 6's review directory kept the previous run's payload, pinned to `0746abc5` of
+    another branch, and nothing in the run noticed. Asked of `push-pr-comments.py
+    --drop-stale` — the one place that knows how to rebuild it from `review-points.md` —
+    on every build, PR or not, so the file on disk is never another branch's."""
+    path = Path(out_dir) / PR_COMMENTS_JSON
+    script = Path(skill_dir) / "push-pr-comments.py"
+    if root is None or not path.is_file() or not script.is_file():
+        return
+    try:
+        rel = str(path.resolve().relative_to(Path(root).resolve()))
+    except ValueError:
+        return
+    r = subprocess.run([sys.executable, str(script), "--root", str(root), "--file", rel,
+                        "--drop-stale"], capture_output=True, text=True)
+    said = (r.stdout + r.stderr).strip()
+    if r.returncode != 0 or ("rebuilt" in said or "dropped" in said):
+        print(f"[review] {said or f'push-pr-comments.py --drop-stale exit {r.returncode}'}",
+              file=sys.stderr)
+
+
 def prepare_pr_push(spec: dict, out_dir: Path, root: Path, skill_dir: Path) -> dict | None:
     """Declare the two push actions and stamp each pile item with its PR comment's URL.
 
@@ -2141,6 +2508,8 @@ def prepare_pr_push(spec: dict, out_dir: Path, root: Path, skill_dir: Path) -> d
     in place — the same trick as `_snippets` / `_diffs` — so the three renderers need no
     new parameter."""
     spec["_prPush"] = None
+    spec["_noPr"] = not pr_exists(spec, out_dir)
+    drop_stale_pr_comments(out_dir, root, skill_dir)
     try:
         payload = json.loads((out_dir / PR_COMMENTS_JSON).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -2266,6 +2635,19 @@ def push_pr_button(spec) -> str:
     return (f' <button type="button" class="pr-push" hidden '
             f'data-dry="{PUSH_PR_DRY_ACTION}" data-push="{PUSH_PR_ACTION}" '
             f'data-tip="{html.escape(tip, quote=True)}">{html.escape(face)}</button>')
+
+
+#: Said once, muted, where the publish button would be, when the branch has no pull
+#: request: run 6 simply had no button and no `on GitHub ↗` links, and a reader comparing
+#: it with a page that had them saw controls missing with no reason given.
+NO_PR_LINE = ("No pull request yet — GitHub links and publishing appear once one is "
+              "opened.")
+
+
+def no_pr_line(spec) -> str:
+    if not spec.get("_noPr") or spec.get("_prPush"):
+        return ""
+    return f'<p class="sub nopr">{html.escape(NO_PR_LINE)}</p>'
 
 
 def push_pr_dialog(spec) -> str:

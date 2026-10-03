@@ -378,9 +378,11 @@ button.chip-rerun-ai .rr-ico { font-size:1em; vertical-align:-.05em; }
     answers — so there is no line for anybody to paste and nothing for a clipboard to be
     the honest form of. A button that always fails is worse than an absent one. */
 .appenv:not(.appenv-served) .appenv-resets { display:none; }
-/* "Reset DB to:", then default and one button per fixture the environment reported. One
-    group, because they are one verb with an argument. */
+/* "Reset DB to:", then the seed and one button per fixture the environment reported. One
+    group, because they are one verb with an argument. The lead words explain the buttons
+    on hover, and look it: dotted underline, help cursor. */
 .appenv .appenv-resets { display:inline-flex; flex-wrap:wrap; gap:.3rem; align-items:center; }
+.appenv .appenv-resets-to[data-tip] { border-bottom:1px dotted currentColor; cursor:help; }
 /* Three states, and the page must never claim the third without having asked: unknown
     until the probe answers, then live — where the address speaks for it and the pill
     steps out of the way — or down, where "Offline" is the whole truth there is. */

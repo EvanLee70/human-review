@@ -364,6 +364,71 @@ def fill_frontmatter(text: str, values: dict[str, str]) -> str:
     return head + (text[m.end():] if m else "\n" + text.lstrip())
 
 
+def _points_module():
+    """`review-points.py` — hyphenated, so loaded by path: the parser and the one
+    implementation of carrying a `file:line` across commits (`reanchor`)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("rr_review_points", SCRIPTS / "review-points.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+#: The front-matter key that says every `file:line` was carried to the committed tree.
+ANCHORS = "anchors"
+
+
+def reanchor_points(repo: Path, text: str, implementation: str) -> tuple[str, list[str]]:
+    """Every `file:line` in review-points.md, carried to the tree about to be committed;
+    returns the file's new text and what was said about it.
+
+    The assumptions are written while coding, against the implementation commit; the
+    fixes and declined findings after the fixes, against the working tree. Run 6 committed
+    both as they were, and the page quoted a blank line under one assumption and an
+    unrelated statement under another once the fixes had moved them. Here, before the
+    commit, each ref is mapped through the diff from where it was most likely written
+    (`review-points.py:reanchor`, which falls back to the other rev when the first lands on
+    a blank line) and rewritten in place; a ref whose line is gone or blank is a warning,
+    for the agent to fix before `finish` is run again. A later CI round's file was already
+    carried once (`anchors:` is set): its refs read at HEAD, new ones at the working tree."""
+    rp = _points_module()
+    m = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    again = bool(m and re.search(rf"^{ANCHORS}:", m.group(1), re.M))
+    prior = "HEAD" if again else implementation
+    said: list[str] = []
+    out, pile = [], None
+    for raw in text.splitlines(keepends=True):
+        h2 = rp.H2.match(raw.rstrip("\n"))
+        if h2:
+            pile = rp.SECTIONS.get(h2.group(1).strip().lower())
+        f = rp.FIELD.match(raw.strip())
+        if not (pile and f and f.group(1).lower() == "file"):
+            out.append(raw)
+            continue
+        refs, _ = rp.split_refs(rp.split_ref(f.group(2))[0])
+        line = raw
+        for ref in refs:
+            if rp.ref_spans(ref)[1] is None:
+                continue
+            first = rp.WORKTREE if pile != "assumptions" else prior
+            other = prior if first == rp.WORKTREE else rp.WORKTREE
+            got = rp.reanchor(repo, ref, [first, other])
+            if got["ref"] is None:
+                said.append(f"WARNING {ref}: written at {str(got['from'])[:8]}, and the "
+                            "fixes removed that line — point it at the line it means now")
+                continue
+            if got["moved"]:
+                line = re.sub(rf"(?<![\w/.-]){re.escape(ref)}(?!\d|[-,]\d)",
+                              lambda _m, new=got["ref"]: new, line)
+                said.append(f"re-anchored {ref} -> {got['ref']} (written at "
+                            f"{str(got['from'])[:8]})")
+            if got["blank"]:
+                said.append(f"WARNING {got['ref']}: points at a blank line, or past the end "
+                            "of the file — anchor it on the statement it is about")
+        out.append(line)
+    return "".join(out), said
+
+
 def finish(args) -> int:
     repo = root()
     os.chdir(repo)
@@ -391,6 +456,12 @@ def finish(args) -> int:
     # fresh, and kept where a rebase keeps it.
     copilot = sorted({e["session"] for c in (cost or {}).get("components", [])[1:]
                       for e in c.get("entries", []) if e.get("harness") == "copilot-cli"})
+    # Every ref carried to the tree this commit records, and checked, before the commit —
+    # never after: once committed, a ref that points at a blank line is the page's problem.
+    text, said = reanchor_points(repo, points.read_text(), implementation)
+    for line in said:
+        print(f"anchors         {line}")
+    points.write_text(text)
     # The structured record's provenance: four commits a reviewer must not confuse.
     # `review-commit` is not among them on purpose — this commit cannot name itself; the
     # report derives it from the commit that recorded the file.
@@ -399,7 +470,7 @@ def finish(args) -> int:
         "audited-head": audited_head, "implementation": implementation, "head": head,
         "reviewers": args.reviewers or "", "harness": harness(args.harness)
         or state.get("harness", ""), "session": state.get("session", ""),
-        "fixed-in": "HEAD"}))
+        "fixed-in": "HEAD", ANCHORS: "review-commit"}))
 
     # The structured report, written where /human-review reads it and checked against
     # reference/review-points.schema.json on the way out: a file that does not convert to

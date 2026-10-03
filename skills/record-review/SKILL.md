@@ -47,7 +47,9 @@ prompts, the trailers, seventeen hand-written PR comments. `prepare` resolves th
 set, writes the diff to one file and one brief per reviewer lens, and runs the repository's
 own pre-push checks as a dry-run — the cheapest reviewer there is, and the one four model
 reviewers missed when the Spectral hook later refused the push. `finish` fills the
-front-matter, checks the file, commits with the trailers and derives the PR comments
+front-matter, carries every `file:line` across the fixes to the tree it commits (and warns
+on one whose line is gone or blank — `anchors: review-commit` then tells the page there is
+nothing left to remap), checks the file, commits with the trailers and derives the PR comments
 (`push-pr-comments.py --from-review-points`). What is left to the agent: run the reviewers,
 decide each finding, write the piles.
 

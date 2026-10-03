@@ -323,6 +323,11 @@ def test_each_voice_the_recorder_cut_is_a_radio_button_under_the_player(tmp_path
         "a voice whose film is not on disk is never offered"
     assert out.index("<video") < out.index('class="voice-switch"') < out.index("transcript")
     assert re.search(r'value=""[^>]* checked>', out), "the standard voice is the one playing"
+    # The 🐘 face is Victor's design and stays; a bare emoji gets a spoken name and a hover
+    # (eval run 6: "a reviewer cannot tell what it does"). A worded label needs neither.
+    assert 'value="trump" data-src="assets/f.voice-trump.webm" aria-label="cloned voice: trump"' in out
+    assert '<label data-tip="cloned voice: trump"><input' in out
+    assert out.count("aria-label=\"cloned voice") == 1, "Discovery and standard say themselves"
 
 
 def test_a_film_with_no_cloned_voice_has_no_voice_switch(tmp_path):
@@ -534,6 +539,23 @@ def test_a_rewritten_statement_is_not_shown_as_new_logging():
     assert "Was <code>LOG.info(&quot;Booking {}&quot;, owner)</code>" in out
     # Without a base there is no claim either way — no label at all.
     assert "lg-change" not in build._logging_listing([INFO_HIT], REPO_ROOT)
+    # Eval run 6: the label floated between two cards. It is each card's own caption now.
+    for card in out.split('<figure class="snippet">')[1:]:
+        assert card.lstrip().startswith('<figcaption class="snippet-note"><span class="lg-change')
+
+
+def test_a_rewritten_statement_wears_a_neutral_mark_not_the_added_plus():
+    """"Rewritten, not new" over a green `+` contradicted itself (eval run 6). The
+    statement's own lines get `~`; a line pulled in beside it that is really new keeps `+`."""
+    def row(n):
+        return (f'<span class="ln-row added"><span class="dm">+</span>'
+                f'<span class="ln">{n}</span>x</span>')
+    snippet = "\n".join(row(n) for n in (40, 56, 57))
+    h = {"change": "modified", "line": 56, "end_line": 57}
+    out = build._mark_rewritten(snippet, h)
+    assert out.count('<span class="ln-row added rewritten"><span class="dm">~</span>') == 2
+    assert row(40) in out, "the new constant it now logs is still a new line"
+    assert build._mark_rewritten(snippet, {**h, "change": "added"}) == snippet
 
 
 def test_the_declaration_of_a_logged_value_is_quoted_with_the_statement():
@@ -1740,9 +1762,36 @@ def test_a_test_row_is_the_same_editor_link_every_other_reference_on_the_page_is
     assert "VisitTest.java:226" in out
 
 
-def test_a_deleted_test_whose_file_survives_still_opens_at_the_gap():
-    out = build.render_tests([MANIFEST[2]], Path("/repo"))
-    assert 'href="vscode://file//repo/src/test/VisitTest.java:240:1"' in out
+def test_a_deleted_test_links_to_where_it_stood_at_the_base_commit():
+    """Run 6: every gone test linked a HEAD file:line where unrelated code now sits — its
+    `line` is only where the removal landed. It is shown at its base line and opens the
+    blob at the base commit; a vscode:// into HEAD is never emitted for it."""
+    url = "https://github.com/acme/clinic/blob/5a97353e1234/src/test/VisitTest.java#L189"
+    row = dict(MANIFEST[2], baseLine=189, baseSha="5a97353e1234", baseUrl=url)
+    out = build.render_tests([row], Path("/repo"))
+    assert "vscode://" not in out
+    assert f'href="{url}"' in out and 'class="srcref testref tbase"' in out
+    assert "VisitTest.java:189" in out and "VisitTest.java:240" not in out
+    assert "at the base commit 5a97353e" in out
+
+
+def test_a_deleted_test_with_no_github_remote_says_how_to_see_it_and_links_nothing():
+    """An older manifest, or a repository not on github.com: no guessed URL, and still no
+    HEAD link — the hover names the `git show` that prints it."""
+    out = build.render_tests([dict(MANIFEST[2], baseLine=189, baseSha="5a97353e1234")],
+                             Path("/repo"))
+    assert "vscode://" not in out and "href=" not in out
+    assert "git show 5a97353e:src/test/VisitTest.java" in out
+    old = build.render_tests([MANIFEST[2]], Path("/repo"))
+    assert "vscode://" not in old and 'class="srcref testref tgone"' in old
+
+
+def test_a_renamed_test_is_edited_and_says_what_it_was_called():
+    out = build.render_tests(
+        [{"name": "shows the first page", "path": "f/o.feature", "status": "modified",
+          "line": 26, "renamedFrom": "lists every owner"}], Path("/repo"))
+    assert '<span class="tflag changed">modified</span>' in out
+    assert "renamed from “lists every owner”" in out
 
 
 def test_a_test_whose_file_is_gone_gets_no_link_rather_than_a_dead_one():
@@ -1901,6 +1950,15 @@ def test_a_new_test_that_arrives_disabled_is_named_rather_than_left_as_a_discrep
     one of the new tests was committed with an `@Disabled` on it and has never run."""
     tip = build.tests_chip({"totals": dict(TOTALS, added=22, gained=22)})["tip"]
     assert "22 new (1 disabled on arrival)" in tip
+
+
+def test_a_renamed_test_is_counted_once_as_edited_and_named_in_the_tooltip():
+    """Run 6's `+57 / −8` held a scenario retitled in place, counted gone and new. Paired
+    by `test-changes.py`, it is one of the edited — and the hover says how many were."""
+    chip = build.tests_chip({"totals": dict(TOTALS, modified=5, renamed=1)})
+    assert f'{build.PENCIL}5' in chip["value"]
+    assert "5 edited (1 renamed)" in chip["tip"]
+    assert "renamed" not in build.tests_chip({"totals": TOTALS})["tip"]
 
 
 def test_the_chip_drops_itself_rather_than_printing_a_zero_it_did_not_count():
@@ -2429,11 +2487,28 @@ def test_the_commits_before_the_audited_base_are_named_under_the_chips(tmp_path)
     assert [c["subject"] for c in st["outside"]] == ["plan the owners grid",
                                                      "link a visit to its vet"]
     note = build.outside_note(st, "https://github.com/acme/shop")
-    assert note.startswith('<p class="scopenote">2 earlier commits on this branch are '
-                           "outside the review: ")
+    # Eval run 6: six hashes spelled across the masthead pushed the tab strip down. One
+    # short line, folded; opened, each commit with its own raw, untranslated subject.
+    assert note.startswith('<details class="scopenote"><summary>2 earlier commits outside '
+                           'the review <span class="sn-caret"')
+    assert "plan the owners grid</li>" in note and "link a visit to its vet</li>" in note
     assert f'href="https://github.com/acme/shop/commit/{plan}"' in note
+    assert note.index("</summary>") < note.index(plan[:8]), "the hashes are in the fold"
     page = build.masthead_html({"pr": {"branch": "feature", "base": "main"}}, "", "", "", st)
-    assert '<p class="scopenote">' in page, "the note rides in the masthead, under the chips"
+    assert '<details class="scopenote">' in page, "the note rides in the masthead"
+
+
+def test_the_drift_mark_says_it_measures_against_another_base_than_the_chips(tmp_path):
+    """Eval run 6: the chips counted from the audited base 5a97353e, the ⚠️ beside them
+    from origin/main, and nothing in the row said the two were different yardsticks."""
+    r, review, plan = _reviewed_repo(tmp_path)
+    st = build.page_base(r, review, "main")
+    warning = build.base_warning({**st, "ahead": 14})
+    assert warning.startswith(f"Measured against origin/main ({st['sha'][:8]}), not the "
+                              f"review base {plan[:8]} the counts beside it use.")
+    assert "14 commits ahead of the fork point" in warning
+    plain = build.base_warning({**st, "ahead": 1, "diffBaseSource": "merge-base"})
+    assert not plain.startswith("Measured against"), "one base on the page: nothing to tell apart"
 
 
 def test_the_lines_chip_opens_the_range_it_counted(tmp_path):
@@ -4107,6 +4182,100 @@ def test_a_tab_not_re_traced_wears_an_amber_pill_on_the_whole_page(tmp_path):
     assert "Not re-traced on this run." in panel[:panel.index("</section>")]
 
 
+# ── eval run 6: a re-trace that lost calls, under "the diagrams below are this run's" ───
+# The backend's in-process AddVisitApiTest could not reach the traced stack's
+# notification-service; its regenerated picture lost NotificationService, the SMS gateway
+# and both calls, and nothing on the tab said it contradicted the committed diagram.
+
+LOST_ADD_VISIT = {"diagram": "generated/AddVisitApiTest.java.adds-a-visit.genseq.puml",
+                  "participants": ["NotificationService", "SMS gateway"],
+                  "calls": ["Backend → NotificationService: POST /api/notifications/visit-booked",
+                            "NotificationService → SMS gateway: send-sms"]}
+
+
+def test_a_trace_that_lost_calls_is_an_alarm_even_beside_a_tag_filter(tmp_path):
+    review = tmp_path / ".human-review"
+    _seq_verdict(review, state="notests", reason="", runs=HR_TRY_4_RUNS[1:],
+                 lost=[LOST_ADD_VISIT])
+    band = html.unescape(build.sequence_verdict_html(review))
+    assert "rband-warn" in band and 'role="alert"' in band
+    assert "this run's." not in band, "never 'this run's diagrams' over a degraded trace, silently"
+    assert "Lost vs the committed diagrams" in band and "<b>NotificationService</b>" in band
+    assert "AddVisitApiTest.java" in band
+    assert build.sequence_verdict_alarm(review) == "trace lost calls the committed diagrams show"
+    _seq_verdict(review, state="degraded", reason="", runs=[], lost=[LOST_ADD_VISIT])
+    assert "This run's trace lost what the committed diagrams show." in \
+        html.unescape(build.sequence_verdict_html(review))
+
+
+def test_a_tag_filter_that_matched_nothing_says_its_cause_in_one_plain_line(tmp_path):
+    """Maven prints it as `[ERROR] … MojoFailureException`, and the fold under the band was
+    a red dump under a reassuring headline. The plain cause is said in the open; the raw
+    lines stay folded."""
+    review = tmp_path / ".human-review"
+    runs = [{**HR_TRY_4_RUNS[1], "log": ["[ERROR] Failed to execute goal … MojoFailureException"]}]
+    _seq_verdict(review, state="notests", reason="", runs=runs)
+    band = build.sequence_verdict_html(review)
+    fold = band.index("<details")
+    cause = band.index("The cause, in plain words: FunctionalCucumberTest discovered no tests")
+    assert cause < fold, "the plain cause is above the fold"
+    assert band.index("MojoFailureException") > fold, "the raw log stays folded"
+
+
+def test_the_pair_whose_retrace_lost_calls_is_flagged_on_its_own_picture(tmp_path):
+    rel = LOST_ADD_VISIT["diagram"]
+    svg = tmp_path / "p.svg"
+    svg.write_text('<svg xmlns="http://www.w3.org/2000/svg"><text>d</text></svg>')
+    (tmp_path / "MANIFEST.tsv").write_text(
+        "name\tsource\tkind\tstatus\tdiff_puml\tsvg\tfocus\tnew_svg\told_svg\n"
+        f"P\t{rel}\tsequence\tmodified\tp.diff.puml\tp.svg\t\tp.svg\tp.svg\n")
+    _seq_verdict(tmp_path, state="degraded", reason="", runs=[], lost=[LOST_ADD_VISIT])
+    rows = build.read_manifest(tmp_path / "MANIFEST.tsv")
+    out, _, changes = build.render_testpairs(
+        {"type": "testpairs", "id": "sequences", "kind": "sequence", "title": ""},
+        {"manifest": "MANIFEST.tsv"}, rows, tmp_path, tmp_path)
+    pair = out[out.index('class="testpair"'):]
+    assert "Lost vs the committed diagram:" in pair
+    assert "<b>NotificationService</b>" in pair and "POST /api/notifications/visit-booked" in pair
+    assert "A whole participant missing is usually the traced stack" in pair
+    assert changes == 1
+
+
+def test_the_tab_reads_this_runs_copy_of_a_diagram_not_the_restored_file(tmp_path):
+    """The Sequence step gives the committed diagrams their bytes back and files what it
+    drew in `.human-review/assets/genseq/`, pinned to the HEAD it traced."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                    "--allow-empty", "-m", "c"], cwd=tmp_path, check=True)
+    rel = "generated/a.spec.ts.s.genseq.puml"
+    (tmp_path / "generated").mkdir()
+    (tmp_path / rel).write_text("@startuml\nparticipant Browser\n@enduml\n")
+    overlay = tmp_path / ".human-review/assets/genseq"
+    (overlay / "generated").mkdir(parents=True)
+    (overlay / rel).write_text("@startuml\nparticipant Test\n@enduml\n")
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True,
+                          text=True).stdout.strip()
+    (overlay / ".head").write_text(head + "\n")
+    assert build.genseq_file(rel, tmp_path) == overlay / rel
+    (overlay / ".head").write_text("0" * 40 + "\n")
+    assert build.genseq_file(rel, tmp_path) == tmp_path / rel, "a copy of another HEAD is ignored"
+    assert ".human-review" in build.SKIP_DIRS, "the copies are never paired a second time"
+
+
+def test_a_struck_tab_says_why_it_is_struck(tmp_path):
+    """Eval run 6: Structure was struck over three UNCHANGED cards, and a strike reads as
+    'not produced' unless something says otherwise."""
+    page, _ = _build(tmp_path, PACKAGES_CONTEXT)
+    assert '<button type="button" class="tab quiet" role="tab" id="tabbtn-packages"' in page
+    panel = page[page.index('<section class="panel" id="packages"'):]
+    panel = panel[:panel.index("</section>")]
+    assert 'class="quietline"' in panel and "nothing on this tab changed" in panel
+    # A tab that did change is not told it did not.
+    other = page[page.index('<section class="panel" id="other"'):]
+    assert 'class="quietline"' not in other[:other.index("</section>")] or \
+        'class="tab quiet" role="tab" id="tabbtn-other"' in page
+
+
 # ── the three piles, read off the branch instead of out of the content file ─────────
 # `{"auto": "review-points"}` is the point at which content.json stops being the
 # judgement. What is checked here is the part a reader cannot check: that an absent
@@ -4813,6 +4982,215 @@ def test_the_pr_button_says_publish_whether_or_not_it_was_pushed_before():
             "counts": {"fixed": 3, "ignored": 6, "assumption": 7}}})
         assert ">Publish comment on GitHub PR</button>" in face
         assert "Push to GitHub PR" not in face and "Update GitHub PR" not in face
+
+
+# ── eval run 6: the Review tab's judges ─────────────────────────────────────────
+
+def test_a_verdict_bullet_is_never_cut_inside_code_or_braces():
+    """Run 6: `…from an array to {content` — cut at the comma inside the <code> span."""
+    bullet = ("GET /api/owners changes shape from an array to <code>{content, "
+              "totalElements}</code>: backend and frontend must ship and roll back together.")
+    assert build._first_clause(bullet) == ("GET /api/owners changes shape from an array "
+                                           "to {content, totalElements}")
+    assert build._first_clause("Calls f(a, b) twice") == "Calls f(a, b) twice"
+    assert build._first_clause("No build proved this commit: <code>ci</code> failed.") \
+        == "No build proved this commit"
+    long = "word " * 60
+    cut = build._first_clause(long)
+    assert len(cut) <= build.CLAUSE_CAP + 1 and cut.endswith("…") and "  " not in cut
+    spec = {"verdict": {"score": 7, "bullets": [bullet]}}
+    assert ("GET /api/owners changes shape from an array to {content, totalElements}",
+            html_mod.unescape(build._plain_text(bullet))) in build.grade_reasons(spec)
+
+
+def _git_in(root):
+    def git(*a):
+        return subprocess.run(["git", "-C", str(root), *a], check=True,
+                              capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    return git
+
+
+def _drift_repo(tmp_path):
+    """An implementation commit, then an `[auto-fix]` commit that inserts two lines near
+    the top of `A.java` (moving everything below) and deletes the line `gone();`."""
+    git = _git_in(tmp_path)
+    lines = [f"  line{i}();" for i in range(1, 31)]
+    lines[19] = "  @Handler(Mismatch.class)"     # line 20
+    lines[24] = "  gone();"                      # line 25
+    (tmp_path / "A.java").write_text("class A {\n" + "\n".join(lines) + "\n}\n")
+    git("add", ".")
+    git("commit", "-qm", "impl")
+    impl = git("rev-parse", "HEAD")
+    after = lines[:2] + ["  static final String X = \"x\";", ""] + lines[2:]
+    after.remove("  gone();")
+    (tmp_path / "A.java").write_text("class A {\n" + "\n".join(after) + "\n}\n")
+    (tmp_path / "review-points.md").write_text("## Fixed\n")
+    git("add", ".")
+    git("commit", "-qm", "[auto-fix] constants")
+    return impl, git("rev-parse", "HEAD")
+
+
+def test_an_assumption_written_at_the_implementation_is_carried_to_head(tmp_path, capsys):
+    """Run 6: `ExceptionControllerAdvice.java:85`, written at the implementation, rendered
+    at HEAD after the `[auto-fix]` commit added two lines above it — one blank line under
+    an UNCHANGED badge. The ref is carried through the diff; a deleted line says so."""
+    impl, fix = _drift_repo(tmp_path)
+    moved = {"title": "Mismatch is a 400", "refs": ["A.java:21"],
+             "snippets": [{"ref": "A.java:21"}]}
+    deleted = {"title": "Gone", "refs": ["A.java:26"], "snippets": [{"ref": "A.java:26"}]}
+    finding = {"title": "Read at the review commit", "refs": ["A.java:23"],
+               "snippets": [{"ref": "A.java:23"}]}
+    spec = {"assumptions": [moved, deleted], "findings": [finding],
+            "_reviewPoints": {"source": "review-points.md", "frontmatter": {},
+                              "provenance": {"implementation": impl, "reviewCommit": fix}}}
+    build.reanchor_refs(spec, tmp_path, root=tmp_path)
+    assert moved["refs"] == ["A.java:23"] and moved["snippets"] == [{"ref": "A.java:23"}]
+    assert (tmp_path / "A.java").read_text().splitlines()[22].strip() == \
+        "@Handler(Mismatch.class)"
+    # The deleted line keeps its file as a link, loses the snippet, and the card says why.
+    assert deleted["refs"] == ["A.java"] and deleted["snippets"] == []
+    card = build.render_assumptions([{**deleted, "_refs": []}])
+    assert "a later commit removed that line" in card and "A.java:26" in card
+    # A finding is read at the review commit: already where it belongs.
+    assert finding["refs"] == ["A.java:23"] and "_anchorNotes" not in finding
+    assert "no longer exists" in capsys.readouterr().err
+    # Once `record-review.py finish` carried every ref, the page trusts the review commit.
+    pinned = {"title": "x", "refs": ["A.java:21"]}
+    spec = {"assumptions": [pinned],
+            "_reviewPoints": {"frontmatter": {"anchors": "review-commit"},
+                              "provenance": {"implementation": impl, "reviewCommit": fix}}}
+    build.reanchor_refs(spec, tmp_path, root=tmp_path)
+    assert pinned["refs"] == ["A.java:21"]
+
+
+def test_a_fixed_card_shows_the_fix_commits_hunks_whenever_one_follows_the_implementation(
+        tmp_path):
+    """Run 6: `fixed-in: HEAD` was in the front-matter only, so no item had `diffs` and
+    every Fixed card fell back to a NEW CODE snapshot against main."""
+    impl, fix = _fix_repo(tmp_path)
+    card = {"title": "first", "refs": ["a.py:3"], "snippets": [{"ref": "a.py:3"}]}
+    spec = {"autofixes": [card],
+            "_reviewPoints": {"source": "review-points.md",
+                              "provenance": {"implementation": impl, "reviewCommit": fix}}}
+    build.attribute_fix_hunks(spec, tmp_path, root=tmp_path)
+    assert "line 3 fixed" in card["_fixDiffs"] and card["snippets"] == []
+    assert f"vs <code>{impl[:8]}</code>" in card["_fixDiffs"]
+    # No review commit recorded (an uncommitted record, an older report): the newest
+    # `[auto-fix]` commit after the implementation is the fix commit.
+    assert build.fix_commit({"provenance": {"implementation": impl}}, tmp_path) == fix
+    bare = {"title": "first", "refs": ["a.py:3"]}
+    spec = {"autofixes": [bare], "_reviewPoints": {"provenance": {"implementation": impl}}}
+    build.attribute_fix_hunks(spec, tmp_path, root=tmp_path)
+    assert "line 3 fixed" in bare["_fixDiffs"]
+    # The implementation is HEAD: nothing after it, the card keeps its snapshot.
+    assert build.fix_commit({"provenance": {"implementation": fix}}, tmp_path) is None
+
+
+def test_the_review_chip_counts_each_reviewer_once():
+    """Run 6: `1 by reviewer correctness, reviewer ticket-fit, reviewer tests, 3 by
+    reviewer security, … 2 by reviewer correctness` — one reviewer, three groups."""
+    items = [{"source": "reviewer correctness, reviewer ticket-fit"},
+             {"source": "reviewer correctness"}, {"source": "reviewer security"},
+             {"source": "/code-review high (the PUT scenario)"},
+             {"source": "/code-review high (the GET scenario)"}, {}]
+    tip = build._raised_by(items, 6)
+    assert tip == ("6 raised — 2 by reviewer correctness, 1 by reviewer ticket-fit, "
+                   "1 by reviewer security, 2 by /code-review high, 1 with no pass named "
+                   "(1 raised by more than one reviewer)")
+
+
+def test_without_a_pull_request_the_page_says_so_once(tmp_path):
+    spec = {"pr": {"branch": "hr-claude-6"}}
+    build.prepare_pr_push(spec, tmp_path, tmp_path, HERE)
+    line = build.no_pr_line(spec)
+    assert line == ('<p class="sub nopr">No pull request yet — GitHub links and publishing '
+                    'appear once one is opened.</p>')
+    spec = {"pr": {"number": 49}}
+    build.prepare_pr_push(spec, tmp_path, tmp_path, HERE)
+    assert build.no_pr_line(spec) == ""
+
+
+def test_commits_before_the_reviewed_range_are_on_the_branch_when_there_is_no_pr(tmp_path):
+    """Run 6 said `6 commits in the PR before the reviewed range` with no PR open."""
+    git = _git_in(tmp_path)
+    (tmp_path / "a").write_text("0\n")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
+    for i in (1, 2):
+        (tmp_path / "a").write_text(f"{i}\n")
+        git("commit", "-qam", f"before {i}")
+    audited = git("rev-parse", "HEAD")
+    spec = {"pr": {"branch": "b"},
+            "_reviewPoints": {"provenance": {"auditedBase": audited}}}
+    sig = build._out_of_range_signal(spec, tmp_path, "origin/main", tmp_path)
+    assert sig["short"] == "2 commits on the branch before the reviewed range"
+    spec["pr"]["number"] = 7
+    sig = build._out_of_range_signal(spec, tmp_path, "origin/main", tmp_path)
+    assert sig["short"] == "2 commits in the PR before the reviewed range"
+
+
+def test_a_narrowed_ticket_sentence_is_a_grade_reason_that_links_its_decision(tmp_path):
+    """Run 6: 'sortable by any column' delivered for Name and City only, recorded in the
+    OpenSpec proposal — and visible only as a hatched sentence on the Tests tab."""
+    _git_in(tmp_path)
+    prop = tmp_path / "openspec/changes/paginate/proposal.md"
+    prop.parent.mkdir(parents=True)
+    prop.write_text("# Why\n\n- Sorting is limited to Name and City, narrowing #25.\n")
+    out = tmp_path / ".human-review"
+    (out / "assets").mkdir(parents=True)
+    (out / "assets" / "test-mapping.merged.json").write_text(json.dumps({"sentences": [
+        {"id": "s1", "coverage": "narrowed", "decision": "d2", "tests": [],
+         "gap": "Only Name and City sort.",
+         "decisionText": "Scope (paginate/proposal.md): Sorting is limited to Name and "
+                         "City, narrowing #25."},
+        {"id": "s2", "coverage": "covered", "tests": []}]}))
+    (out / "assets" / "requirements-map.html").write_text(
+        '<span class="rm-f" data-s="s1" data-cov="narrowed">The grid should be sortable '
+        'by <code>any</code> column</span>')
+    spec = {"verdict": {"score": 8}}
+    sig = next(s for s in build.grade_signals(spec, out, root=tmp_path)
+               if s["key"] == "narrowed")
+    assert sig["short"] == "Ticket narrowed on purpose: “The grid should be sortable by " \
+                           "any column”"
+    assert sig["linkText"] == "proposal.md:3" and sig["cap"] is None
+    assert sig["href"].endswith("proposal.md:3:1")       # no github remote: the editor
+    assert "Sorting is limited to Name and City" in sig["full"]
+    panel = build.grade_reasons_html(spec)
+    assert '— <a href="vscode://file/' in panel and ">proposal.md:3</a></li>" in panel
+    assert spec["verdict"] == {"score": 8}, "a decided narrowing does not lower the grade"
+
+
+def test_an_unchanged_badge_never_sits_over_a_plus_gutter(tmp_path):
+    """Run 6: one added blank line, badged UNCHANGED (blank lines are not counted) and
+    drawn with a `+` beside it. The gutter says what the badge says."""
+    es = _extract_snippet()
+    es._diff_state.cache_clear()
+    _tiny_repo(tmp_path, ["const a = 1;", "const b = 2;"],
+               ["const a = 1;", "", "const b = 2;"])
+    out = es.render("a.ts:2", None, tmp_path, exact=True)
+    assert 'data-diff="unchanged"' in out
+    assert '<span class="dm">+</span>' not in out and "ln-row added" not in out
+
+
+def test_the_build_drops_a_pr_payload_pinned_to_another_branch(tmp_path, capsys):
+    """Run 6's review directory still held run 5's pr-comments.json (0746abc5)."""
+    git = _git_in(tmp_path)
+    (tmp_path / "a.py").write_text("x = 1\n")
+    git("add", ".")
+    git("commit", "-qm", "c")
+    out = tmp_path / ".human-review"
+    out.mkdir()
+    (out / build.PR_COMMENTS_JSON).write_text(json.dumps(
+        {"version": 1, "commit_id": "0746abc56242b1d8" + "0" * 24, "event": "COMMENT",
+         "comments": [{"pile": "fixed", "title": "t", "path": "a.py", "line": 1,
+                       "side": "RIGHT", "body": "b"}]}))
+    build.prepare_pr_push({"pr": {"number": 7}}, out, tmp_path, HERE)
+    assert not (out / build.PR_COMMENTS_JSON).exists()
+    assert "0746abc5 is not in this clone" in capsys.readouterr().err
 
 
 # --------------------------------------------------------------------------- #

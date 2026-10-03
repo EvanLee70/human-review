@@ -104,3 +104,6 @@ details.testpair > summary:hover > .testcat { color:var(--tc); }
    re-traced. Wrapped rather than scrolled sideways: a Maven line is wider than any panel. */
 .seqverdict pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.76rem;
   line-height:1.5; max-height:18rem; overflow-y:auto; margin:.45rem 0 0; }
+/* The warning inside a pair whose re-trace lost what the committed diagram shows: a band,
+   as the tab's own verdict is, but at the pair's own text size. */
+.rband.seqlost { font-size:.9rem; line-height:1.6; margin:.4rem 0 .6rem; }

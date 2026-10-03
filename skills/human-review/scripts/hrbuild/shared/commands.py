@@ -774,10 +774,16 @@ def runtime_html(rt, tail: str = "") -> str:
         # and no second list to fall out of step with the files. APP_ENV_JS appends one
         # `.appenv-reset` per fixture after this one; with any listed, the row reads
         # "Reset DB to: [default] [green]", and with none it stays a lone "Reset DB".
+        # The lead words carry the one sentence that makes the buttons after them legible:
+        # eval run 6's "Reset DB to: default | green" left "green" unexplained.
         controls += ('<span class="appenv-resets">'
-                     '<span class="appenv-resets-to" hidden>Reset DB to:</span>'
+                     '<span class="appenv-resets-to" hidden data-tip="Empties the demo '
+                     'database and restores it: &ldquo;seed&rdquo; is the data the app '
+                     'starts with; each other button is a fixture, a named set of extra '
+                     'demo rows loaded on top of the seed">Reset DB to:</span>'
                      '<button type="button" class="appenv-reset" data-fixture="" hidden'
-                     ' aria-disabled="true" data-tip="Put the demo data back to its seed">'
+                     ' aria-disabled="true" data-tip="Empty the demo database and restore '
+                     'the seed &mdash; the data the app starts with">'
                      'Reset DB</button></span>')
 
     return (f'<div class="appenv" data-fallback="{html.escape(fallback)}"'

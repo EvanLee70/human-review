@@ -618,6 +618,18 @@ def build_model(old_spec: dict, new_spec: dict, changes: list):
     return merged, entries, global_changes, tags
 
 
+def change_total(entries: dict, global_changes: list) -> int:
+    """Every change the page lists, endpoint-level and global: the one count.
+
+    One row per line the reader sees, after `merge_pairs` folded each swapped media type
+    back into a single line — oasdiff alone counts that swap twice. An added operation
+    lists no line (its only entry is that it exists) and still counts as one change.
+    `openapi-compat.py` folds with the same `merge_pairs` before it counts, so the
+    verdict band above and the "expand N impacted" toggle here say one number."""
+    return (sum(len(e["changes"]) or (1 if e["state"] == "added" else 0)
+                for e in entries.values()) + len(global_changes))
+
+
 def render(model, entries, global_changes, tags, old_label, new_label) -> str:
     counts = {}
     for e in entries.values():
@@ -640,9 +652,7 @@ def render(model, entries, global_changes, tags, old_label, new_label) -> str:
         default=str,  # YAML happily parses `2026-01-31` into a date object
     ).replace("</", "<\\/")
 
-    # Every change the page lists, endpoint-level and global — the same sum oasdiff's
-    # "N changes" on the verdict line counts, so the two numbers agree on sight.
-    n_changes = (sum(len(e["changes"]) for e in entries.values()) + len(global_changes))
+    n_changes = change_total(entries, global_changes)
     label = f"expand {n_changes} impacted" if n_changes else "expand impacted"
     return (TEMPLATE.replace("__EXPAND_LABEL__", label)
             .replace("__TIP_JS__", _tip_js())
@@ -1280,10 +1290,13 @@ function decorate() {
       const b = document.createElement('span');
       b.className = 'dv-badge ' + info.state;
       const n = info.changes.length;
+      const many = `${n} change${n > 1 ? 's' : ''}`;
       // A removed operation says DELETED, the word every ghost row inside the other
-      // operations uses for the same fact.
-      b.textContent = info.state === 'modified' && n
-        ? `${n} change${n > 1 ? 's' : ''}`
+      // operations uses for the same fact. A breaking one keeps the count beside the
+      // word: "BREAKING" alone dropped the "3 CHANGES" every modified operation shows.
+      const nb = info.changes.filter(c => c.level >= 3).length;
+      b.textContent = info.state === 'modified' && n ? many
+        : info.state === 'breaking' && n ? `${nb} breaking · ${many}`
         : info.state === 'removed' ? 'deleted' : info.state;
       summary.appendChild(b);
     }

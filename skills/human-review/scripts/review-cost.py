@@ -2218,16 +2218,26 @@ def ledger(session: str | None, since: "dt.datetime | None", steps_path: Path,
                "messages": c["messages"], "subagent_cost": c["subagent_cost"],
                "subagents": c["subagents"], "models": list(c["models"])}
         passes = pass_costs(session, since)
+    phases = load_phases(root / phases_file)
+    components = four_components(root, base, Path(steps_path).parent, phases)
+    # The per-tab split is the "this guide" row's breakdown, so it reads the same stretch
+    # of the conversation that row was measured over — from `.started` to where the run
+    # ended — and not to whenever this build happens. Eval run 6's conversation went on
+    # after its run; read to "now", the fold under the guide row came out $0.74 more than
+    # the row it was explaining.
+    end = guide_run_end(components, session)
+    tab_turns = ([t for t in turns if t[4] is None or t[4] <= end]
+                 if turns is not None and end is not None else turns)
     tabs_report = tab_cost_report(session, since, steps_path, tabs,
-                                  include_subagents=include_subagents, turns=turns,
+                                  include_subagents=include_subagents, turns=tab_turns,
                                   origin=origin if turns is not None else None)
     writing = authoring_cost(base, root, exclude=session)
     # Only the part of the passes that predates the run is added; the rest is already
     # inside `run`. See `pass_costs` for why that distinction is kept rather than assumed.
     earlier = sum(g.get("earlier") or 0.0 for g in (passes.get("groups") or {}).values())
     total = (writing.get("cost") or 0.0) + (run.get("cost") or 0.0) + earlier
-    phases = load_phases(root / phases_file)
-    return {"components": four_components(root, base, Path(steps_path).parent, phases),
+    tabs_report = bill_model_runs(tabs_report, components)
+    return {"components": components,
             "writing": writing, "run": run, "passes": passes, "tabs": tabs_report,
             "passes_added": earlier, "total": total,
             "total_tokens": (writing.get("tokens") or 0) + (run.get("tokens") or 0),
@@ -2236,6 +2246,87 @@ def ledger(session: str | None, since: "dt.datetime | None", steps_path: Path,
             # bill as writing + run, counted a second way, and a table that summed both
             # would double every dollar on it.
             "phases": phases}
+
+
+#: The tab each paid model step writes for, by program — the first id the page has wins.
+#: `rerun-model.py` pairs the ticket's sentences with the tests (the Tests tab,
+#: `requirements`); `rerun-film.py` writes the Demo film's script (`behaviour`).
+MODEL_RUN_TABS = {
+    MODEL_PROGRAM: ("requirements", "tests"),
+    FILM_PROGRAM: ("behaviour", "demo", "video"),
+}
+_PROGRAM_IN_WHAT = re.compile(r"\((rerun-[a-z-]+\.py)\)")
+
+
+def guide_run_end(components: dict | None, session: str | None) -> "dt.datetime | None":
+    """Where the "this guide" row stopped counting `session`'s turns, or None.
+
+    Only for the guide row's own entry for that conversation: a guide measured in another
+    harness, or for another session, says nothing about where this transcript's run ended."""
+    guide = next((r for r in (components or {}).get("rows") or []
+                  if isinstance(r, dict) and r.get("key") == "guide" and r.get("measured")),
+                 None)
+    for e in (guide or {}).get("entries") or []:
+        if session and e.get("session") == session:
+            win = e.get("window") or []
+            return _parse_iso(win[1]) if len(win) == 2 else None
+    return None
+
+
+def bill_model_runs(report: dict, components: dict | None) -> dict:
+    """Each `claude -p` step the guide row bills, charged to the tab it wrote.
+
+    Those runs leave no turn in any transcript, so `tab_costs` cannot see them, and eval
+    run 6 printed the result one fold apart: "this guide" billing the requirements↔tests
+    mapping ($0.16), and under it "12 tabs with no model spend — … Tests …". The guide
+    component already holds them as entries (`harness_cost._ledger_runs`, with the program
+    that ran); this moves each one onto its tab, adding its dollars, tokens and one call,
+    and says so in the tab's tip. A run whose tokens were not recorded (a ledger written
+    before `rerun-model.py` kept them) is marked `tokensUnknown` rather than shown as 0.
+
+    `modelRuns` on the report is what was added in total, so the cost tab can show that
+    the tab rows plus the residual are the guide row — the transcript part plus these."""
+    rows = (report or {}).get("tabs")
+    guide = next((r for r in (components or {}).get("rows") or []
+                  if isinstance(r, dict) and r.get("key") == "guide" and r.get("measured")),
+                 None)
+    if not isinstance(rows, dict) or not guide:
+        return report
+    added = {"cost": 0.0, "tokens": 0, "runs": 0}
+    for e in guide.get("entries") or []:
+        if not str(e.get("session") or "").startswith("claude -p"):
+            continue
+        hit = _PROGRAM_IN_WHAT.search(str(e.get("what") or ""))
+        program = e.get("program") or (hit.group(1) if hit else "")
+        tab = next((t for t in MODEL_RUN_TABS.get(program, ()) if t in rows), None)
+        if tab is None:
+            continue
+        row = dict(rows[tab])
+        cost, tokens = float(e.get("usd") or 0.0), int(e.get("tokens") or 0)
+        row["cost"] = (row.get("cost") or 0.0) + cost
+        row["tokens"] = (row.get("tokens") or 0) + tokens
+        row["messages"] = (row.get("messages") or 0) + int(e.get("calls") or 1)
+        row["models"] = _merge_models([row.get("models"), e.get("models")])
+        row["measured"] = True
+        if not tokens:
+            row["tokensUnknown"] = True
+        what = _PROGRAM_IN_WHAT.sub("", str(e.get("what") or program)).strip()
+        model = ", ".join(e.get("models") or {})
+        row.setdefault("runs", []).append({"what": what, "program": program,
+                                           "cost": cost, "tokens": tokens, "model": model})
+        row["tip"] = (f"{money(row['cost'])} · "
+                      + (f"{human(row['tokens'])} tok" if row["tokens"] else "tokens not recorded")
+                      + f" — the {what} ({program}, claude -p"
+                      + (f" on {model}" if model else "")
+                      + "), a model step that leaves no transcript; its cost is read off "
+                        "the CLI's own reply (list price).")
+        rows = {**rows, tab: row}
+        added["cost"] += cost
+        added["tokens"] += tokens
+        added["runs"] += 1
+    if not added["runs"]:
+        return report
+    return {**report, "tabs": rows, "modelRuns": added}
 
 
 def four_components(root: Path, base: str, review: Path, phases: dict) -> dict:

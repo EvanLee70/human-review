@@ -124,6 +124,49 @@ def test_the_committed_record_resolves_its_own_review_commit_afterwards(repo):
     assert prov["implementation"] == head, "without --implements, prepare's HEAD"
 
 
+DRIFT_POINTS = """## Fixed
+
+### Add the mean
+- file: app.py:5
+- source: correctness reviewer
+
+## Ignored
+
+### Points at nothing
+- file: app.py:4
+- source: ticket-fit reviewer
+- why: out of scope
+
+## Assumptions
+
+### Empty input returns zero
+- file: app.py:2
+- alternative: raise on empty input
+- confidence: 0.6
+"""
+
+
+def test_finish_carries_every_ref_to_the_tree_it_commits_and_warns_on_a_blank_one(repo):
+    """Run 6 committed an assumption anchored at the implementation commit after the fixes
+    had moved it two lines down; the page quoted a blank line. `finish` maps it through the
+    diff before the commit, rewrites it, and says `anchors: review-commit`."""
+    r, base, feature, head = repo
+    (r / "app.py").write_text("import math\ndef total(xs):\n    return sum(xs)\n\n"
+                              "def mean(xs):\n    return total(xs) / len(xs)\n")
+    (r / "review-points.md").write_text(DRIFT_POINTS)
+    done = rr(r, "finish", "--subject", "add the mean")
+    out = done.stdout + done.stderr
+    assert done.returncode == 0, out
+    assert "re-anchored app.py:2 -> app.py:3" in out
+    assert "WARNING app.py:4: points at a blank line" in out
+    committed = git(r, "show", "HEAD:review-points.md")
+    assert "### Empty input returns zero\n- file: app.py:3\n" in committed
+    assert "- file: app.py:5\n" in committed, "a Fixed ref is read at the working tree"
+    assert "\nanchors: review-commit\n" in committed.split("---", 2)[1] + "\n"
+    report = json.loads((r / ".human-review" / "review-points.json").read_text())
+    assert report["frontmatter"]["anchors"] == "review-commit"
+
+
 def test_a_malformed_trailer_is_refused_before_anything_is_committed(repo):
     r, *_ = repo
     (r / "review-points.md").write_text(POINTS)

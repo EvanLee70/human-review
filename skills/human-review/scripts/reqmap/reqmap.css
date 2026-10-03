@@ -447,3 +447,17 @@
 .reqmap .rm-rej{margin:.2em 0 0;padding-left:1.2em;font-size:12.5px}
 .reqmap .rm-rid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
 .reqmap .rm-dec{margin:.2em 0 0;font-size:12.5px;color:var(--muted,#6b6b6b)}
+/* The two "untouched and unpaired" groups, folded behind one button that counts them: tests
+   about something else that only happen to run a changed line. A row-wide quiet control in
+   the group heading's own muted weight, so it reads as "there is more here", not as a call
+   to action. */
+.reqmap .rm-list[data-unfold=no] [data-fold=yes]{display:none}
+.reqmap .rm-fold{display:block;width:100%;margin:0;padding:8px 10px;border:0;
+  border-bottom:1px solid var(--line,#e2e2e2);background:none;text-align:left;font:inherit;
+  font-size:12.5px;color:var(--muted,#6b6b6b);cursor:pointer}
+.reqmap .rm-fold:hover,.reqmap .rm-fold:focus-visible{color:var(--fg,#1c1c1c);
+  text-decoration:underline}
+/* The decision's location rides in the sentence's line: the page's srcref box (mono,
+   padded) opened a gap under the line it sat on. */
+.reqmap .rm-dec a{color:inherit;display:inline;padding:0;line-height:inherit;
+  vertical-align:baseline}

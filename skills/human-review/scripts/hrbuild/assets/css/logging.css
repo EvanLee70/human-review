@@ -27,7 +27,11 @@
 /* The tab's heading and the line saying how its uses were found: one block, no underline. */
 h2.lg-head { border-bottom:0; padding-bottom:0; margin-bottom:.15rem; }
 .lg-sub { margin:0 0 .9rem; color:var(--muted); font-size:.92rem; }
-/* New logging vs. an old statement rewritten in place (logextract.py `change`). */
-.lg-change { margin:.9rem 0 .25rem; font-size:.86rem; color:var(--muted); }
+/* New logging vs. an old statement rewritten in place (logextract.py `change`) — the
+   card's own caption, inside its frame, so it can only be read as describing that card. */
+.lg-change { font-size:.86rem; color:var(--muted); }
 .lg-change.lg-new { color:var(--fg); font-weight:600; }
 .lg-change code { font-size:.92em; }
+/* A rewritten statement's lines: a neutral `~` and a grey rule, not the green `+` that
+   says "new line" — the caption above it says it is not new. */
+pre.code .ln-row.added.rewritten .dm { border-left-color:var(--muted); color:var(--muted); }

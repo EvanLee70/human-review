@@ -36,7 +36,13 @@ and carries, alongside that, whether it runs now and whether it ran before:
 Line numbers are always in *working-tree* coordinates, so every row can be opened in the
 editor. A deleted test has no line of its own any more, so it carries the line where its
 removal landed — the point in the surviving file where the reader can see the gap. A test
-in a file that was deleted outright carries no line at all and says so (`gone`).
+in a file that was deleted outright carries no line at all and says so (`gone`). Because
+unrelated code sits at that landing line, the page does not link a deleted test there: it
+carries `baseLine` (its declaration at the base) and, with a GitHub `origin`, `baseUrl` —
+the blob at the base commit — and that is what the page opens.
+
+A test renamed in place (same spot, same tags, mostly the same body, a new title) is one
+`modified` row with `renamedFrom`, not one deleted and one added; see `pair_renames`.
 
 Usage:
     test-changes.py --base origin/main [path ...] [--out assets/test-changes.json]
@@ -346,6 +352,123 @@ def _row(name: str, rel: str, status: str, line: int | None,
     return row
 
 
+# --------------------------------------------------------------------------- #
+# a test that was renamed, not replaced
+# --------------------------------------------------------------------------- #
+# Names are the key above, so a scenario retitled in place — `Searching with an empty last
+# name lists every owner` → `… shows the first page of every owner`, same line, same tag,
+# its last step rewritten — came out as one test gone and one test new. That is two lies
+# on the chip: a test the run never lost, and a test nobody wrote. So the leftovers of
+# the name match get a second, stricter look, and a pair that sits in the same place, wears
+# the same tags and still says mostly the same thing is one test, EDITED.
+#
+# Conservative on purpose. A wrong pairing hides a real deletion behind a pencil, which is
+# worse than the double count it replaces, so every condition has to hold: the same file
+# (by construction), the base declaration landing within RENAME_DRIFT lines of the new one
+# once the diff's own shifts are applied, the same tag/annotation lines above it, and
+# either a similar name over a body that kept something, or a near-identical body of some
+# substance under a new name. Two empty `void x() {}` bodies are similar to everything and
+# prove nothing, so a body has to have RENAME_MIN_BODY real lines before it can carry a
+# pairing on its own. One-to-one, best match first.
+RENAME_DRIFT = 3
+RENAME_NAME_SIM = 0.6
+RENAME_BODY_WITH_NAME = 0.3
+RENAME_BODY_ALONE = 0.8
+RENAME_MIN_BODY = 3
+RENAME_BODY_MAX = 40
+
+
+def _old_to_new(old: int, added: set[int], removed: dict[int, int]) -> int:
+    """Where base line `old` sits in the working tree: its removal's landing place if the
+    diff took it out, otherwise shifted by every removal before it and every addition
+    before where it lands."""
+    if old in removed:
+        return removed[old]
+    new = old - sum(1 for r in removed if r < old)
+    while True:
+        moved = old - sum(1 for r in removed if r < old) + sum(1 for a in added if a <= new)
+        if moved == new:
+            return new
+        new = moved
+
+
+def _tags_above(lines: list[str], line: int) -> tuple[str, ...]:
+    """The `@…` lines directly over a declaration: Gherkin tags, Java annotations, Python
+    decorators. A test that changed them changed what it is, not just what it is called."""
+    out, i = [], line - 2
+    while i >= 0 and lines[i].strip().startswith("@"):
+        out.append(" ".join(lines[i].split()))
+        i -= 1
+    return tuple(sorted(out))
+
+
+def _body(lines: list[str], line: int, starts: list[int]) -> list[str]:
+    """A declaration's body: the lines after it, up to the next declaration, with the
+    punctuation-only lines (`}`, `});`, blank) left out — they are in every body alike."""
+    end = next((s for s in starts if s > line), len(lines) + 1)
+    end = min(end, line + 1 + RENAME_BODY_MAX)
+    return [" ".join(x.split()) for x in lines[line:end - 1] if re.search(r"\w", x)
+            and not x.lstrip().startswith("@")]
+
+
+def _similar(a, b) -> float:
+    import difflib
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio()
+
+
+def pair_renames(rel: str, before: str, after: str, rows: list[dict],
+                 added: set[int], removed: dict[int, int]) -> list[dict]:
+    """`rows` with every rename folded into one `modified` row that names its old title
+    (`renamedFrom`) — the added half keeps its line, the deleted half is dropped."""
+    gone = [r for r in rows if r["status"] == "deleted" and not r.get("silenced")]
+    new = [r for r in rows if r["status"] == "added"]
+    if not gone or not new:
+        return rows
+    b_lines, a_lines = before.splitlines(), after.splitlines()
+    b_cases, a_cases = scan_cases(rel, before), scan_cases(rel, after)
+    b_starts = sorted(ln for ln, _ in b_cases.values())
+    a_starts = sorted(ln for ln, _ in a_cases.values())
+    scored = []
+    for g in gone:
+        old_line = b_cases[g["name"]][0]
+        at = _old_to_new(old_line, added, removed)
+        b_tags, b_body = _tags_above(b_lines, old_line), _body(b_lines, old_line, b_starts)
+        for n in new:
+            if abs(n["line"] - at) > RENAME_DRIFT:
+                continue
+            if _tags_above(a_lines, n["line"]) != b_tags:
+                continue
+            a_body = _body(a_lines, n["line"], a_starts)
+            name = _similar(g["name"].lower(), n["name"].lower())
+            body = _similar(b_body, a_body) if b_body and a_body else 0.0
+            ok = ((name >= RENAME_NAME_SIM and body >= RENAME_BODY_WITH_NAME)
+                  or (body >= RENAME_BODY_ALONE
+                      and min(len(b_body), len(a_body)) >= RENAME_MIN_BODY))
+            if ok:
+                scored.append((name + body, g["name"], n["name"]))
+    taken_old, taken_new, pairs = set(), set(), {}
+    for _, old, nw in sorted(scored, reverse=True):
+        if old in taken_old or nw in taken_new:
+            continue
+        taken_old.add(old)
+        taken_new.add(nw)
+        pairs[nw] = old
+    if not pairs:
+        return rows
+    was = {r["name"]: r for r in gone}
+    out = []
+    for r in rows:
+        if r["status"] == "deleted" and r["name"] in taken_old:
+            continue
+        if r["status"] == "added" and r["name"] in pairs:
+            old = was[pairs[r["name"]]]
+            r = dict(r, status="modified", renamedFrom=old["name"])
+            if old.get("wasSilenced"):
+                r["wasSilenced"] = old["wasSilenced"]
+        out.append(r)
+    return out
+
+
 def classify_file(rel: str, status: str, before: str | None, after: str | None,
                   added: set[int], removed: dict[int, int]) -> list[dict]:
     """Every test case in one changed file, with what happened to it."""
@@ -380,12 +503,18 @@ def classify_file(rel: str, status: str, before: str | None, after: str | None,
         row = _row(name, rel, "deleted",
                    parked if parked is not None else (min(anchors) if anchors else None),
                    "commented" if parked is not None else None, was_silenced)
+        # Where it was declared at the base. The working-tree `line` is only where its
+        # removal landed — unrelated code sits there now — so the page links a deleted
+        # test to this line at the base commit instead (`baseUrl`, filled in by `collect`).
+        row["baseLine"] = line
         if status == "D":
             # The file itself is gone, so there is nothing to open. Saying that is
             # better than emitting a link that dead-ends in the editor.
             row["gone"] = True
             row["line"] = None
         rows.append(row)
+    if before is not None and after is not None:
+        rows = pair_renames(rel, before, after, rows, added, removed)
     return rows
 
 
@@ -405,9 +534,11 @@ def totals(rows: list[dict]) -> dict:
     are worse than no chip."""
     t = dict.fromkeys(("added", "modified", "deleted", "unchanged", "commented",
                        "disabled", "reenabled", "runningBefore", "runningAfter",
-                       "gained", "lost"), 0)
+                       "gained", "lost", "renamed"), 0)
     for r in rows:
         t[r["status"]] += 1
+        # A rename is one of the `modified`: the run kept the test under a new title.
+        t["renamed"] += bool(r.get("renamedFrom"))
         ran_before = r["status"] != "added" and not r.get("wasSilenced")
         runs_now = r["status"] != "deleted" and not r.get("silenced")
         t["runningBefore"] += ran_before
@@ -427,6 +558,39 @@ def totals(rows: list[dict]) -> dict:
 
 def git(root: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+
+
+def github_repo(remote: str) -> str:
+    """`https://github.com/owner/repo` for an `origin` remote on github.com, or "" — the
+    ssh form, the https form, with or without `.git`. Anything else has no blob URL this
+    script can be sure of, and a guessed link is worse than none."""
+    m = re.match(r"^(?:git@github\.com:|ssh://git@github\.com/|https?://(?:[^@/]+@)?github\.com/)"
+                 r"([^/\s]+/[^/\s]+?)(?:\.git)?/?$", remote.strip())
+    return f"https://github.com/{m.group(1)}" if m else ""
+
+
+def base_url(repo: str, sha: str, rel: str, line: int | None) -> str:
+    """The test as it was at the base commit, on github.com — the only place a deleted
+    test still exists. Empty without a GitHub remote or a resolved commit."""
+    if not repo or not sha:
+        return ""
+    return f"{repo}/blob/{sha}/{rel}" + (f"#L{line}" if line else "")
+
+
+def link_deleted_to_base(root: Path, base: str, rows: list[dict]) -> str:
+    """Stamp every deleted row with `baseUrl` (and `baseSha`) — its declaration at the
+    base commit. Returns the resolved base commit, "" when it cannot be resolved."""
+    sha = git(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}").stdout.strip()
+    repo = github_repo(git(root, "remote", "get-url", "origin").stdout)
+    for r in rows:
+        if r["status"] != "deleted" or r.get("silenced") == "commented":
+            continue
+        if sha:
+            r["baseSha"] = sha
+        url = base_url(repo, sha, r["path"], r.get("baseLine"))
+        if url:
+            r["baseUrl"] = url
+    return sha
 
 
 def collect(root: Path, base: str, paths: list[str]) -> list[dict]:
@@ -449,6 +613,7 @@ def collect(root: Path, base: str, paths: list[str]) -> list[dict]:
         diff = git(root, "diff", "--unified=0", base, "--", rel).stdout
         added, removed = hunk_lines(diff)
         rows.extend(classify_file(rel, status, before, after, added, removed))
+    link_deleted_to_base(root, base, rows)
     return rows
 
 
@@ -469,7 +634,8 @@ def main(argv=None) -> int:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(text, encoding="utf-8")
         detail = ", ".join(f"{t[k]} {k}" for k in
-                           ("added", "modified", "deleted", "commented", "disabled", "reenabled")
+                           ("added", "modified", "renamed", "deleted", "commented", "disabled",
+                            "reenabled")
                            if t[k])
         print(f"[test-changes] {len(rows)} test cases in changed test files -> {args.out}"
               + (f" ({detail})" if detail else "")

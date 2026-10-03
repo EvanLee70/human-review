@@ -617,6 +617,11 @@ def render(ref: str, caption: str | None, root: Path, exact: bool = False,
     # No marker column when git could not be asked (a snippet from outside the repo must
     # render exactly as it always has), nor when the whole file is new (the badge said it).
     show_marks = bool(status) and not status.get("file_new")
+    # An `unchanged` badge counts non-blank lines only, so a window of one added *blank*
+    # line was badged UNCHANGED and still drawn with a `+` (run 6). The gutter says what
+    # the badge says: no line is marked under `unchanged`.
+    if status and status.get("diff") == "unchanged":
+        added = frozenset()
     mark = '<span class="dm">+</span>' if show_marks else ""
     blank = '<span class="dm"> </span>' if show_marks else ""
     rows, i = [], 0

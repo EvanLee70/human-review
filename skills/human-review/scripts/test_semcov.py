@@ -532,6 +532,98 @@ def test_every_test_says_why_it_is_listed_and_the_ones_about_the_change_come_fir
     assert "rank(a)-rank(b)" in js and "rm-tgroup" in js and "t.why" in js
 
 
+def test_the_untouched_and_unpaired_groups_start_folded_behind_a_count(tmp_path):
+    """Run 6: the two "untouched and unpaired" groups listed 33 tests about something else
+    (UserTest, SpecialtyTest, VisitDateRangeTest…) and the tab came out twice the
+    reference's height. They fold behind one button that counts them; the paired and the
+    branch-written groups never fold."""
+    root, review = _repo(tmp_path)
+    g = S.gather(S._spec(review), review, root)
+    page = S.render(g["ticket"], g["blocks"], g["rows"],
+                    S.merge(g["sentences"], g["scripted"], None), root)
+    data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
+    assert data["fold"] == {"from": 2, "label": "more tests that only pass through changed code"}
+    assert S.FOLD_FROM_RANK == 2, "rank 0 (paired) and 1 (written by the branch) stay open"
+    js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
+    # Folded only when something stays open above; counted on the button; toggled by it.
+    assert "rank(id)<F.from" in js and "rank(id)>=F.from" in js
+    assert "foldN+' '" in js and "'hide':'show'" in js
+    assert "row.dataset.fold='yes'" in js and "g.dataset.fold='yes'" in js
+    assert "closest('.rm-fold')" in js
+    css = (S.ASSETS / "reqmap.css").read_text(encoding="utf-8")
+    assert ".rm-list[data-unfold=no] [data-fold=yes]{display:none}" in css
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node is not installed")
+def test_the_matrix_script_still_parses():
+    import subprocess
+    got = subprocess.run(["node", "--check", str(S.ASSETS / "reqmap.js")],
+                         capture_output=True, text=True)
+    assert got.returncode == 0, got.stderr
+
+
+def test_a_narrowed_sentence_names_and_links_the_decision_it_rests_on(tmp_path):
+    """Run 6: "The grid should be sortable by any column" popped only "narrowed by a
+    recorded decision". The decision is the proposal's line 86, and the hover and the box
+    now say so — the box with a link to the line."""
+    root, review = _repo(tmp_path)
+    _with_spec(root)
+    g = S.gather(S._spec(review), review, root)
+    dec = next(d for d in g["decisions"] if "Sorting is limited" in d["text"])
+    assert dec["where"] == "proposal.md:5"
+    assert dec["quote"].startswith("Sorting is limited to Name and City")
+    assert dec["href"].startswith("vscode://file/") and dec["href"].endswith(
+        "openspec/changes/paginate-owners/proposal.md:5:1")
+    # The model reads the decision by id and text only; where it lives is the page's.
+    asked = S.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"],
+                          g["decisions"])
+    assert all(set(d) == {"id", "text"} for d in asked["decisions"])
+
+    book, edit, pirate = _sids(g)
+    answer = _answer(book, edit, pirate)
+    answer["sentences"][1]["decision"] = dec["id"]
+    entries = S.merge(g["sentences"], g["scripted"], answer, g["decisions"])
+    page = S.render(g["ticket"], g["blocks"], g["rows"], entries, root)
+    data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
+    s = data["sentences"][edit]
+    assert s["decisionWhere"] == "proposal.md:5" and s["decisionHref"] == dec["href"]
+    assert s["decisionName"].startswith("proposal.md:5 “Sorting is limited to Name and City")
+    # The sentence's own hover (before the script swaps it for the badge tip) names it too.
+    assert "narrowed on purpose — not delivered as written — by proposal.md:5 “Sorting" \
+        in page
+    js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
+    assert "narrowed by '" in js and "s.decisionName" in js
+    assert "'Recorded in '+w" in js and "s.decisionHref" in js
+
+
+def test_a_long_decision_is_cut_on_the_hover_and_kept_whole_in_the_box():
+    entry = {"decisionRef": {"where": "design.md:12", "quote": "word " * 40}}
+    name = S.decision_name(entry)
+    assert name.startswith("design.md:12 “word") and name.endswith("…”")
+    assert len(name) < S.DECISION_TIP_MAX + 20
+    assert S.decision_name({}) == ""
+
+
+def test_a_deleted_test_on_an_unmeasured_card_links_to_the_base_commit(tmp_path):
+    """Its HEAD `line` is where the removal landed — unrelated code. The card links the
+    blob at the base commit instead, and says so on the hover."""
+    root, review = _repo(tmp_path)
+    (review / "assets" / "test-coverage.json").unlink()
+    url = "https://github.com/acme/clinic/blob/abc123/test/VisitTest.java#L20"
+    doc = json.loads((review / "assets" / "test-changes.json").read_text())
+    doc["tests"].append({"name": "obsolete", "path": "test/VisitTest.java", "line": 16,
+                         "status": "deleted", "baseLine": 20, "baseUrl": url})
+    (review / "assets" / "test-changes.json").write_text(json.dumps(doc))
+    g = S.gather(S._spec(review), review, root)
+    page = S.render(g["ticket"], g["blocks"], g["rows"],
+                    S.merge(g["sentences"], g["scripted"], None), root, g["measured"])
+    data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
+    gone = next(t for t in data["tests"].values() if t["title"] == "obsolete")
+    assert gone["status"] == "deleted" and gone["href"] == url
+    assert gone["hrefTip"] == S.DELETED_HREF_TIP and gone["parts"] == []
+    assert "t.hrefTip||'Open in VS Code'" in (S.ASSETS / "reqmap.js").read_text()
+
+
 # --- the model step, end to end, with `claude` stubbed --------------------------------------
 
 def _fake_claude(tmp_path, answer: dict) -> Path:

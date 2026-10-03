@@ -452,6 +452,25 @@ def test_the_page_draws_ghosts_as_deleted_in_the_theme_red():
 
 
 # ── the copy in the public repo is the same file ─────────────────────────────────
+def test_an_added_operation_counts_once_toward_expand_n_impacted():
+    """An added operation lists no line (its only oasdiff entry is that it exists), and
+    the verdict band counts it as one change: the toggle has to as well."""
+    old = {"paths": {}}
+    new = {"paths": {"/api/vets": {"get": {"responses": {"200": {"description": "ok"}}}}}}
+    raw = [{"id": "endpoint-added", "operation": "GET", "path": "/api/vets", "level": 1,
+            "text": "endpoint added", "section": "paths"}]
+    _, entries, global_changes, _ = ovd.build_model(old, new, raw)
+    assert entries["GET /api/vets"]["changes"] == []
+    assert ovd.change_total(entries, global_changes) == 1
+
+
+def test_a_breaking_badge_keeps_its_change_count():
+    """Run 6: the breaking endpoint's badge said only BREAKING, where a modified one says
+    "3 CHANGES" — the count was gone exactly where it matters most."""
+    assert "`${nb} breaking · ${many}`" in ovd.TEMPLATE
+    assert "info.state === 'modified' && n ? many" in ovd.TEMPLATE
+
+
 def test_the_skill_copy_and_the_public_repo_copy_have_not_drifted():
     """`openapi-visual-diff.py` lives twice: here, and as its own public repo. A fix in
     one and not the other is a trap for whoever reads the other one."""

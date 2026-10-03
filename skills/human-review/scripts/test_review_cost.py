@@ -1641,3 +1641,97 @@ def test_a_model_label_keeps_the_whole_version():
     assert rc.label("gpt-5.6-luna") == "gpt-5.6-luna"
     assert rc.label(None) == "synthetic"
     assert rc.legacy_label("claude-opus-5-5") == "Opus 5", "what an old record says"
+
+
+# --------------------------------------------------------------------------- #
+# eval run 6: the model steps belong to the tab they wrote, and carry their tokens
+# --------------------------------------------------------------------------- #
+
+def _guide_component(*entries, window_end="2026-10-03T00:03:59+00:00"):
+    return {"rows": [{"key": "guide", "measured": True, "usd": 3.315, "tokens": 4_208_001,
+                      "window": ["2026-10-02T23:50:53+00:00", window_end],
+                      "entries": list(entries)}]}
+
+
+_RUN = {"harness": "claude-code", "session": "s1", "what": "the /human-review run",
+        "window": ["2026-10-02T23:50:53+00:00", "2026-10-03T00:03:59+00:00"],
+        "tokens": 4_208_001, "usd": 3.155, "models": {"Opus 5.5": 4_208_001}, "calls": 45}
+# As eval run 6 recorded it: no `program` field, the program only in `what`, 0 tokens.
+_MAPPING = {"harness": "claude-code", "session": "claude -p (.model-runs.json)",
+            "what": "requirements↔tests mapping (rerun-model.py)", "tokens": 0,
+            "models": {}, "usd": 0.16, "calls": 1}
+
+
+def _zero_tabs(*ids):
+    return {"available": True, "ledger": True, "tabs": {
+        t: {"measured": True, "cost": 0.0, "tokens": 0, "messages": 0, "models": {},
+            "tip": "no model turns"} for t in ids},
+        "residual": {"measured": True, "cost": 3.155, "tokens": 4_208_001, "messages": 45}}
+
+
+def test_the_mapping_run_is_billed_to_the_tests_tab_not_left_beside_a_zero():
+    """Eval run 6: the guide row billed the requirements↔tests mapping ($0.16), and the
+    fold under it said "12 tabs with no model spend — … Tests …"."""
+    out = rc.bill_model_runs(_zero_tabs("review", "requirements", "behaviour"),
+                             _guide_component(_RUN, _MAPPING))
+    tests = out["tabs"]["requirements"]
+    assert tests["cost"] == pytest.approx(0.16) and tests["messages"] == 1
+    assert tests["tokensUnknown"] is True, "a price beside 0 tokens is not shown as 0"
+    assert "requirements↔tests mapping" in tests["tip"] and "rerun-model.py" in tests["tip"]
+    assert out["tabs"]["behaviour"]["cost"] == 0.0, "no film-script run, nothing on Demo"
+    assert out["modelRuns"] == {"cost": pytest.approx(0.16), "tokens": 0, "runs": 1}
+    rows = out["tabs"].values()
+    assert sum(r["cost"] for r in rows) + out["residual"]["cost"] == pytest.approx(3.315), \
+        "the tab rows plus the residual are the guide row"
+
+
+def test_the_film_script_run_is_billed_to_the_demo_tab_with_its_tokens():
+    film = {**_MAPPING, "session": "claude -p (.film-runs.json)", "program": "rerun-film.py",
+            "what": "film script (rerun-film.py)", "tokens": 52_000,
+            "models": {"Sonnet 5.5": 52_000}, "usd": 0.41}
+    out = rc.bill_model_runs(_zero_tabs("requirements", "behaviour"),
+                             _guide_component(_RUN, film))
+    demo = out["tabs"]["behaviour"]
+    assert demo["cost"] == pytest.approx(0.41) and demo["tokens"] == 52_000
+    assert demo["models"] == {"Sonnet 5.5": 52_000} and "tokensUnknown" not in demo
+    assert "claude -p on Sonnet 5.5" in demo["tip"]
+
+
+def test_with_no_guide_row_the_tab_report_is_left_alone():
+    report = _zero_tabs("requirements")
+    assert rc.bill_model_runs(report, {"rows": []}) is report
+
+
+def test_the_tab_split_reads_the_conversation_only_as_far_as_the_guide_row_did():
+    """The fold under the guide row is that row's breakdown, so it stops where the row
+    stopped: run 6's conversation went on, and read to "now" the fold was $0.74 over."""
+    comp = _guide_component(_RUN, _MAPPING)
+    assert rc.guide_run_end(comp, "s1") == _ts("2026-10-03T00:03:59+00:00")
+    assert rc.guide_run_end(comp, "another-session") is None
+    assert rc.guide_run_end({"rows": []}, "s1") is None
+
+
+def _rerun_model():
+    spec = importlib.util.spec_from_file_location("rerun_model_rc", HERE / "rerun-model.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_a_model_run_records_the_tokens_the_cli_reported_beside_its_cost(tmp_path):
+    """`$0.16 · 0` tokens: the ledger kept `total_cost_usd` and dropped the counts printed
+    beside it. Both CLI spellings are read — `modelUsage` per model first, `usage` else."""
+    rm = _rerun_model()
+    reply = json.dumps({"total_cost_usd": 0.16, "result": "{}", "modelUsage": {
+        "claude-haiku-4-5-20251001": {"inputTokens": 1200, "outputTokens": 300,
+                                      "cacheReadInputTokens": 40_000,
+                                      "cacheCreationInputTokens": 5_000}}})
+    rm.record_run(tmp_path, 0.16, 99.8, model="haiku", out=reply)
+    run = json.loads((tmp_path / rm.RUNS_LEDGER).read_text())["runs"][-1]
+    assert run["tokens"] == 46_500
+    assert run["models"] == {"claude-haiku-4-5-20251001": 46_500}
+    assert rm._usage(json.dumps({"usage": {"input_tokens": 10, "output_tokens": 5}})) \
+        == (15, {})
+    assert rm._usage("not json") == (None, {}), "bookkeeping never fails a run"
+    rm.record_run(tmp_path, 0.2, 1.0, out="garbage")
+    assert "tokens" not in json.loads((tmp_path / rm.RUNS_LEDGER).read_text())["runs"][-1]

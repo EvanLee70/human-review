@@ -83,22 +83,23 @@ def outside_note(state: dict | None, repo: str = "") -> str:
         return ""
     n = len(outside)
     where = ("outside the review" if state.get("diffBaseSource") == "audited"
-             else f"before {state['diffBase'][:8]}, which this page measures from")
+             else f"before {state['diffBase'][:8]}, where the counts start")
 
     def one(c: dict) -> str:
-        # The sha is the face and the subject its hover: the note is one line under a row
-        # of chips that never scrolls away, and three subjects wrapped it onto a second.
+        # Sha and raw subject, one commit per line: the subjects are the commits' own words,
+        # untranslated, because a paraphrase of a commit message is a claim about it.
         sha = html.escape(c["sha"][:8])
-        tip = f' data-tip="{html.escape(c.get("subject") or "")}"' if c.get("subject") else ""
-        if repo:
-            return (f'<a href="{html.escape(repo.rstrip("/"))}/commit/{html.escape(c["sha"])}"'
-                    f' target="_blank" rel="noopener"{tip}><code>{sha}</code></a>')
-        return f'<code{tip}>{sha}</code>'
+        face = (f'<a href="{html.escape(repo.rstrip("/"))}/commit/{html.escape(c["sha"])}"'
+                f' target="_blank" rel="noopener"><code>{sha}</code></a>'
+                if repo else f'<code>{sha}</code>')
+        return f'<li>{face} {html.escape(c.get("subject") or "")}</li>'
 
-    shown = ", ".join(one(c) for c in outside[:6])
-    more = f" and {n - 6} more" if n > 6 else ""
-    return (f'<p class="scopenote">{n} earlier commit{"" if n == 1 else "s"} on this branch '
-            f'{"is" if n == 1 else "are"} {where}: {shown}{more}</p>')
+    # Folded to one short line: eval run 6 spelled six hashes across the masthead, which
+    # never scrolls away, and pushed the tab strip down on every tab for a fact a reader
+    # needs once. The list opens over the page rather than inside the sticky header.
+    return (f'<details class="scopenote"><summary>{n} earlier commit{"" if n == 1 else "s"} '
+            f'{where} <span class="sn-caret" aria-hidden="true">&#9656;</span></summary>'
+            f'<ul class="sn-list">{"".join(one(c) for c in outside)}</ul></details>')
 
 
 def ref_badges(spec: dict, state: dict | None = None) -> str:

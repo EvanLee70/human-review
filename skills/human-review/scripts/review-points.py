@@ -160,8 +160,11 @@ def inline(text: str) -> str:
     for block in re.split(r"\n\s*\n", text.strip()):
         one = " ".join(line.strip() for line in block.splitlines() if line.strip())
         if one:
+            # The line is escaped once, as a whole: a code span's `&` is already `&amp;`
+            # by the time the backticks are swapped for tags, and escaping the group again
+            # put `&amp;amp;` in the JSON and `&amp;` on the reader's screen (run 6).
             paragraphs.append(CODE_SPAN.sub(
-                lambda m: f"<code>{html.escape(m.group(1))}</code>", html.escape(one)))
+                lambda m: f"<code>{m.group(1)}</code>", html.escape(one)))
     return "<br><br>".join(paragraphs)
 
 
@@ -635,6 +638,159 @@ def provenance(front: dict, root: Path | None, rel: str) -> dict:
         if sha:
             out["reviewCommit"] = sha
     return out
+
+
+# --------------------------------------------------------------------------- anchors
+# A `file:line` is written against one version of the file and read against another. The
+# assumptions are written while coding, at the implementation commit; the fixes and the
+# declined findings after the fixes, at the review commit; the page reads all of them off
+# HEAD. Run 6's `[auto-fix]` commit added two lines above an assumption's anchor, and the
+# card quoted the blank line that now sat at 85 under an `unchanged` badge. A ref is
+# carried across those commits through the diff's own hunks, never by trusting the number.
+
+HUNK_HEAD = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+#: "Written against the working tree" — a rev `reanchor` can be told about, at
+#: `record-review.py finish` time, when the fixes are on disk and not yet committed.
+WORKTREE = "@worktree"
+REF_LINES = re.compile(r"^(?P<path>.*?):(?P<spans>\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$")
+
+
+def _run_git(root: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+
+
+def file_hunks(root: Path, rel: str, frm: str, to: str | None = None) -> list[dict] | None:
+    """`git diff -U0 frm [to] -- rel` as `[{a, b, c, d, old, new}]` (old start/count, new
+    start/count, the removed and added lines); `to=None` is the working tree. None when
+    git cannot diff it."""
+    r = _run_git(root, "diff", "-U0", "--no-color", "--no-ext-diff", frm,
+                 *([to] if to else []), "--", rel)
+    if r.returncode != 0:
+        return None
+    hunks: list[dict] = []
+    cur = None
+    for line in r.stdout.splitlines():
+        m = HUNK_HEAD.match(line)
+        if m:
+            cur = {"a": int(m[1]), "b": int(m[2]) if m[2] is not None else 1,
+                   "c": int(m[3]), "d": int(m[4]) if m[4] is not None else 1,
+                   "old": [], "new": []}
+            hunks.append(cur)
+        elif cur is not None and line.startswith("-"):
+            cur["old"].append(line[1:])
+        elif cur is not None and line.startswith("+"):
+            cur["new"].append(line[1:])
+    return hunks
+
+
+def map_line(hunks: list[dict], n: int) -> int | None:
+    """Line `n` of the old side, on the new side — None when the hunk that covers it
+    removed it. A rewritten line inside a hunk of equal size keeps its place; inside an
+    uneven one it is found again by its text, or it is gone."""
+    off = 0
+    for h in hunks:
+        a, b, c, d = h["a"], h["b"], h["c"], h["d"]
+        if b == 0:                       # pure insertion after old line `a`
+            if n > a:
+                off += d
+                continue
+            break
+        if n < a:
+            break
+        if n <= a + b - 1:
+            if b == d:
+                return c + (n - a)
+            key = (h["old"][n - a] if n - a < len(h["old"]) else "").strip()
+            hits = [i for i, t in enumerate(h["new"]) if key and t.strip() == key]
+            return c + min(hits, key=lambda i: abs(i - (n - a))) if hits else None
+        off += d - b
+    return n + off
+
+
+def ref_spans(ref: str) -> tuple[str, list[tuple[int, int]] | None]:
+    m = REF_LINES.match(ref)
+    if not m:
+        return ref, None
+    spans = []
+    for part in m["spans"].split(","):
+        lo, _, hi = part.partition("-")
+        spans.append((int(lo), int(hi or lo)))
+    return m["path"], spans
+
+
+def spans_ref(path: str, spans: list[tuple[int, int]]) -> str:
+    return path + ":" + ",".join(f"{a}-{b}" if b != a else f"{a}" for a, b in spans)
+
+
+def remap_ref(root: Path, ref: str, frm: str, to: str | None = None) -> str | None:
+    """`ref`, written at `frm`, as it reads at `to` (None: the working tree). Unchanged when
+    it names no lines, or the file did not exist at `frm` (it cannot have been written
+    there); None when no line of it survived."""
+    path, spans = ref_spans(ref)
+    if frm == WORKTREE and to is None:
+        return ref
+    if spans is None or frm == WORKTREE \
+            or _run_git(root, "cat-file", "-e", f"{frm}:{path}").returncode != 0:
+        return ref
+    hunks = file_hunks(root, path, frm, to)
+    if not hunks:                        # git could not say, or the file did not move
+        return ref
+    out = []
+    for lo, hi in spans:
+        got = [x for x in (map_line(hunks, n) for n in range(lo, hi + 1)) if x is not None]
+        if got:
+            out.append((min(got), max(got)))
+    return spans_ref(path, out) if out else None
+
+
+def ref_lines(root: Path, ref: str, at: str | None = None) -> list[str] | None:
+    """The lines `ref` names, at `at` (None: the working tree) — None when the file is not
+    there or the ref starts past its end."""
+    path, spans = ref_spans(ref)
+    if at:
+        r = _run_git(root, "show", f"{at}:{path}")
+        if r.returncode != 0:
+            return None
+        text = r.stdout
+    else:
+        try:
+            text = (root / path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+    lines = text.splitlines()
+    if spans is None:
+        return lines
+    if spans[0][0] > len(lines):
+        return None
+    return [lines[n - 1] for lo, hi in spans for n in range(lo, min(hi, len(lines)) + 1)]
+
+
+def blank_ref(root: Path, ref: str, at: str | None = None) -> bool:
+    """Whether every line `ref` names is blank (or past the end of the file)."""
+    got = ref_lines(root, ref, at)
+    return got is None or not any(x.strip() for x in got)
+
+
+def reanchor(root: Path, ref: str, written: list[str], to: str | None = None) -> dict:
+    """Where `ref` points at `to`, given the revs it may have been written at, most likely
+    first. `{"ref": new or None, "from": the rev it was read as, "moved": bool,
+    "blank": bool}`.
+
+    The first rev wins unless it lands on a blank line while a later one lands on code:
+    the pile says which commit a ref was most likely written against, and a blank line is
+    the one answer that is certainly wrong. A line the first rev's diff *removed* is not
+    retried — the later rev would quote whatever now has that number, which is exactly
+    the unrelated line this exists to stop showing."""
+    tried = []
+    for rev in [w for w in written if w]:
+        new = remap_ref(root, ref, rev, to)
+        tried.append({"ref": new, "from": rev, "moved": new != ref,
+                      "blank": new is None or blank_ref(root, new, to)})
+        if new is None and len(tried) == 1:
+            return tried[0]
+    if not tried:
+        return {"ref": ref, "from": None, "moved": False, "blank": blank_ref(root, ref, to)}
+    return next((t for t in tried if t["ref"] and not t["blank"]), tried[0])
 
 
 def document(path: Path, rel: str, root: Path | None = None) -> dict:

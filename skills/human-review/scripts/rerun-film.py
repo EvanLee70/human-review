@@ -208,7 +208,8 @@ def main(argv=None) -> int:
         print(proc.stdout, end="")
     if proc.stderr:
         print(proc.stderr, end="", file=sys.stderr)
-    MODEL_STEP.record_run(review, cost, time.time() - started, ledger=RUNS_LEDGER)
+    MODEL_STEP.record_run(review, cost, time.time() - started, ledger=RUNS_LEDGER,
+                          out=proc.stdout)
     if proc.returncode != 0:
         print(f"[film] {model} exited {proc.returncode}; the script on disk is whatever it "
               "managed to write.", file=sys.stderr)

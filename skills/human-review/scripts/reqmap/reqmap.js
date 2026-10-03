@@ -197,17 +197,38 @@
     (D.sentences[sid].groups||[]).forEach(function(g){g.tests.forEach(function(ev){
       (COVERS[ev.id]=COVERS[ev.id]||[]).push(sid);});});});
 
+  // semcov: the "untouched and unpaired" groups (rank >= D.fold.from) start folded behind
+  // one button that counts them - tests about something else that only happen to run a
+  // changed line. Folded only when something stays open above them: a card of nothing but
+  // pass-through tests shows them, rather than an empty card and a button.
+  var F=D.fold,foldN=0,foldBtn=null;
+  if(F&&ids.some(function(id){return rank(id)<F.from;}))
+    ids.forEach(function(id){if(rank(id)>=F.from)foldN++;});
+  function folded(id){return foldN>0&&rank(id)>=F.from;}
+  function setFold(open){
+    list.dataset.unfold=open?'yes':'no';
+    foldBtn.setAttribute('aria-expanded',open?'true':'false');
+    foldBtn.textContent=foldN+' '+(foldN===1?F.label.replace(/^more tests/,'more test'):F.label)
+      +' — '+(open?'hide':'show');
+  }
   var lastRank=null;
   ids.forEach(function(id){
+    if(folded(id)&&!foldBtn){
+      foldBtn=document.createElement('button');
+      foldBtn.type='button';foldBtn.className='rm-fold';
+      list.appendChild(foldBtn);setFold(false);
+    }
     if(groupsShown&&rank(id)!==lastRank){
       lastRank=rank(id);
       var g=document.createElement('div');
       g.className='rm-tgroup';g.dataset.rank=lastRank;
+      if(folded(id))g.dataset.fold='yes';
       g.textContent=D.ranks[String(lastRank)]||'';
       list.appendChild(g);
     }
     var t=D.tests[id],row=document.createElement('div');
     row.className='rm-t';row.dataset.open='no';row.dataset.id=id;
+    if(folded(id))row.dataset.fold='yes';
     // A test the branch deleted is listed and not openable: this checkout has no source
     // for it, and the run has no assertion from it.
     if(t.status==='deleted')row.dataset.gone='yes';
@@ -239,7 +260,8 @@
          // never emits, so it keeps the location and loses the link.
          var href=t.href||(t.parts&&t.parts[0]&&t.parts[0].href),
              face=kind(esc((t.where||where(id)).replace(/:\d+(?:[-\u2013]\d+)?$/,'')));
-         return href?'<a class="rm-tw srcref" href="'+href+'" data-tip="Open in VS Code" target="_blank" rel="noopener">'
+         // semcov: a deleted test's href is its blob at the base commit, and says so.
+         return href?'<a class="rm-tw srcref" href="'+href+'" data-tip="'+esc(t.hrefTip||'Open in VS Code')+'" target="_blank" rel="noopener">'
                      +face+'</a>'
                    :'<span class="rm-tw srcref tgone" data-tip="the file is gone">'
                      +face+'</span>';})()
@@ -379,6 +401,8 @@
     gap.innerHTML='';gap.hidden=true;
   }
   list.addEventListener('click',function(e){
+    if(e.target.closest('.rm-fold')){                   // semcov: show/hide the folded rest
+      setFold(list.dataset.unfold!=='yes');redraw();return;}
     var l=e.target.closest('.rm-link');                 // draws, never opens
     if(l){link(l.closest('.rm-t'));return;}
     if(e.target.closest('.rm-tw'))return;              // the editor link is not a toggle
@@ -390,6 +414,15 @@
     var h=e.target.closest&&e.target.closest('.rm-thead');
     if(h&&(e.key==='Enter'||e.key===' ')){e.preventDefault();toggle(h.parentNode);}});
 
+  // semcov: the decision a narrowed sentence rests on, named and linked where it was
+  // recorded (`proposal.md:86`) - "Recorded: <the whole line>" left the reader to find it.
+  function recorded(s){
+    if(!s.decisionWhere)return 'Recorded: '+esc(s.decision);
+    var w=s.decisionHref?'<a class="srcref" href="'+esc(s.decisionHref).replace(/"/g,'&quot;')
+      +'" data-tip="Open in VS Code" target="_blank" rel="noopener">'+esc(s.decisionWhere)+'</a>'
+      :esc(s.decisionWhere);
+    return 'Recorded in '+w+': '+esc(s.decisionQuote||s.decision);
+  }
   function open(sid){
     var s=D.sentences[sid];if(!s)return;
     // Clicking the sentence you already picked puts the ticket back the way it was. There
@@ -428,7 +461,7 @@
     var head=s.cov==='narrowed'?'Narrowed on purpose':'Blind spot';
     gap.innerHTML=(s.gap?'<h4>'+head+' <span class="rm-gapkind">'+kind+'</span>'
       +(s.by==='model'?'<sup class="rm-ai" data-tip="as inferred by AI">🤖</sup>':'')+'</h4><p>'+esc(s.gap)+'</p>'
-      +(s.decision?'<p class="rm-dec">Recorded: '+esc(s.decision)+'</p>':''):'')
+      +(s.decision?'<p class="rm-dec">'+recorded(s)+'</p>':''):'')
       +(rej?'<h4>Matched on words, rejected by AI <sup class="rm-ai">🤖</sup></h4><ul class="rm-rej">'+rej+'</ul>':'');
     gap.hidden=!(s.gap||rej);
   }
@@ -451,7 +484,8 @@
     // semcov: who paired it, after the badges - the script's evidence or a model's reading.
     tip+=s.cov==='unmapped'?'<span class="rm-do"> not paired yet \u00B7 run the 🤖</span>'
         :s.cov==='unconfirmed'?'<span class="rm-do"> \u00B7 shared words only, not confirmed \u00B7 run the 🤖</span>'
-        :s.cov==='narrowed'?'<span class="rm-do"> \u00B7 narrowed by a recorded decision</span>'
+        :s.cov==='narrowed'?'<span class="rm-do"> \u00B7 narrowed by '
+          +(s.decisionName?esc(s.decisionName):'a recorded decision')+'</span>'
         :'<span class="rm-do"> \u00B7 '+(s.by==='model'?'🤖 checked by AI':'paired by script')+'</span>';
     f.setAttribute('data-tip-html',tip);
     f.removeAttribute('data-tip');

@@ -200,7 +200,8 @@ def test_a_test_in_a_file_that_was_deleted_outright_says_there_is_nothing_to_ope
     rows = {r["name"]: r for r in
             tc.classify_file("VisitTest.java", "D", BEFORE, None, set(), {})}
     assert rows["update_ok"] == {"name": "update_ok", "path": "VisitTest.java",
-                                 "status": "deleted", "line": None, "gone": True}
+                                 "status": "deleted", "line": None, "gone": True,
+                                 "baseLine": 3}
 
 
 def test_every_case_of_an_added_file_is_added():
@@ -427,3 +428,162 @@ def test_deleting_a_test_nobody_was_running_moves_nothing():
         "class T {\n}\n", set(), {2: 2, 3: 2, 4: 2}))
     assert t["deleted"] == 1 and t["lost"] == 0
     assert t["runningBefore"] == 0 and t["runningAfter"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# a test renamed in place is one test, edited
+# --------------------------------------------------------------------------- #
+# Run 6: owner-search.feature:26 'Searching with an empty last name lists every owner'
+# became '… shows the first page of every owner' — same line, same @generate_sequence tag,
+# its last step rewritten — and was counted as one test gone and one new, on the chip too.
+FEATURE_BEFORE = """Feature: Search owners
+
+  Scenario: Search by prefix
+    When I search owners for "Pot"
+    Then Harry Potter is listed
+
+  @generate_sequence
+  Scenario: Searching with an empty last name lists every owner
+    When I open the owners page
+    And I search owners for ""
+    Then every owner in the clinic is listed
+
+  Scenario: Retired scenario
+    When I open the vets page
+    Then the vets are listed
+"""
+
+FEATURE_AFTER = """Feature: Browse owners
+
+  Scenario: Search by prefix
+    When I search owners for "Pot"
+    Then Harry Potter is listed
+
+  @generate_sequence
+  Scenario: Searching with an empty last name shows the first page of every owner
+    When I open the owners page
+    And I search owners for ""
+    Then the first 10 owners by "name,asc" are listed, in order
+    And the range reads "1 – 10" of every owner in the clinic
+
+  Scenario: Every owner is reachable page by page
+    When I open the owners page
+    And I walk to the last page
+    Then every owner was listed once
+"""
+
+
+def _git_repo(tmp_path, rel, before, after, remote=None):
+    repo = tmp_path / "repo"
+    (repo / Path(rel).parent).mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True,
+                   capture_output=True)
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "t")
+    if remote:
+        _git(repo, "remote", "add", "origin", remote)
+    (repo / rel).write_text(before)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base")
+    base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    (repo / rel).write_text(after)
+    return repo, base
+
+
+def test_a_scenario_retitled_in_place_is_edited_not_gone_and_new(tmp_path):
+    rel = "features/owner-search.feature"
+    repo, base = _git_repo(tmp_path, rel, FEATURE_BEFORE, FEATURE_AFTER)
+    rows = {r["name"]: r for r in tc.collect(repo, base, [])}
+    renamed = rows["Searching with an empty last name shows the first page of every owner"]
+    assert renamed["status"] == "modified" and renamed["line"] == 8
+    assert renamed["renamedFrom"] == "Searching with an empty last name lists every owner"
+    assert "Searching with an empty last name lists every owner" not in rows, \
+        "the old title is not left behind as a deletion"
+    # A scenario that really went, and one that really arrived, stay what they are: the
+    # new one sits where the retired one was, but shares neither its name nor its steps.
+    assert rows["Retired scenario"]["status"] == "deleted"
+    assert rows["Every owner is reachable page by page"]["status"] == "added"
+    t = tc.totals(list(rows.values()))
+    assert (t["added"], t["modified"], t["deleted"], t["renamed"]) == (1, 1, 1, 1)
+    assert (t["gained"], t["lost"]) == (1, 1), "the rename moves neither half of the chip"
+    assert t["runningAfter"] - t["runningBefore"] == t["gained"] - t["lost"]
+
+
+def test_a_changed_tag_is_not_a_rename():
+    """Losing `@generate_sequence` changes what the scenario is for; conservative means
+    the pair is left as gone + new for the reader to judge."""
+    after = FEATURE_AFTER.replace("  @generate_sequence\n", "  @smoke\n")
+    added, removed = tc.hunk_lines(_unified0(FEATURE_BEFORE, after))
+    rows = {r["name"]: r["status"] for r in tc.classify_file(
+        "o.feature", "M", FEATURE_BEFORE, after, added, removed)}
+    assert rows["Searching with an empty last name lists every owner"] == "deleted"
+    assert rows["Searching with an empty last name shows the first page of every owner"] == "added"
+
+
+def test_two_empty_bodies_on_the_same_line_are_not_a_rename():
+    """`void obsolete() {}` replaced by `void create_withVet() {}`: same place, same
+    annotation, bodies "identical" because both are empty — and nothing in common. A wrong
+    pairing hides a real deletion behind a pencil."""
+    rows = _rows()
+    assert rows["obsolete"]["status"] == "deleted"
+    assert rows["create_withVet"]["status"] == "added"
+    assert not any(r.get("renamedFrom") for r in rows.values())
+
+
+def test_a_method_renamed_with_its_body_kept_is_edited():
+    before = ("class T {\n  @Test\n  void x() {\n    var a = owner();\n    a.save();\n"
+              "    assertThat(a.id()).isPositive();\n  }\n}\n")
+    after = before.replace("void x()", "void save_assignsAnId()")
+    added, removed = tc.hunk_lines(_unified0(before, after))
+    rows = tc.classify_file("T.java", "M", before, after, added, removed)
+    assert rows == [{"name": "save_assignsAnId", "path": "T.java", "status": "modified",
+                     "line": 3, "renamedFrom": "x"}]
+
+
+def _unified0(before: str, after: str) -> str:
+    import difflib
+    out = ["--- a/f", "+++ b/f"]
+    sm = difflib.SequenceMatcher(None, before.splitlines(), after.splitlines(), autojunk=False)
+    b, a = before.splitlines(), after.splitlines()
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == "equal":
+            continue
+        out.append(f"@@ -{i1 + (i2 == i1 and 0 or 1)},{i2 - i1} "
+                   f"+{j1 + (j2 == j1 and 0 or 1)},{j2 - j1} @@")
+        out += ["-" + x for x in b[i1:i2]] + ["+" + x for x in a[j1:j2]]
+    return "\n".join(out) + "\n"
+
+
+# --------------------------------------------------------------------------- #
+# a deleted test is linked where it stood at the base, never at HEAD
+# --------------------------------------------------------------------------- #
+def test_a_deleted_test_carries_its_base_line_and_a_blob_url_at_the_base_commit(tmp_path):
+    """Run 6: 'should create OwnerListComponent' linked owner-list.component.spec.ts:100,
+    where HEAD has `describe('initial state'` — the test was at line 89 of the base."""
+    rel = "features/owner-search.feature"
+    repo, base = _git_repo(tmp_path, rel, FEATURE_BEFORE, FEATURE_AFTER,
+                           remote="git@github.com:acme/clinic.git")
+    gone = next(r for r in tc.collect(repo, base, []) if r["status"] == "deleted")
+    assert gone["name"] == "Retired scenario" and gone["baseLine"] == 13
+    assert gone["baseSha"] == base
+    assert gone["baseUrl"] == f"https://github.com/acme/clinic/blob/{base}/{rel}#L13"
+
+
+def test_without_a_github_remote_a_deleted_test_gets_no_guessed_url(tmp_path):
+    rel = "features/owner-search.feature"
+    repo, base = _git_repo(tmp_path, rel, FEATURE_BEFORE, FEATURE_AFTER)
+    gone = next(r for r in tc.collect(repo, base, []) if r["status"] == "deleted")
+    assert gone["baseLine"] == 13 and gone["baseSha"] == base and "baseUrl" not in gone
+
+
+@pytest.mark.parametrize("remote, repo", [
+    ("git@github.com:acme/clinic.git", "https://github.com/acme/clinic"),
+    ("https://github.com/acme/clinic.git", "https://github.com/acme/clinic"),
+    ("https://github.com/acme/clinic", "https://github.com/acme/clinic"),
+    ("ssh://git@github.com/acme/clinic.git\n", "https://github.com/acme/clinic"),
+    ("https://gitlab.com/acme/clinic.git", ""),
+    ("", ""),
+])
+def test_only_a_github_remote_becomes_a_blob_url(remote, repo):
+    assert tc.github_repo(remote) == repo

@@ -9,7 +9,8 @@ import subprocess
 from pathlib import Path
 
 from ..shared.diagrams import _context_svg, _source_link, render_diagrams, select_rows
-from ..shared.genseq import GENSEQ_HANDLE, genseq_by_test, genseq_details, pair_anchor, test_of_genseq
+from ..shared.genseq import (GENSEQ_HANDLE, genseq_by_test, genseq_details, genseq_file,
+                             pair_anchor, test_of_genseq)
 from ..shared.snippets import SNIPPET_BASE, snippet_html
 from ..shared.svg import inline_svg
 
@@ -97,7 +98,7 @@ def _pair_cat(puml_rel: str, root: Path, authored: str | None = None) -> str | N
     if authored in TEST_CATS:
         return authored
     try:
-        text = (root / puml_rel).read_text(encoding="utf-8")
+        text = genseq_file(puml_rel, root).read_text(encoding="utf-8")
     except OSError:
         return None
     lifelines = []
@@ -173,7 +174,7 @@ def _scenarios_drawn(puml_rel: str, test_rel: str, root: Path) -> list[tuple[int
     `src://` scheme is on every class and endpoint the diagram names, and a line number
     from `OwnerRepository.java` resolved against a feature file would point at nothing."""
     try:
-        text = (root / puml_rel).read_text(encoding="utf-8")
+        text = genseq_file(puml_rel, root).read_text(encoding="utf-8")
     except OSError:
         return []
     found = {}
@@ -660,6 +661,12 @@ def _moved_since_base(rel: str, root: str, base: str) -> bool:
     mb = git("merge-base", base, "HEAD").stdout.strip()
     if not mb:
         return False
+    # This run's copy, when the Sequence step drew one: the work tree holds the committed
+    # bytes again, and it is the re-traced picture the tab is showing.
+    traced = genseq_file(rel, Path(root))
+    if traced != Path(root) / rel:
+        was = git("show", f"{mb}:{rel}")
+        return was.returncode != 0 or was.stdout != traced.read_text(encoding="utf-8")
     # `--quiet` exits 1 on a difference, 0 on none — and 128 when git could not look,
     # which must not be read as "it moved".
     r = git("diff", "--quiet", mb, "--", rel)
@@ -792,6 +799,7 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
     # its references at. Absent, `_pair_cat` reads it off the diagram.
     authored_cat = {x["ref"].rpartition(":")[0]: x.get("cat")
                     for x in snippets if x.get("cat")}
+    lost_by_rel = {x["diagram"]: x for x in _lost(sequence_verdict(out_dir))}
 
     for test_rel, entries in plan.items():
         quoted_by_pair = _share_excerpts(test_rel, entries, snippets, used, root)
@@ -805,6 +813,8 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path):
             # the generator. Two copies of one list, and the one on the picture is the one
             # that sits where the reader is already looking.
             pieces = [] if quoted else [_unquoted_note(test_rel, root)]
+            if puml_rel in lost_by_rel:
+                pieces.append(lost_note_html(lost_by_rel[puml_rel]))
             pieces.append(
                 _stale_sequence(puml_rel, test_rel, root, out_dir) if row is STALE
                 else render_diagrams(merged, root, out_dir, [row], bare=test_rel)
@@ -874,10 +884,18 @@ SEQ_VERDICT_FACE = {
     "notests": ("rband-none", "Part of the traced run found nothing to run.",
                 "A tag filter matched no test — not a failure, and the diagrams below are "
                 "this run's."),
+    # Eval run 6: the re-traced AddVisitApiTest lost NotificationService, the SMS gateway
+    # and both calls — the backend's in-process test could not reach the traced stack's
+    # notification-service — and the band above it said "the diagrams below are this
+    # run's", with nothing admitting they contradicted the committed ones.
+    "degraded": ("rband-warn", "This run's trace lost what the committed diagrams show.",
+                 "The diagrams below are this run's, and the ones named here no longer show "
+                 "participants or calls their committed version has."),
 }
 
 #: `state` -> the words on the tab pill's accessible name when the band is an alarm.
-SEQ_VERDICT_ALARM = {"skipped": "not re-traced on this run", "red": "traced suite red"}
+SEQ_VERDICT_ALARM = {"skipped": "not re-traced on this run", "red": "traced suite red",
+                     "degraded": "trace lost calls the committed diagrams show"}
 
 
 def sequence_verdict(out_dir: Path) -> dict | None:
@@ -889,8 +907,46 @@ def sequence_verdict(out_dir: Path) -> dict | None:
 
 
 def sequence_verdict_alarm(out_dir: Path) -> str | None:
-    """The pill's label when the tab must be read as not this run's evidence, else None."""
-    return SEQ_VERDICT_ALARM.get((sequence_verdict(out_dir) or {}).get("state"))
+    """The pill's label when the tab must be read as not this run's evidence, else None.
+    A run that LOST calls is one, whatever else it was: a tag filter that matched nothing
+    beside it does not make the pictures it degraded trustworthy."""
+    doc = sequence_verdict(out_dir) or {}
+    return SEQ_VERDICT_ALARM.get(doc.get("state")) or (
+        SEQ_VERDICT_ALARM["degraded"] if _lost(doc) else None)
+
+
+def _lost(doc: dict | None) -> list[dict]:
+    """`run-steps.py` `lost_vs_committed`: per re-traced diagram, what its committed copy
+    shows and it no longer does."""
+    return [x for x in (doc or {}).get("lost") or []
+            if isinstance(x, dict) and isinstance(x.get("diagram"), str)
+            and (x.get("participants") or x.get("calls"))]
+
+
+def lost_note_html(entry: dict) -> str:
+    """The warning inside one pair whose re-traced diagram lost what the committed one has.
+
+    Neutral about the cause on purpose — the trace cannot tell a call the code stopped
+    making from one the traced stack never reached — except when a whole participant is
+    gone, which is far more often the stack (a service not started, or not reachable from
+    the JVM that ran the test) than a branch deleting a system from its own picture."""
+    parts = [str(x) for x in entry.get("participants") or []]
+    calls = [str(x) for x in entry.get("calls") or []]
+    said = []
+    if parts:
+        said.append("participant" + ("s " if len(parts) != 1 else " ")
+                    + ", ".join(f"<b>{html.escape(x)}</b>" for x in parts))
+    if calls:
+        said.append(f"{len(calls)} call{'s' if len(calls) != 1 else ''}: "
+                    + "; ".join(f"<code>{html.escape(x)}</code>" for x in calls))
+    cause = ("A whole participant missing is usually the traced stack — a service that was "
+             "not started, or not reachable from the JVM that ran the test — rather than the "
+             "code." if parts else
+             "Either the code under review stopped making these calls, or the traced stack "
+             "did not reach them; the trace alone cannot tell which.")
+    return ('<p class="rband rband-warn seqlost" role="note"><b>Lost vs the committed '
+            'diagram:</b> this run\'s trace no longer shows ' + " and ".join(said)
+            + f". {html.escape(cause)}</p>")
 
 
 #: `⚠️ "<scenario>": fetch failed — skipped` — a generator naming what it skipped. Read off
@@ -927,10 +983,11 @@ def _counted(runs: list[dict], state: str) -> str:
              (tally["no-tests"], "found no test under its tag filter"),
              (tally["empty"], "exited cleanly with nothing to draw"),
              (tally["passed"], "passed")]
-    said = [f"{n} {what}" for n, what in words if n]
+    total = len(runs)
+    # One command is "The traced command found no test…", never "…command 1 found".
+    said = [what if total == 1 else f"{n} {what}" for n, what in words if n]
     if not said:
         return ""
-    total = len(runs)
     head = f"Of the {total} traced command{'s' if total != 1 else ''}, " if total > 1 else "The traced command "
     return head + ", ".join(said[:-1]) + (" and " if len(said) > 1 else "") + said[-1] + "."
 
@@ -953,7 +1010,28 @@ def sequence_verdict_html(out_dir: Path) -> str:
         return ""
     state = doc["state"]
     cls, title, why = SEQ_VERDICT_FACE[state]
+    lost = _lost(doc)
+    if lost and state == "notests":
+        # The loss leads: a tag filter that matched nothing is said below, as its cause.
+        cls, title, why = SEQ_VERDICT_FACE["degraded"]
     parts = [f'<p><b>{html.escape(title)}</b> {html.escape(why)}</p>']
+    if lost:
+        gone = list(dict.fromkeys(p for x in lost for p in x.get("participants") or []))
+        names = ", ".join(Path(x["diagram"]).name.split(".genseq.")[0] for x in lost)
+        parts.append(
+            '<p class="rb-sub"><b>Lost vs the committed diagrams</b> in ' + html.escape(names)
+            + (": " + ", ".join(f"<b>{html.escape(g)}</b>" for g in gone) if gone else "")
+            + " — flagged on each picture below. Do not read a missing call as the code "
+              "no longer making it until the trace is re-run with the whole stack "
+              "reachable.</p>")
+    # The plain cause of each command that found nothing, said in the open: Maven prints a
+    # tag filter that matched nothing as `[ERROR] … MojoFailureException`, and the fold
+    # below would otherwise be a red dump under a reassuring headline (eval run 6).
+    for r in doc.get("runs") or []:
+        if isinstance(r, dict) and r.get("outcome") == "no-tests" and r.get("detail"):
+            parts.append(f'<p class="rb-sub">The cause, in plain words: '
+                         f'{html.escape(str(r["detail"]))}. The <code>[ERROR]</code> lines '
+                         'in the fold below are that, not a broken test.</p>')
     missing = [m for m in doc.get("missing") or [] if isinstance(m, str)]
     if missing:
         parts.append("<p class=\"rb-sub\">Nothing answers at: "
@@ -986,5 +1064,6 @@ def sequence_verdict_html(out_dir: Path) -> str:
                      + "</details>")
     elif doc.get("reason") and not missing:
         parts.append(f'<p class="rb-sub">{html.escape(str(doc["reason"]))}</p>')
-    role = "alert" if state in SEQ_VERDICT_ALARM else "status"
+    role = "alert" if state in SEQ_VERDICT_ALARM or lost else "status"
+    cls = "rband-warn" if lost and cls == "rband-none" else cls
     return f'<div class="rband {cls} seqverdict" role="{role}">' + "".join(parts) + "</div>"

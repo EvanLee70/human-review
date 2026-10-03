@@ -102,9 +102,21 @@ a.titlescore:hover { filter:brightness(1.06); box-shadow:0 0 0 1px currentColor 
    the edge that used to be the masthead's: a shadow under the border, only while it is
    actually pinned, so content passing beneath it reads as passing *under* something. */
 .tabstrip.pinned, .masthead.pinned { box-shadow:0 2px 6px rgba(0,0,0,.13); }
-/* The branch's commits the scope bar does not count (`outside_note`): one muted line under
-   the chips, as quiet as a caption — it explains the numbers above it, it is not one. */
-.scopenote { margin:.05rem 0 .3rem; font-size:.78rem; color:var(--muted); line-height:1.35;
-              white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* The branch's commits the scope bar does not count (`outside_note`): one short muted line
+   under the chips, as quiet as a caption — "6 earlier commits outside the review ▸". Opened,
+   the commits drop over the page as a list (sha + subject) rather than growing the sticky
+   header, which would push the tab strip down on every tab. */
+details.scopenote { position:relative; margin:.05rem 0 .3rem; font-size:.78rem;
+              color:var(--muted); line-height:1.35; }
+details.scopenote > summary { list-style:none; cursor:pointer; display:inline-block; }
+details.scopenote > summary::-webkit-details-marker { display:none; }
+details.scopenote > summary:hover { color:var(--fg); }
+.scopenote .sn-caret { display:inline-block; transition:transform .12s ease; }
+details.scopenote[open] .sn-caret { transform:rotate(90deg); }
+.scopenote .sn-list { position:absolute; z-index:40; left:0; top:100%; margin:.25rem 0 0;
+              padding:.45rem .8rem .45rem 1.6rem; background:var(--card); color:var(--fg);
+              border:1px solid var(--line); border-radius:6px; max-width:min(56rem, 92vw);
+              box-shadow:0 4px 14px rgba(0,0,0,.14); }
+.scopenote .sn-list li { margin:.12rem 0; }
 .scopenote code { font-size:.95em; }
 .scopenote a { color:inherit; }

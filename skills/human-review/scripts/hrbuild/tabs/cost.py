@@ -206,10 +206,14 @@ def cost_ledger_report(root: Path, tab_ids: list[str], base: str,
 # The unattributed cost, in the order a reader wants it: the one part that has a real name
 # first, then the two that are honestly leftovers. Keys come from `review-cost.py`'s
 # `tab_costs`; a part with no turns in it is not rendered at all.
+# Plain words: eval run 6's reader met "Step 9 writes every tab's prose" and "outside every
+# step's window" — the skill's own vocabulary, which nobody reading the page has learned.
 RESIDUAL_ROWS = [
-    ("guide", "assembling the guide itself — Step 9 writes every tab&rsquo;s prose in one pass"),
-    ("subagent", "subagent work that fell outside every step&rsquo;s window"),
-    ("conversation", "the orchestrating conversation — reading, deciding, recovering"),
+    ("guide", "assembling the guide itself — writing every tab&rsquo;s text, in one pass "
+              "at the end"),
+    ("subagent", "subagent work done while no single tab was being produced"),
+    ("conversation", "the orchestrating conversation — reading results, deciding, "
+                     "recovering from failures"),
 ]
 
 
@@ -442,15 +446,72 @@ def cost_ledger_html(led: dict | None, tabs: list[dict]) -> str:
         return ""
     four = components_html(led.get("components"))
     if four:
-        # The four components lead; the Claude-only cut below is their detail, folded:
-        # the same dollars counted a second way, which is why it is not a second total on
-        # the face of the tab.
-        rest = _legacy_ledger_html(led, tabs)
+        # The four components lead, and the fold under them breaks down ONE of their rows
+        # — "this guide" — tab by tab, adding up to it. It used to be the whole
+        # Claude-transcript ledger again (the writing conversation, the passes, the tabs):
+        # the same dollars cut a second way, over different windows, with a second total.
+        # Eval run 6 printed $32.20 / 49.1M above it and $31.39 / 47.9M inside it, and
+        # its "conversation" row matched none of the three rows it was standing in for.
+        # The first three components need no fold: each already names its session and
+        # window on its own row.
+        rest = guide_breakdown_html(led, tabs)
         if not rest:
             return four
-        return (four + '<details class="costdetail"><summary>Claude transcripts, phase by '
-                'phase and tab by tab</summary>' + rest + '</details>')
+        return (four + '<details class="costdetail"><summary>&ldquo;this guide&rdquo;, tab '
+                'by tab</summary>' + rest + '</details>')
     return _legacy_ledger_html(led, tabs)
+
+
+def guide_breakdown_html(led: dict, tabs: list[dict]) -> str:
+    """The "this guide" component, split across the page's tabs — summing to that row.
+
+    The rows are the run's own conversation, turn by turn, placed in the tab whose step was
+    running (`review-cost.py`'s `tab_costs`), plus each `claude -p` step the run shelled out
+    to, charged to the tab it wrote (`bill_model_runs`: the requirements↔tests mapping on
+    Tests, the film script on Demo). The footer says it equals the row above — or, when the
+    two were measured over different stretches of the conversation, by how much and why,
+    so the fold never carries an unexplained second total."""
+    report = led.get("tabs") or {}
+    comp = led.get("components") or {}
+    guide = next((r for r in comp.get("rows") or []
+                  if isinstance(r, dict) and r.get("key") == "guide"), None)
+    if not ((led.get("run") or {}).get("measured") or report.get("modelRuns")):
+        return ""
+    body = _cost_tab_rows(report, tabs)
+    rows = report.get("tabs") or {}
+    total = sum((r.get("cost") or 0.0) for r in rows.values() if r.get("measured"))
+    tokens = sum((r.get("tokens") or 0) for r in rows.values() if r.get("measured"))
+    resid = report.get("residual") or {}
+    if resid.get("measured"):
+        total += resid.get("cost") or 0.0
+        tokens += resid.get("tokens") or 0
+    sub = ""
+    if guide and guide.get("measured") and guide.get("usd") is not None and not guide.get("aic"):
+        g = guide.get("usd") or 0.0
+        if abs(total - g) < 0.005:
+            sub = "the same as the &ldquo;this guide&rdquo; row above"
+            # Printed as that row prints it: $3.3150 is `$3.31` there and `$3.32` here
+            # when summed in another order, and "the same as" over two different numbers
+            # is the contradiction this footer exists to remove.
+            total, tokens = g, guide.get("tokens") or tokens
+        else:
+            win = guide.get("window") or [None, None]
+            span = (f" ({_when(win[0])} &rarr; {_when(win[1])})"
+                    if len(win) == 2 and _when(win[0]) and _when(win[1]) else "")
+            sub = (f"the &ldquo;this guide&rdquo; row above says {_cost_money(g)}: it stops "
+                   f"where the run ended{span}, while these rows read the run&rsquo;s "
+                   f"conversation from its start to this build, "
+                   f"{_cost_money(abs(total - g))} {'more' if total > g else 'less'}")
+    foot = (f'<tr class="costtotal"><td>total'
+            + (f'<span class="costsub">{sub}</span>' if sub else "")
+            + f'</td><td>{_cost_tokens(tokens)}</td><td>{_cost_money(total)}</td></tr>')
+    return ('<table class="costtab costledger">'
+            '<caption>Where the &ldquo;this guide&rdquo; row went: each turn of the run that '
+            'built this page, placed in the tab it was producing, and each model step it '
+            'called, on the tab it wrote.</caption>'
+            '<thead><tr><th scope="col">tab</th><th scope="col">tokens</th>'
+            '<th scope="col">cost</th></tr></thead>'
+            f'<tbody>{body}</tbody><tfoot>{foot}</tfoot></table>')
 
 
 def _legacy_ledger_html(led: dict, tabs: list[dict]) -> str:
@@ -612,8 +673,22 @@ def _cost_tab_rows(costs: dict, tabs: list[dict]) -> str:
     def names(items):
         return ", ".join(html.escape(str(l)) for l, _ in items)
 
-    out = "".join(f'<tr><td>{html.escape(str(l))}</td><td>{_cost_tokens(toks(r))}</td>'
-                  f'<td>{_cost_money(spend(r))}</td></tr>' for l, r in paid)
+    def paid_row(label, r) -> str:
+        # A tab billed for a `claude -p` step (`bill_model_runs`) says which step, under
+        # its name — otherwise "Tests $0.16" contradicts every sentence saying the Tests
+        # tab is produced by a script. A run whose token counts were never recorded shows
+        # "—", not a 0 beside a price.
+        runs = r.get("runs") or []
+        sub = "".join(f'<span class="costsub">{html.escape(str(x.get("what") or ""))}, '
+                      "claude -p"
+                      + (f' on {html.escape(str(x["model"]))}' if x.get("model") else "")
+                      + ("" if x.get("tokens") else " &middot; tokens not recorded")
+                      + "</span>" for x in runs)
+        tok = "—" if r.get("tokensUnknown") and not toks(r) else _cost_tokens(toks(r))
+        return (f'<tr><td>{html.escape(str(label))}{sub}</td><td>{tok}</td>'
+                f'<td>{_cost_money(spend(r))}</td></tr>')
+
+    out = "".join(paid_row(l, r) for l, r in paid)
     if free:
         out += (f'<tr class="costquiet"><td>{len(free)} tab{"s" if len(free) != 1 else ""} '
                 f'with no model spend — {names(free)}</td><td>0</td><td>$0.00</td></tr>')
@@ -680,27 +755,37 @@ def _minutes(secs) -> str:
 def _entry_line(e: dict) -> str:
     who = _HARNESS.get(e.get("harness"), e.get("harness") or "?")
     sid = str(e.get("session") or "")
-    sid = (f' <code>{html.escape(sid[:8])}</code>' if sid and not sid.startswith("claude -p")
-           else (f" {html.escape(sid)}" if sid else ""))
+    if sid.startswith("claude -p"):
+        # A model step the run shelled out to: `claude -p on Haiku 4.5`, not the harness
+        # name followed by the ledger file it was read from.
+        model = ", ".join(e.get("models") or {})
+        head = "claude -p" + (f" on {html.escape(model)}" if model else "")
+    else:
+        head = html.escape(who) + (f' <code>{html.escape(sid[:8])}</code>' if sid else "")
     win = e.get("window") or [None, None]
     when = (f"{_when(win[0])} &rarr; {_when(win[1])}" if len(win) == 2 and _when(win[0])
             else "")
-    bits = [f"{html.escape(who)}{sid}", html.escape(str(e.get("what") or "")), when]
+    bits = [head, html.escape(str(e.get("what") or "")), when]
     money = (_aic(e["aic"]) if e.get("aic") is not None
              else (_cost_money(e["usd"]) if e.get("usd") is not None else ""))
-    if money and e.get("what"):
-        bits.append(money)
     if e.get("note"):
         bits.append(html.escape(str(e["note"])))
-    return " &middot; ".join(b for b in bits if b)
+    line = " &middot; ".join(b for b in bits if b)
+    if money and e.get("what"):
+        # Glued to the word before it: eval run 6 wrapped `$0.16` onto a line of its own,
+        # a price with nothing beside it to say what it was the price of.
+        line += f'<span class="costnum">&nbsp;&middot;&nbsp;{money}</span>'
+    return line
 
 
 COMPONENT_HINTS = {
     "implementation": "writing the code, up to /record-review",
     "review": "the reviewers finding — prepare → reviewers done",
     "autofix": "taking the review's advice — the [auto-fix] commit, every CI round",
-    "guide": "this page's own model work: the /human-review run, the requirements↔tests "
-             "mapping, the film script",
+    # The parts are the entry lines under it, each named for what it was: listing "the film
+    # script" here printed it on a run that wrote none (eval run 6).
+    "guide": "this page's own model work — the run that built it, and every model step it "
+             "called",
 }
 
 
@@ -761,10 +846,22 @@ def components_html(comp: dict | None) -> str:
     foot = (f'<tr class="costtotal"><td>total<span class="costsub">{html.escape(sub)}'
             f'</span></td><td>{_cost_tokens(sum(r.get("tokens") or 0 for r in rows if r.get("measured")))}</td>'
             f'<td>{_cost_money(total)}</td></tr>')
+    # Each kind of price is explained only when a row on screen is priced in it: eval run
+    # 6 was Claude end to end, and its caption still explained Copilot's AI credits.
+    priced = [r for r in rows if r.get("measured")]
+    has_claude = any(r.get("usd") is not None for r in priced)
+    has_copilot = any(r.get("aic") is not None for r in priced)
+    units = []
+    if has_claude:
+        units.append("Claude is priced at API list price — nobody on a subscription is "
+                     "billed it")
+    if has_copilot:
+        units.append("Copilot in AI credits, its own unit, with what GitHub bills for them")
+    caption = ("What this change cost, in four parts"
+               + (", whichever harness ran each" if has_claude and has_copilot else "")
+               + ". " + "; ".join(units) + ("." if units else ""))
     return ('<table class="costtab costledger costfour">'
-            '<caption>What this change cost, in four parts, whichever harness ran each. '
-            'Claude is priced at API list price — nobody on a subscription is billed it; '
-            'Copilot in AI credits, its own unit, with what GitHub bills for them.</caption>'
+            f'<caption>{caption}</caption>'
             '<thead><tr><th scope="col">component</th><th scope="col">tokens</th>'
             '<th scope="col">cost</th></tr></thead>'
             f'<tbody>{"".join(out)}</tbody><tfoot>{foot}</tfoot></table>')

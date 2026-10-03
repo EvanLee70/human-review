@@ -433,3 +433,64 @@ def test_with_no_transcript_the_front_matter_names_the_reviewers(tmp_path, monke
     (repo / "review-points.md").unlink()
     assert hc.reviewer_models(repo) == ["Opus 5", "Sonnet 5"], \
         "nothing names the reviewers: the review row's own models, largest first"
+
+
+def test_a_model_step_carries_its_program_and_the_tokens_it_recorded(tmp_path):
+    """Eval run 6 billed the mapping `$0.16` beside 0 tokens, and nothing on the entry
+    said which tab it fed. The program rides on the entry; the tokens come from the run."""
+    (tmp_path / ".model-runs.json").write_text(json.dumps({"runs": [
+        {"when": "2026-10-03T00:03:32+00:00", "model": "haiku", "cost": 0.16,
+         "seconds": 99.8, "tokens": 46500, "models": {"claude-haiku-4-5-20251001": 46500}},
+        {"when": "2026-10-03T00:03:40+00:00", "model": "haiku", "cost": 0.1,
+         "seconds": 10}]}))
+    lo, hi = hc.parse("2026-10-02T23:50:53Z"), hc.parse("2026-10-03T00:04:00Z")
+    new, old = hc._ledger_runs(tmp_path, lo, hi)
+    assert new["program"] == "rerun-model.py" and "rerun-model.py" in new["what"]
+    assert new["tokens"] == 46500 and new["models"] == {"Haiku 4.5": 46500}
+    assert old["tokens"] == 0 and old["models"] == {"haiku": 0}, \
+        "an older run says which model ran, and claims no count it never recorded"
+
+
+def test_the_review_chip_names_the_reviewers_and_who_orchestrated_them(tmp_path, monkeypatch):
+    """`Reviewed by Sonnet 5.5` over a review row reading `Opus 5.5 73% / Sonnet 5.5 27%`:
+    four Sonnet subagents read the diff, an Opus session briefed them. Both are said."""
+    monkeypatch.setattr(hc.rc(), "PROJECTS", tmp_path / "nothing")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    entry = {"harness": hc.CLAUDE, "session": "gone", "subagentModels": ["Sonnet 5.5"],
+             "models": {"Opus 5.5": 73, "Sonnet 5.5": 27}}
+    (repo / hc.RECORD_FILE).write_text(json.dumps({"schema": hc.RECORD_SCHEMA, "components": [
+        {"key": "review", "entries": [entry]}]}))
+    (repo / "review-points.md").write_text(
+        "---\nreviewers: 4 read-only Sonnet subagents (correctness, tests)\n---\n")
+    assert hc.review_line(repo) == \
+        "Reviewers: Sonnet 5.5 (4 subagents), orchestrated by Opus 5.5"
+    (repo / hc.RECORD_FILE).write_text(json.dumps({"schema": hc.RECORD_SCHEMA, "components": [
+        {"key": "review", "entries": [{**entry, "subagents": 2}]}]}))
+    assert hc.review_line(repo).startswith("Reviewers: Sonnet 5.5 (2 subagents)"), \
+        "a recorded count beats the prose"
+    (repo / "review-points.md").unlink()
+    inline = {"harness": hc.CLAUDE, "session": "gone", "models": {"Opus 5.5": 10}}
+    (repo / hc.RECORD_FILE).write_text(json.dumps({"schema": hc.RECORD_SCHEMA, "components": [
+        {"key": "review", "entries": [inline]}]}))
+    assert hc.review_line(repo) == "Reviewed by Opus 5.5", "an inline review had no agents"
+
+
+def test_the_four_rows_explain_only_the_prices_on_screen():
+    """Run 6 was Claude end to end and its caption still explained Copilot AI credits.
+    And an entry's price is glued to its words: `$0.16` had wrapped onto its own line."""
+    sys.path.insert(0, str(HERE))
+    from hrbuild.tabs import cost
+    comp = {"rows": [
+        hc.component("implementation", [hc.entry(hc.CLAUDE, "c1abcdef", "edited", usd=21.66)]),
+        hc.component("guide", [hc.entry(hc.CLAUDE, "claude -p (.model-runs.json)",
+                                        "requirements↔tests mapping (rerun-model.py)",
+                                        tokens=46500, usd=0.16,
+                                        models={"Haiku 4.5": 46500})]),
+    ], "usd": 21.82, "aic": 0.0}
+    out = cost.components_html(comp)
+    assert "Copilot" not in out and "AI credit" not in out
+    assert "Claude is priced at API list price" in out
+    assert '<span class="costnum">&nbsp;&middot;&nbsp;$0.16</span>' in out
+    assert "claude -p on Haiku 4.5" in out and ".model-runs.json" not in out
+    assert "film script" not in out, "the hint names no step the run did not take"

@@ -775,6 +775,45 @@ def test_a_view_projected_from_sequences_nobody_re_traced_says_so_on_its_card(tm
     assert dict(zip(header.split("\t"), row.split("\t")))["note"] == ""
 
 
+def test_a_view_resting_on_a_trace_that_lost_calls_says_so_on_its_card(tmp_path):
+    """Eval run 6: the re-traced AddVisitApiTest lost NotificationService and the SMS
+    gateway, and this card called the container view UNCHANGED off that degraded set."""
+    root = _repo(tmp_path)
+    assets = root / ".human-review" / "assets"
+    assets.mkdir(parents=True)
+    (assets / "sequence.verdict.json").write_text(json.dumps({
+        "state": "notests", "lost": [{"diagram": "test/a.spec.ts.flow.genseq.puml",
+                                      "participants": ["NotificationService", "SMS gateway"],
+                                      "calls": ["Backend → NotificationService: POST /n"]}]}))
+    assert c2.main(["--root", str(root), "--base", "main"]) == 0
+    header, row = (assets / "c2" / "MANIFEST.tsv").read_text().splitlines()
+    note = dict(zip(header.split("\t"), row.split("\t")))["note"]
+    assert "lost" in note and "NotificationService, SMS gateway" in note
+    assert "gap in the trace" in note
+
+
+def test_the_view_is_projected_from_this_runs_drawings_not_the_restored_files(tmp_path):
+    """The Sequence step puts the committed diagrams' bytes back and files what it drew in
+    `.human-review/assets/genseq/`; projecting the work tree would draw the committed set."""
+    root = _repo(tmp_path)
+    overlay = root / ".human-review" / "assets" / "genseq"
+    (overlay / "test").mkdir(parents=True)
+    (overlay / "test" / "a.spec.ts.flow.genseq.puml").write_text(
+        "@startuml\nBrowser -> Backend: GET /api/owners\nBackend -> Payments: POST /charge\n"
+        "@enduml\n")
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
+                          text=True).stdout.strip()
+    (overlay / ".head").write_text(head + "\n")
+    assert c2.main(["--root", str(root), "--base", "main"]) == 0
+    model = json.loads((root / ".human-review/assets/c2/C2-Containers.json").read_text())
+    assert "Payments" in model["new"]["nodes"] and "DB" not in model["new"]["nodes"]
+    # Pinned to the commit it traced: after a new commit the committed files win again.
+    (overlay / ".head").write_text("0" * 40 + "\n")
+    assert c2.main(["--root", str(root), "--base", "main"]) == 0
+    model = json.loads((root / ".human-review/assets/c2/C2-Containers.json").read_text())
+    assert "Payments" not in model["new"]["nodes"]
+
+
 if __name__ == "__main__":
     sys.exit(subprocess.call([sys.executable, "-m", "pytest", "-q", __file__]))
 

@@ -5,6 +5,7 @@ import functools
 import json
 import os
 import re
+import subprocess
 from pathlib import Path
 
 # `Browser → Backend: POST /api/owners/{ownerId}/pets/{petId}/visits` — a call arrow's
@@ -28,7 +29,35 @@ TYPE_DECL = re.compile(
 )
 METHOD_NAME = re.compile(r"(?P<name>\w+)\s*\(")
 HTTP_VERBS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
-SKIP_DIRS = {".git", "node_modules", "target", "build", "out", "dist", ".idea", ".gradle"}
+# `.human-review` too: the Sequence step files its own copies of the diagrams in there
+# (`GENSEQ_OVERLAY`), and a walk that found them would pair each picture twice.
+SKIP_DIRS = {".git", "node_modules", "target", "build", "out", "dist", ".idea", ".gradle",
+             ".human-review"}
+
+#: Where `run-steps.py` `_sequence` files what its traced run drew, under each diagram's
+#: repository path — the committed `generated/*.genseq.*` get their own bytes back after
+#: every run, so the page reads this run's pictures from here. `.head` pins the copy to the
+#: commit it was traced at; once HEAD moves, the committed files are the newer truth.
+GENSEQ_OVERLAY = Path(".human-review") / "assets" / "genseq"
+
+
+def genseq_overlay(root: Path) -> Path | None:
+    """The Sequence step's copy of this run's diagrams, when it was traced at this HEAD."""
+    d = Path(root) / GENSEQ_OVERLAY
+    try:
+        traced_at = (d / ".head").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    return d if traced_at and traced_at == head else None
+
+
+def genseq_file(rel: str, root: Path) -> Path:
+    """Where to read a generated diagram (or its sidecar) from: this run's copy when the
+    traced run drew one, else the file in the work tree."""
+    d = genseq_overlay(root)
+    return d / rel if d is not None and (d / rel).is_file() else Path(root) / rel
 
 
 def _annotation_span(lines, i: int):
@@ -156,7 +185,7 @@ def genseq_details(rel: str, root: Path) -> str:
     neighbouring file is blocked, and the guide has to survive being mailed as one file."""
     if not rel.endswith(".genseq.puml"):
         return ""
-    sidecar = root / (rel[: -len(".puml")] + ".json")
+    sidecar = genseq_file(rel[: -len(".puml")] + ".json", root)
     if not sidecar.is_file():
         return ""
     return _details_carrier(sidecar, root)
@@ -273,7 +302,8 @@ def test_of_genseq(source: str, root: Path) -> str:
     for — cannot be checked that way, so the slug is cut on its shape: all lowercase,
     digits and dashes, over something that still has an extension.
     """
-    declared = _declared_test(root / source, root) if source.endswith(".genseq.puml") else None
+    declared = (_declared_test(genseq_file(source, root), root)
+                if source.endswith(".genseq.puml") else None)
     if declared:
         return declared
     rel = source[: -len(".genseq.puml")] if source.endswith(".genseq.puml") else source

@@ -102,7 +102,7 @@
   function setLive(live, why) {
     show(acts.start, !served || !live);
     show(acts.stop, !served || live);
-    resetButtons().forEach(function (el) { gate(el, live, resetTip(el.dataset.fixture)); });
+    resetButtons().forEach(function (el) { gate(el, live, resetTip(el)); });
     if (resetsTo && !live) resetsTo.hidden = true;
     [].forEach.call(document.querySelectorAll('.cue-drive'), function (el) {
       arm(el, live, live ? 'Drive the app to this point' : why);
@@ -181,16 +181,34 @@
   function resetButtons() {
     return resets ? [].slice.call(resets.querySelectorAll('.appenv-reset')) : [];
   }
-  function resetTip(name) {
-    return name ? 'Put the demo data back to its seed, then load the \u201c' + name
-                  + '\u201d fixture on top of it'
-                : 'Put the demo data back to its seed';
+  // What each button puts back, in words. Eval run 6 drew "Reset DB to: default | green"
+  // and nothing on the page said what "green" was. A fixture is a named set of extra demo
+  // rows the environment loads on top of the seed; when the environment describes it
+  // (`about`), the description is the tip, and otherwise the tip says what kind of thing
+  // the name is.
+  function resetTip(el) {
+    var name = el && el.dataset.fixture, about = el && el.dataset.about;
+    if (!name) return 'Empty the demo database and restore the seed — the data the '
+                      + 'app starts with';
+    return 'Restore the seed, then load the “' + name + '” fixture on top of it'
+           + (about ? ': ' + about : ' — a named set of extra demo rows this '
+                                     + 'environment ships');
   }
-  // With fixtures the group is one verb and its arguments — "Reset DB to: [default]
-  // [green]" — and without, the seed's button says the whole thing on its own.
+  // With fixtures the group is one verb and its arguments — "Reset DB to: [seed]
+  // [seed + green]" — and without, the seed's button says the whole thing on its own.
   function nameResets(any) {
     if (resetsTo) resetsTo.hidden = !any;
-    if (reset) reset.textContent = any ? 'default' : 'Reset DB';
+    if (reset) reset.textContent = any ? 'seed' : 'Reset DB';
+  }
+  // A fixture as the environment lists it: a bare name, or `{name, about}` — and a
+  // top-level `about: {name: text}` map is read too, so a sidecar can describe its
+  // fixtures either way without the page caring which.
+  function fixtureOf(item, info) {
+    var name = typeof item === 'string' ? item : (item && item.name);
+    if (!name) return null;
+    var about = (item && typeof item === 'object' && (item.about || item.description))
+                || (info.about && typeof info.about === 'object' && info.about[name]) || '';
+    return {name: String(name), about: String(about)};
   }
 
   // The fixtures are the environment's to name, and asked for every time it is found up:
@@ -205,18 +223,23 @@
       // The row may have moved on while this was in flight — stopped, or pointed at
       // another instance — and buttons for that one must not land in this one's row.
       if (!info || base() !== b || state.dataset.state !== 'live') return;
-      var names = Array.isArray(info.fixtures) ? info.fixtures : [];
+      var found = (Array.isArray(info.fixtures) ? info.fixtures : [])
+        .map(function (item) { return fixtureOf(item, info); })
+        .filter(function (f) { return f; });
       resetButtons().slice(1).forEach(function (el) { el.remove(); });
-      names.forEach(function (name) {
+      found.forEach(function (f) {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'appenv-reset';
-        btn.dataset.fixture = name;
-        btn.textContent = name;
-        gate(btn, true, resetTip(name));
+        btn.dataset.fixture = f.name;
+        if (f.about) btn.dataset.about = f.about;
+        // "seed + green", not "green": the button restores the seed and adds the
+        // fixture's rows to it, and the face says so before anybody hovers.
+        btn.textContent = 'seed + ' + f.name;
+        gate(btn, true, resetTip(btn));
         resets.appendChild(btn);
       });
-      nameResets(names.length > 0);
+      nameResets(found.length > 0);
     }).catch(function () {});
   }
 

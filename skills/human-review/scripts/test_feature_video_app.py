@@ -676,16 +676,20 @@ def test_a_red_suite_keeps_the_diagrams_it_drew_and_puts_the_others_back(
     (tmp_path / ".human-review" / "assets").mkdir(parents=True)
     gen = tmp_path / "generated"
     gen.mkdir()
-    (gen / "Kept.genseq.puml").write_text("@startuml\n@enduml\n")
+    (gen / "Kept.genseq.puml").write_text("@startuml\nold\n@enduml\n")
+    (gen / "Gone.genseq.puml").write_text("@startuml\ngone\n@enduml\n")
     monkeypatch.chdir(tmp_path)
-    sh = Recorder([
-        ("run-tests-with-tracing.sh", 1, ""),
-        ("git status --porcelain", 0, " D generated/Gone.genseq.puml\n"
-                                      " M generated/Kept.genseq.puml\n"),
-    ])
+    ran = []
+
+    def sh(cmd, ctx, check=True, capture=False):
+        ran.append(cmd)
+        if "run-tests-with-tracing.sh" in cmd:      # sweeps, then dies
+            (gen / "Gone.genseq.puml").unlink()
+            return subprocess.CompletedProcess(cmd, 1, "", "")
+        if "mvn -Pgenseq test" in cmd:              # redraws the backend's picture
+            (gen / "Kept.genseq.puml").write_text("@startuml\nnew\n@enduml\n")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
     monkeypatch.setattr(steps, "sh", sh)
-    # The question is "did this run draw anything", asked by comparing two snapshots of the
-    # diagrams on disk — and here the backend suite did redraw Kept.genseq.puml.
     _draws(monkeypatch)
     ctx = steps.Ctx("origin/main", {"steps": {"sequence": {"commands": [
         "cd petclinic-test && ./run-tests-with-tracing.sh",
@@ -695,14 +699,154 @@ def test_a_red_suite_keeps_the_diagrams_it_drew_and_puts_the_others_back(
     steps._sequence(ctx)          # a red suite is a finding, not a lost tab
 
     # every command still ran — the backend's diagram is drawn by the second one
-    assert sh.has("mvn -Pgenseq test")
-    # the deleted one is put back; the modified one is left exactly as the run left it
-    restored = sh.first("git checkout --")
-    assert "generated/Gone.genseq.puml" in restored
-    assert "Kept.genseq.puml" not in restored
+    assert any("mvn -Pgenseq test" in c for c in ran)
+    # the deleted one is put back from the bytes held, never by `git checkout`
+    assert (gen / "Gone.genseq.puml").read_text() == "@startuml\ngone\n@enduml\n"
+    assert not any("git checkout" in c for c in ran)
     # and the page is told, so the guide cannot present a red run as a clean one
     assert any("RED" in n for n in ctx.notes)
     assert any("restored 1 diagram file" in n for n in ctx.notes)
+
+
+# ── eval run 6: the step left the branch it reviewed dirty, and a degraded trace in it ──
+# Six tracked `generated/*.genseq.*` files were left modified, and the re-traced
+# AddVisitApiTest had lost NotificationService and the SMS gateway (the in-process test
+# could not reach the traced stack's notification-service) while the band said "the
+# diagrams below are this run's".
+
+COMMITTED_ADD_VISIT = """@startuml
+participant Test
+participant Backend
+participant DB
+participant NotificationService
+participant "SMS gateway"
+Test -> Test: [[src://AddVisitApiTest.java:85{line} and a visit is added ↗]]
+Test -> Backend: [[genseq://09akplx{body} Add a visit\\nPOST /api/owners/{ownerId}/pets/{petId}/visits ⊕]]
+Backend -> DB: [[genseq://09ukh7p{sql} insert for Visit ⊕]]
+Backend -> NotificationService: [[genseq://0a5r3wo{body} POST /api/notifications/visit-booked ⊕]]
+NotificationService -> "SMS gateway": [[src://SmsGateway.java:23{open} send-sms ↗]]
+NotificationService --> Backend: 202
+Backend --> Test: 201
+@enduml
+"""
+RETRACED_ADD_VISIT = """@startuml
+participant Test
+participant Backend
+participant DB
+Test -> Test: [[src://AddVisitApiTest.java:85{line} and a visit is added ↗]]
+Test -> Backend: [[genseq://1jmv4vp{body} Add a visit\\nPOST /api/owners/{ownerId}/pets/{petId}/visits ⊕]]
+Backend -> DB: [[genseq://0kzn69z{sql} insert for Visit ⊕]]
+Backend --> Test: 201
+@enduml
+"""
+
+
+def _git_repo_with(tmp_path, files: dict) -> None:
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    for cmd in (["git", "init", "-q"], ["git", "add", "-A"],
+                ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "c"]):
+        subprocess.run(cmd, cwd=tmp_path, check=True, capture_output=True)
+
+
+def test_a_retrace_that_lost_calls_is_flagged_and_the_tree_is_left_clean(
+        tmp_path, monkeypatch):
+    rel = "generated/AddVisitApiTest.java.adds-a-visit.genseq.puml"
+    side = rel[:-len(".puml")] + ".json"
+    _git_repo_with(tmp_path, {rel: COMMITTED_ADD_VISIT, side: '{"details": {"a": 1}}\n',
+                              ".gitignore": ".human-review/\n"})
+    (tmp_path / ".human-review" / "assets").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+
+    def sh(cmd, ctx, check=True, capture=False):
+        if "mvn" in cmd:                            # the regeneration
+            (tmp_path / rel).write_text(RETRACED_ADD_VISIT)
+            (tmp_path / side).write_text('{"details": {"b": 2}}\n')
+            (tmp_path / "generated/New.java.x.genseq.puml").write_text("@startuml\n@enduml\n")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(steps, "sh", sh)
+    ctx = steps.Ctx("origin/main", {"steps": {"sequence": {
+        "commands": ["cd petclinic-backend && mvn -o -Pgenseq test -Dgroups=genseq"]}}},
+        dry=False)
+
+    steps._sequence(ctx)
+
+    # The branch is exactly as the run found it: tracked bytes back, nothing new left over.
+    status = subprocess.run(["git", "status", "--porcelain"], capture_output=True,
+                            text=True).stdout
+    assert status == "", status
+    # What the run drew is in the review directory, pinned to the commit it traced.
+    overlay = tmp_path / ".human-review/assets/genseq"
+    assert (overlay / rel).read_text() == RETRACED_ADD_VISIT
+    assert (overlay / side).read_text() == '{"details": {"b": 2}}\n'
+    assert (overlay / "generated/New.java.x.genseq.puml").is_file()
+    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
+    assert (overlay / ".head").read_text().strip() == head.stdout.strip()
+    # And the loss is computed against the committed diagram, not left for a judge to find.
+    verdict = json.loads(Path(".human-review/assets/sequence.verdict.json").read_text())
+    assert verdict["state"] == "degraded"
+    assert verdict["lost"] == [{
+        "diagram": rel, "participants": ["NotificationService", "SMS gateway"],
+        "calls": ["Backend → NotificationService: POST /api/notifications/visit-booked",
+                  "NotificationService → SMS gateway: send-sms"]}]
+    assert any("LOST" in n and "NotificationService" in n for n in ctx.notes)
+
+
+def test_a_retrace_that_matches_the_committed_diagram_loses_nothing():
+    """The per-run ids on every handle move each time; the calls do not."""
+    moved_ids = COMMITTED_ADD_VISIT.replace("09akplx", "zzzzzzz").replace("0a5r3wo", "yyyyyyy")
+    assert steps.seq_inventory(moved_ids) == steps.seq_inventory(COMMITTED_ADD_VISIT)
+    parts, calls = steps.seq_inventory(COMMITTED_ADD_VISIT)
+    assert parts == ["Test", "Backend", "DB", "NotificationService", "SMS gateway"]
+    assert "Backend → DB: insert for Visit" in calls
+    assert not any(c.startswith("Test → Test") for c in calls), "a sentence is not a call"
+    assert not any("202" in c for c in calls), "a response is not a call"
+
+
+def test_the_delta_is_drawn_from_this_runs_copy_while_the_tree_holds_the_committed_one(
+        tmp_path):
+    """`puml-diff.sh` used to read the work tree, which is exactly what the step no longer
+    leaves dirty: the re-traced picture and its sidecar are read from the review directory."""
+    rel = "generated/AddVisitApiTest.java.adds-a-visit.genseq.puml"
+    side = rel[:-len(".puml")] + ".json"
+    _git_repo_with(tmp_path, {rel: COMMITTED_ADD_VISIT, side: '{"details": {"a": 1}}\n',
+                              ".gitignore": ".human-review/\n"})
+    overlay = tmp_path / ".human-review/assets/genseq"
+    (overlay / "generated").mkdir(parents=True)
+    (overlay / rel).write_text(RETRACED_ADD_VISIT)
+    (overlay / side).write_text('{"details": {"b": 2}}\n')
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True,
+                          text=True).stdout.strip()
+    (overlay / ".head").write_text(head + "\n")
+    out = tmp_path / ".human-review/assets/diagrams"
+    subprocess.run([str(HERE / "puml-diff.sh"), "HEAD", str(out)], cwd=tmp_path, check=True,
+                   capture_output=True)
+    header, line = (out / "MANIFEST.tsv").read_text().splitlines()
+    row = dict(zip(header.split("\t"), line.split("\t")))
+    assert row["source"] == rel and row["status"] == "modified", row
+    assert (out / row["new_details"]).read_text() == '{"details": {"b": 2}}\n'
+    assert "NotificationService" in (out / row["diff_puml"]).read_text(), \
+        "the lost lifeline is drawn as removed"
+    # Another HEAD's copy is ignored: the committed diagram is unchanged against HEAD.
+    (overlay / ".head").write_text("0" * 40 + "\n")
+    subprocess.run([str(HERE / "puml-diff.sh"), "HEAD", str(out)], cwd=tmp_path, check=True,
+                   capture_output=True)
+    assert len((out / "MANIFEST.tsv").read_text().splitlines()) == 1
+
+
+def test_a_skipped_run_drops_the_previous_runs_drawings(tmp_path, monkeypatch):
+    """A run that drew nothing shows the committed diagrams; last time's copy must not win
+    over them on the page."""
+    (tmp_path / ".human-review/assets/genseq/generated").mkdir(parents=True)
+    (tmp_path / ".human-review/assets/genseq/generated/Old.genseq.puml").write_text("x")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(steps, "sh", Recorder([("mvn", 1, "boom\n")]))
+    ctx = steps.Ctx("origin/main", {"steps": {"sequence": {"commands": ["mvn test"]}}},
+                    dry=False)
+    with pytest.raises(LookupError):
+        steps._sequence(ctx)
+    assert not (tmp_path / ".human-review/assets/genseq/generated/Old.genseq.puml").exists()
 
 
 # ── a missing environment is a skip with a reason, never a red step ────────────────

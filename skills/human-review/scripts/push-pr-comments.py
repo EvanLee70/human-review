@@ -39,6 +39,7 @@ Usage:
   push-pr-comments.py --dry-run                   # print the exact gh calls; post nothing
   push-pr-comments.py                             # post / update them on the branch's PR
   push-pr-comments.py --from-review-points        # (re)write the payload from review-points.md
+  push-pr-comments.py --drop-stale                # rebuild/drop a payload from another branch
   push-pr-comments.py --pr 49 --repo victorrentea/petclinic --dry-run
 
 Exit codes: 0 ok · 2 bad payload / no PR · 3 no payload file · 4 a GitHub call failed.
@@ -544,6 +545,50 @@ def from_review_points(root: Path, points_file: str, at: str) -> dict:
 # main
 # --------------------------------------------------------------------------- #
 
+def stale_reason(root: Path, payload) -> str | None:
+    """Why the payload belongs to another branch, or None when its commit is on this one.
+
+    Run 6 carried a `pr-comments.json` pinned to `0746abc5`, a commit of the previous run's
+    branch: its anchors and quoted lines were written for code this branch never had, and
+    a push would have pinned them onto this PR. The commit has to be an ancestor of HEAD."""
+    cid = str((payload or {}).get("commit_id") or "").strip() if isinstance(payload, dict) \
+        else ""
+    if not cid:
+        return None
+    r = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", cid, "HEAD"],
+                       capture_output=True, text=True)
+    if r.returncode == 0:
+        return None
+    if r.returncode == 1:
+        return f"its commit {cid[:8]} is not on this branch (not an ancestor of HEAD)"
+    return f"its commit {cid[:8]} is not in this clone"
+
+
+def drop_stale(root: Path, file: Path, points: str, at: str | None) -> str | None:
+    """Rebuild `file` from the record when its commit is not on this branch, or delete it
+    when there is no record to rebuild it from. Returns what was done, None when the payload
+    is current (or absent)."""
+    if not file.is_file():
+        return None
+    try:
+        payload = json.loads(file.read_text(encoding="utf-8"))
+    except ValueError:
+        payload = {"commit_id": "not-json"}
+    why = stale_reason(root, payload)
+    if not why:
+        return None
+    if (root / points).is_file():
+        rev = at or _review_commit(root)
+        if stale_reason(root, {"commit_id": rev}):
+            rev = "HEAD"
+        fresh = from_review_points(root, points, rev)
+        file.write_text(json.dumps(fresh, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8")
+        return f"{file.name}: {why} — rebuilt from {points} at {fresh['commit_id'][:8]}"
+    file.unlink()
+    return f"{file.name}: {why} — dropped, there is no {points} to rebuild it from"
+
+
 def _review_commit(root: Path) -> str:
     try:
         rc = json.loads((root / ".human-review/review-commits.json").read_text())
@@ -581,9 +626,17 @@ def main(argv=None) -> int:
     ap.add_argument("--points", default="review-points.md")
     ap.add_argument("--at", help="rev the refs in review-points.md were written at "
                                  "(default: the review commit, else HEAD)")
+    ap.add_argument("--drop-stale", action="store_true",
+                    help="when the payload's commit is not on this branch, rebuild it from "
+                         "review-points.md (or delete it when there is none); nothing else")
     a = ap.parse_args(argv)
     root = Path(a.root).resolve()
     file = root / a.file
+
+    if a.drop_stale:
+        done = drop_stale(root, file, a.points, a.at)
+        print(done or f"{a.file}: current (or absent) — left as it is")
+        return 0
 
     if a.from_review_points:
         payload = from_review_points(root, a.points, a.at or _review_commit(root))
@@ -601,6 +654,12 @@ def main(argv=None) -> int:
         payload = load_payload(file)
     except (BadPayload, ValueError) as e:
         print(f"{a.file} is not a pushable payload:\n{e}", file=sys.stderr)
+        return 2
+    why = stale_reason(root, payload)
+    if why:
+        print(f"{a.file} is not this branch's: {why}. Its lines were written for other code; "
+              "rebuild it with `push-pr-comments.py --drop-stale` (or --from-review-points)",
+              file=sys.stderr)
         return 2
 
     gh = Gh()

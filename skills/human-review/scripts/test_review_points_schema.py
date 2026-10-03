@@ -239,7 +239,8 @@ def test_the_pile_titles_and_intros_are_the_builders(tmp_path, capsys):
                   "Implementation decisions", "model prose"):
         assert typed not in out
     assert "<code>7f3c1a9e</code>, the implementation commit" in out
-    assert "Read the other way" in out and "closed decisions, not a queue" in out
+    assert "Read the other way" in out and "stay open until you agree" in out
+    assert "closed decisions" not in out    # the pile is titled, and counted, as open
     assert spec["tabs"][0]["tip"] == build.REVIEW_TAB_TIP
     err = capsys.readouterr().err
     assert "Candidates retained for human judgement" in err and "ignored" in err

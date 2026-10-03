@@ -304,14 +304,21 @@ def claude_entry(session: str | None, lo, hi, what: str) -> dict | None:
         return None
     spans = claude_model_spans(path, lo, hi)
     sub_models: list[str] = []
+    n_agents = 0
     for agent in rc().subagent_transcripts(path):
         first, _last = rc().agent_span([agent])
         if first is not None and _within(first, lo, hi):
+            n_agents += 1
             spans += claude_model_spans(Path(agent), lo, hi)
             sub_models += [m for m in transcript_models(Path(agent)) if m not in sub_models]
-    return entry(CLAUDE, session, what, (lo, hi), data["tokens"], data.get("models"),
-                 usd=data["cost"], calls=data["messages"],
-                 model_seconds=_intervals_union(spans), subagent_models=sub_models)
+    out = entry(CLAUDE, session, what, (lo, hi), data["tokens"], data.get("models"),
+                usd=data["cost"], calls=data["messages"],
+                model_seconds=_intervals_union(spans), subagent_models=sub_models)
+    if n_agents:
+        # How many, not only which: "Sonnet 5.5" says what the reviewers ran on, and the
+        # review chip's "Sonnet 5.5 (4 subagents)" needs the count to say how many read.
+        out["subagents"] = n_agents
+    return out
 
 
 _MODEL_FIELD = re.compile(r'"model"\s*:\s*"([^"]+)"')
@@ -920,6 +927,65 @@ def reviewer_models(root: Path, review: Path | None = None) -> list[str]:
     return names
 
 
+_COUNTED_AGENTS = re.compile(r"\b(\d+)\b[^.;+]*?\b(?:sub-?agents?|reviewers?|agents?)\b", re.I)
+
+
+def _review_agent_count(root: Path, review: Path, row: dict) -> int:
+    """How many agents did the reviewing: the recorded count, else the session's subagent
+    transcripts that started inside the review window, else the number the front matter's
+    `reviewers:` line gives in prose ("4 read-only Sonnet subagents"). 0 when nothing says."""
+    n = sum(int(e.get("subagents") or 0) for e in row.get("entries") or [])
+    if n:
+        return n
+    try:
+        state = json.loads((review / "review" / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    lo = parse(state.get("reviewStartedAt"))
+    hi = parse(state.get("reviewersDoneAt")) or parse((state.get("finishes") or [None])[0])
+    harness = normalize_harness(state.get("harness") or CLAUDE)
+    if lo and hi and harness == CLAUDE:
+        for sid in state.get("sessions") or [state.get("session")]:
+            path = rc().transcript(sid) if sid else None
+            for agent in (rc().subagent_transcripts(path) if path else []):
+                first, _last = rc().agent_span([agent])
+                if _within(first, lo, hi):
+                    n += 1
+        if n:
+            return n
+    hit = _COUNTED_AGENTS.search(_front(root).get("reviewers") or "")
+    return int(hit.group(1)) if hit else 0
+
+
+def review_line(root: Path, review: Path | None = None) -> str:
+    """Who reviewed, said the way the run was shaped — for the review chip's hover.
+
+    Eval run 6's chip said `Reviewed by Sonnet 5.5` while its own cost row for the review
+    read `Opus 5.5 73% / Sonnet 5.5 27%`: four Sonnet subagents read the diff, and an Opus
+    session briefed them and merged what they found. Both halves are true and the chip kept
+    one. With agents: `Reviewers: Sonnet 5.5 (4 subagents), orchestrated by Opus 5.5`.
+    Without (an inline review, or nothing recorded but a name): `Reviewed by <names>`.
+    Empty when nothing says who reviewed."""
+    root = Path(root)
+    review = Path(review) if review else root / ".human-review"
+    names = reviewer_models(root, review)
+    if not names:
+        return ""
+    rec = read_record(root) or {}
+    row = next((c for c in rec.get("components") or [] if c.get("key") == "review"), {})
+    n = _review_agent_count(root, review, row)
+    if not n and not any(e.get("subagentModels") for e in row.get("entries") or []):
+        return "Reviewed by " + ", ".join(names)
+    spent: dict = {}
+    for e in row.get("entries") or []:
+        for name, tok in (e.get("models") or {}).items():
+            spent[name] = spent.get(name, 0) + tok
+    orchestrators = [m for m in sorted(spent, key=lambda m: -spent[m]) if m not in names]
+    who = ", ".join(names) + (f" ({n} subagent{'s' if n != 1 else ''})" if n else "")
+    return (f"Reviewers: {who}"
+            + (f", orchestrated by {', '.join(orchestrators)}" if orchestrators else ""))
+
+
 def _from_phase(row: dict | None, key: str, session: str | None, what: str) -> dict | None:
     if not row or not row.get("measured"):
         return None
@@ -1019,10 +1085,33 @@ def derive(root: Path, base: str, phases: dict | None, commits: dict | None = No
 
 # ----------------------------------------------------------------------------- 4: the guide
 
+#: The paid model steps a run shells out to: their ledger, what they write, the program.
+#: `program` travels on the entry so `review-cost.py` can bill each to the tab it feeds
+#: (`MODEL_RUN_TABS`) — eval run 6 printed the mapping under "this guide" and then
+#: "Tests: no model spend" two rows further down.
+MODEL_RUN_LEDGERS = (
+    (".model-runs.json", "requirements↔tests mapping", "rerun-model.py"),
+    (".film-runs.json", "film script", "rerun-film.py"),
+)
+
+
+def _run_models(r: dict) -> tuple[int, dict]:
+    """A ledger run's tokens and `{printed model name: tokens}`. Runs recorded before
+    `rerun-model.py` kept the CLI's token counts have none, and say 0 under the model the
+    step was asked for — a row with a price and no count, rather than an invented count."""
+    tokens = int(r.get("tokens") or 0)
+    models: dict = {}
+    for mid, n in (r.get("models") or {}).items() if isinstance(r.get("models"), dict) else []:
+        name = rc().label(str(mid)) if str(mid).startswith("claude-") else str(mid)
+        models[name] = models.get(name, 0) + int(n or 0)
+    if not models:
+        models = {str(r.get("model") or "?"): tokens}
+    return tokens, models
+
+
 def _ledger_runs(review: Path, lo, hi) -> list[dict]:
     out = []
-    for name, what in ((".model-runs.json", "requirements↔tests mapping (rerun-model.py)"),
-                       (".film-runs.json", "film script (rerun-film.py)")):
+    for name, what, program in MODEL_RUN_LEDGERS:
         try:
             doc = json.loads((review / name).read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -1035,10 +1124,15 @@ def _ledger_runs(review: Path, lo, hi) -> list[dict]:
             if not _within(when, lo, hi):
                 continue
             secs = float(r.get("seconds") or 0)
-            out.append(entry(CLAUDE, f"claude -p ({name})", what,
-                             (when - dt.timedelta(seconds=secs) if when else None, when),
-                             0, {str(r.get("model") or "?"): 0}, usd=float(r["cost"]),
-                             calls=1, model_seconds=secs))
+            tokens, models = _run_models(r)
+            e = entry(CLAUDE, f"claude -p ({name})", f"{what} ({program})",
+                      (when - dt.timedelta(seconds=secs) if when else None, when),
+                      tokens, models, usd=float(r["cost"]), calls=1, model_seconds=secs)
+            e["program"] = program
+            # `entry` drops a zero count, and a run with no recorded tokens still has a
+            # model: keep its name so the row can say what ran.
+            e["models"] = e["models"] or {k: 0 for k in models}
+            out.append(e)
     return out
 
 

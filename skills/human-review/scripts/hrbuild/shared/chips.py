@@ -262,17 +262,28 @@ def base_warning(state: dict | None) -> str | None:
     # whoever is fixing the build rather than reading it.
     parts = []
     ahead = state.get("ahead")
+    behind = state.get("localBehind")
+    # When the page's counts are taken from a recorded base (`page_base`: the base the
+    # review audited) the chips beside this mark measure from one commit and the mark from
+    # another — eval run 6 had `5a97353e` on every chip and `origin/main` under the ⚠️, in
+    # one row, with nothing saying so. The mark then names both, first.
+    other = (state.get("diffBaseSource") not in (None, "merge-base")
+             and state.get("diffBase") and state.get("sha"))
+    if other and (ahead or behind):
+        parts.append(f"Measured against {state['ref']} ({state['sha'][:8]}), not the "
+                     f"review base {state['diffBase'][:8]} the counts beside it use.")
     if ahead:
         parts.append(f"{state['ref']} is {ahead} commit{'s' if ahead != 1 else ''} ahead of "
                      "the fork point. Merge or rebase, then rebuild.")
-    behind = state.get("localBehind")
     if behind:
         # Not `git fetch`: the count above was read off the remote-tracking ref, so the
         # fetch has already happened, and it never moves the local branch anyway. What
         # closes this gap is fast-forwarding the local branch onto what was fetched.
-        parts.append(f"Compared against {state['ref']} ({state['sha'][:8]}); local "
-                     f"{state['localRef']} is {behind} behind it. "
-                     f"git branch -f {state['localRef']} {state['ref']}.")
+        parts.append((f"Local {state['localRef']} is {behind} behind {state['ref']}. "
+                      if other else
+                      f"Compared against {state['ref']} ({state['sha'][:8]}); local "
+                      f"{state['localRef']} is {behind} behind it. ")
+                     + f"git branch -f {state['localRef']} {state['ref']}.")
     return " ".join(parts) or None
 
 

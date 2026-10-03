@@ -192,10 +192,30 @@ def test_live_draws_one_reset_button_per_fixture_the_environment_lists(row):
     so a SQL file added to the project is a button on the next probe, with no rebuild."""
     seen = row(served=True, live=True,
                fixtures={"ok": True, "fixtures": ["green", "busy-day"], "current": "green"})
-    # "Reset DB to: [default] [green] [busy-day]" — one verb, and its arguments.
+    # "Reset DB to: [seed] [seed + green] [seed + busy-day]" — one verb, and its arguments;
+    # each fixture's face says it lands on top of the seed (eval run 6: "green" alone was
+    # a word nothing on the page explained).
     assert seen["to"] == "Reset DB to:"
-    assert seen["reset"] == "default"
-    assert seen["fixtures"] == ["green", "busy-day"]
+    assert seen["reset"] == "seed"
+    assert seen["fixtures"] == ["seed + green", "seed + busy-day"]
+
+
+def test_a_fixture_the_environment_describes_carries_its_description(row):
+    """A sidecar may describe a fixture — `{name, about}` or a top-level `about` map — and
+    the button's hover is that description; without one it still says what a fixture is."""
+    row(served=True, live=True, fixtures={"ok": True, "about": {"busy-day": "40 visits today"},
+                                          "fixtures": [{"name": "green",
+                                                        "about": "the Weasley household"},
+                                                       "busy-day", "bare"]})
+    tips = row.page.evaluate("""() => [...document.querySelectorAll('.appenv-reset')]
+        .map(b => [b.textContent, b.getAttribute('data-tip')])""")
+    assert tips[0] == ["seed", "Empty the demo database and restore the seed \u2014 the "
+                               "data the app starts with"]
+    assert tips[1][0] == "seed + green" and tips[1][1].endswith(": the Weasley household")
+    assert tips[2][1].endswith(": 40 visits today")
+    assert "a named set of extra demo rows" in tips[3][1]
+    lead = row.page.evaluate("document.querySelector('.appenv-resets-to').dataset.tip")
+    assert "fixture, a named set of extra demo rows loaded on top of the seed" in lead
 
 
 def test_fixture_buttons_leave_with_the_app(row):

@@ -496,6 +496,10 @@ def _sequence(ctx: Ctx):
     cfg = ctx.step_cfg("sequence")
     commands = cfg.get("commands") or []
     verdict = SEQ_VERDICT
+    # The previous run's drawings go before anything can fail: a run that is skipped below
+    # shows the committed diagrams, and a stale copy of last time's would win over them.
+    if not ctx.dry:
+        shutil.rmtree(GENSEQ_OVERLAY, ignore_errors=True)
     # Asked first, and only when the step will not start the stack itself: with `app` the
     # addresses do not exist until `up` creates them (the same reasoning `_dsaudit_prereq`
     # has). In the step and not in its prerequisite because the Sequence tab has to say why
@@ -510,61 +514,46 @@ def _sequence(ctx: Ctx):
             write_seq_verdict("skipped", reason, missing=down)
             raise LookupError(reason)
     before = {} if ctx.dry else genseq_stamps()
+    # The committed diagrams' bytes, held so the run can put every one of them back. What it
+    # drew goes into the review directory instead (`keep_drawn_and_restore`), the way the
+    # city went off the repository in 3a22a1d: eval run 6 left six tracked
+    # `generated/*.genseq.*` files modified on the branch under review.
+    held = {} if ctx.dry else {p: (Path(p).read_bytes() if Path(p).is_file() else None)
+                               for p in genseq_files()}
     runs = []
-    with app_instance(ctx, cfg.get("app"), _app_slots(ctx)) as app:
-        if app.started:
-            ctx.notes.append(f"the traced suites ran against {app.base}, started by this run "
-                             "from the commit under review — not whatever was already listening")
-        # With `app`, `requires` is asked now that the addresses exist: its `{NAME}`s are
-        # the instance's own `vars` (`{GRAFANA_URL}/api/health`). An `up` that came back
-        # without the collector — a commit whose stack has none — is a skip that says so,
-        # not three commands that pass and draw nothing. Inside the block, so `down` runs.
-        if cfg.get("app") and not ctx.dry and cfg.get("requires"):
-            wanted = [{**r, "url": expand_vars(r.get("url", ""), app.vars)}
-                      if isinstance(r, dict) else expand_vars(str(r), app.vars)
-                      for r in cfg["requires"]]
-            down = unmet_requires(wanted)
-            if down:
-                reason = ("the stack this step started for the traced suites has no "
-                          + ", ".join(down) + ", so nothing was run. Its `up` has to bring "
-                          "them, and `app.vars` has to print where — then re-run "
-                          "--only sequence")
-                write_seq_verdict("skipped", reason, missing=down)
-                raise LookupError(reason)
-        for cmd in commands:
-            r = sh(app.command(cmd), ctx, check=False, capture=True)
-            out = (r.stdout or "") + (r.stderr or "")
-            print(out, end="", flush=True)
-            outcome, detail = suite_outcome(r.returncode, out)
-            runs.append({"command": cmd, "exit": r.returncode, "outcome": outcome,
-                         "detail": detail, "log": _tail(out), "skips": skipped_lines(out)})
-    # Before the restore below, which rewrites the files it puts back and would otherwise
-    # read as diagrams this run drew.
-    drawn = [] if ctx.dry else sorted(p for p, st in genseq_stamps().items()
-                                      if before.get(p) != st)
+    try:
+        _run_traced(ctx, cfg, commands, runs)
+    finally:
+        # Before the restore below, which rewrites the files it puts back and would
+        # otherwise read as diagrams this run drew.
+        drawn = [] if ctx.dry else sorted(p for p, st in genseq_stamps().items()
+                                          if before.get(p) != st)
+        kept, put_back = ([], []) if ctx.dry else keep_drawn_and_restore(held)
     failed = [f"{r['command']} (exit {r['exit']})" for r in runs if r["outcome"] == FAILED]
     for r in runs:
         if r["outcome"] == NO_TESTS:
             ctx.notes.append(f"{r['command']}: {r['detail']} — a tag filter that matched "
                              "nothing, not a red suite")
 
-    # ALWAYS, and this is the whole reason the loop above does not raise. These commands
-    # sweep `generated/` before they regenerate it, so a suite that dies in the middle
-    # leaves diagrams DELETED — including the other suites', which it never meant to touch
-    # and cannot put back. Raising on the first failure skipped both the restore below and
-    # every later command, which is how one red suite took the backend's diagram with it.
-    # Since ONE deleted file gets restored the branch would otherwise be reported, in its
-    # own voice, as having removed a picture.
-    r = sh("git status --porcelain -- '*.genseq.puml' '*.genseq.json'", ctx, capture=True)
-    deleted = [l.split(maxsplit=1)[-1] for l in (r.stdout or "").splitlines()
-               if l.strip().startswith("D")]
-    if deleted:
-        ctx.notes.append(f"restored {len(deleted)} diagram file(s) a failed suite deleted "
+    # The restore above is ALWAYS, and that is the whole reason the loop does not raise.
+    # These commands sweep `generated/` before they regenerate it, so a suite that dies in
+    # the middle leaves diagrams DELETED — including the other suites', which it never meant
+    # to touch and cannot put back. Unrestored, the branch would be reported, in its own
+    # voice, as having removed a picture.
+    gone = [p for p in put_back if p.endswith(".genseq.puml")]
+    if gone:
+        ctx.notes.append(f"restored {len(gone)} diagram file(s) a failed suite deleted "
                          "without regenerating; say in the guide that the suite could not run")
-        sh("git checkout -- " + " ".join(deleted), ctx, check=False)
     sh(f"{HERE}/puml-diff.sh {ctx.base} {ART}/diagrams", ctx)
     if ctx.dry:
         return
+    lost = lost_vs_committed(kept)
+    if lost:
+        said = "; ".join(f"{Path(x['diagram']).name}: "
+                         + ", ".join(x["participants"] or x["calls"]) for x in lost)
+        ctx.notes.append(f"{len(lost)} re-traced diagram(s) LOST what the committed one shows "
+                         f"({said}) — the Sequence tab flags them; say in the guide whether "
+                         "the code stopped making those calls or the traced stack missed them")
 
     # "Drew something THIS run", never "a diagram exists": the committed ones always do,
     # and asking `has_genseq()` here turned a suite that could not even start into a "ran"
@@ -597,13 +586,163 @@ def _sequence(ctx: Ctx):
         # still pictures of this branch.
         ctx.notes.append("the traced suite was RED (" + "; ".join(failed)
                          + "); the diagrams below are of that run, and the guide has to say so")
-        write_seq_verdict("red", "; ".join(failed), runs=runs, drawn=drawn)
+        write_seq_verdict("red", "; ".join(failed), runs=runs, drawn=drawn, lost=lost)
     elif any(r["outcome"] == NO_TESTS for r in runs):
-        write_seq_verdict("notests", "", runs=runs, drawn=drawn)
+        write_seq_verdict("notests", "", runs=runs, drawn=drawn, lost=lost)
+    elif lost:
+        write_seq_verdict("degraded", "", runs=runs, drawn=drawn, lost=lost)
     else:
         # A verdict left behind by the previous run would draw a band over diagrams that
         # are now fine — the same reason `_video` deletes its own.
         verdict.unlink(missing_ok=True)
+
+
+def _run_traced(ctx: Ctx, cfg: dict, commands: list[str], runs: list[dict]) -> None:
+    """Start the stack (when `app` says how), probe what it must carry, run the commands."""
+    with app_instance(ctx, cfg.get("app"), _app_slots(ctx)) as app:
+        if app.started:
+            ctx.notes.append(f"the traced suites ran against {app.base}, started by this run "
+                             "from the commit under review — not whatever was already listening")
+        # With `app`, `requires` is asked now that the addresses exist: its `{NAME}`s are
+        # the instance's own `vars` (`{GRAFANA_URL}/api/health`). An `up` that came back
+        # without the collector — a commit whose stack has none — is a skip that says so,
+        # not three commands that pass and draw nothing. Inside the block, so `down` runs.
+        if cfg.get("app") and not ctx.dry and cfg.get("requires"):
+            wanted = [{**r, "url": expand_vars(r.get("url", ""), app.vars)}
+                      if isinstance(r, dict) else expand_vars(str(r), app.vars)
+                      for r in cfg["requires"]]
+            down = unmet_requires(wanted)
+            if down:
+                reason = ("the stack this step started for the traced suites has no "
+                          + ", ".join(down) + ", so nothing was run. Its `up` has to bring "
+                          "them, and `app.vars` has to print where — then re-run "
+                          "--only sequence")
+                write_seq_verdict("skipped", reason, missing=down)
+                raise LookupError(reason)
+        for cmd in commands:
+            r = sh(app.command(cmd), ctx, check=False, capture=True)
+            out = (r.stdout or "") + (r.stderr or "")
+            print(out, end="", flush=True)
+            outcome, detail = suite_outcome(r.returncode, out)
+            runs.append({"command": cmd, "exit": r.returncode, "outcome": outcome,
+                         "detail": detail, "log": _tail(out), "skips": skipped_lines(out)})
+
+
+#: Where `_sequence` files what its traced run drew: the review directory, mirroring each
+#: diagram's repository path. The committed `generated/*.genseq.*` files get their own bytes
+#: back after every run, so a review never leaves the branch it reviews dirty — and every
+#: reader of "this run's diagrams" (`puml-diff.sh`, `c2-from-sequence.py`, the Sequence tab)
+#: reads through this copy first. `.head` pins it to the commit it was traced at: once HEAD
+#: moves, the committed files are the newer truth and the copy is ignored.
+GENSEQ_OVERLAY = ART / "genseq"
+
+
+def genseq_files() -> list[str]:
+    """Every traced diagram AND sidecar the run may rewrite, tracked or not — the
+    `.genseq.json` beside each picture carries the payload ids drawn into it."""
+    pats = ["*.genseq.puml", "*.genseq.json"]
+    got = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard",
+                          *pats], capture_output=True, text=True)
+    if got.returncode == 0:
+        found = [p for p in got.stdout.split("\n") if p]
+    else:
+        found = [str(p) for pat in pats for p in Path(".").rglob(pat)
+                 if "node_modules" not in p.parts]
+    return sorted(dict.fromkeys(p for p in found if not _is_review_dir(p)))
+
+
+def keep_drawn_and_restore(held: dict) -> tuple[list[str], list[str]]:
+    """Copy what the run changed into `GENSEQ_OVERLAY`, then put the work tree back exactly
+    as `held` says it was — bytes, or absence. `(kept, put_back_deleted)`.
+
+    Never `git checkout`: a diagram may carry somebody's uncommitted edit, and the bytes
+    held here are the only copy of it. A diagram the run created where none was is copied
+    and then removed, so a newly tagged test leaves nothing untracked behind either."""
+    shutil.rmtree(GENSEQ_OVERLAY, ignore_errors=True)
+    GENSEQ_OVERLAY.mkdir(parents=True, exist_ok=True)
+    kept, put_back = [], []
+    for rel in sorted(set(genseq_files()) | set(held)):
+        path = Path(rel)
+        now = path.read_bytes() if path.is_file() else None
+        was = held.get(rel)
+        if now is not None and now != was:
+            dest = GENSEQ_OVERLAY / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(now)
+            kept.append(rel)
+        if was is None:
+            if now is not None:
+                path.unlink()
+        elif now != was:
+            if now is None:
+                put_back.append(rel)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(was)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
+    (GENSEQ_OVERLAY / ".head").write_text(head.stdout.strip() + "\n", encoding="utf-8")
+    return kept, put_back
+
+
+#: A lifeline declaration and a request arrow in a generated sequence. Responses (`-->`)
+#: and self-calls (the test's own sentences, a span inside one service) are not calls
+#: between two participants, and are left out of what a re-trace can be said to have lost.
+_SEQ_DECL = re.compile(r'^(?:participant|actor|database|queue|collections|boundary|control'
+                       r'|entity)\s+("[^"]*"|\S+)(?:\s+as\s+("[^"]*"|\S+))?\s*$')
+_SEQ_CALL = re.compile(r'^("[^"]*"|[^\s"<>-]+)\s*->>?\s*("[^"]*"|[^\s"<>:-]+)\s*:\s*(.*)$')
+_SEQ_LINK = re.compile(r"\[\[\S+?(?:\{[^}]*\})?\s+([^\]]*?)\s*\]\]")
+
+
+def seq_inventory(text: str) -> tuple[list[str], list[str]]:
+    """`(participants, calls)` of one generated sequence, each in first-seen order.
+
+    A call is `Backend → NotificationService: POST /api/notifications/visit-booked` — its
+    label with the generator's per-run handles (`[[genseq://09akplx{…} …]]`) and markers
+    stripped, since those ids move on every run while the call does not."""
+    unq = lambda n: n.strip().strip('"')
+    parts: dict[str, None] = {}
+    calls: dict[str, None] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        m = _SEQ_DECL.match(line)
+        if m:
+            parts[unq(m.group(2) or m.group(1))] = None
+            continue
+        m = _SEQ_CALL.match(line)
+        if not m or unq(m.group(1)) == unq(m.group(2)):
+            continue
+        label = _SEQ_LINK.sub(lambda x: x.group(1), m.group(3))
+        label = re.sub(r"\s+", " ", label.replace("\\n", " ").replace("⊕", "")
+                       .replace("↗", "")).strip()
+        calls[f"{unq(m.group(1))} → {unq(m.group(2))}: {label}"] = None
+    return list(parts), list(calls)
+
+
+def lost_vs_committed(kept: list[str]) -> list[dict]:
+    """What each re-traced diagram no longer shows that the committed one (HEAD) does.
+
+    Eval run 6: the backend's in-process AddVisitApiTest could not reach the traced
+    instance's notification-service, the call failed best-effort, and the regenerated
+    picture lost NotificationService, the SMS gateway and both calls — presented as "this
+    run's diagrams" with no word that they contradicted the committed ones. A diagram the
+    branch has no committed copy of has nothing to lose."""
+    out = []
+    for rel in kept:
+        if not rel.endswith(".genseq.puml"):
+            continue
+        got = subprocess.run(["git", "show", f"HEAD:{rel}"], capture_output=True, text=True)
+        if got.returncode != 0:
+            continue
+        try:
+            now = (GENSEQ_OVERLAY / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        was_parts, was_calls = seq_inventory(got.stdout)
+        now_parts, now_calls = seq_inventory(now)
+        parts = [p for p in was_parts if p not in now_parts]
+        calls = [c for c in was_calls if c not in now_calls]
+        if parts or calls:
+            out.append({"diagram": rel, "participants": parts, "calls": calls})
+    return out
 
 
 #: What `_sequence` leaves beside its diagrams whenever the run did not simply pass, for the
@@ -722,11 +861,14 @@ def unmet_requires(requires) -> list[str]:
     return down
 
 
-def write_seq_verdict(state: str, reason: str, *, missing=(), runs=(), drawn=()) -> None:
+def write_seq_verdict(state: str, reason: str, *, missing=(), runs=(), drawn=(),
+                      lost=()) -> None:
+    """`lost` is `lost_vs_committed`'s list: the Sequence tab flags each of those diagrams,
+    and the C2 card says it rests on them."""
     SEQ_VERDICT.parent.mkdir(parents=True, exist_ok=True)
     SEQ_VERDICT.write_text(json.dumps({
         "state": state, "reason": reason, "missing": list(missing),
-        "runs": list(runs), "drawn": list(drawn), "at": _stamp(),
+        "runs": list(runs), "drawn": list(drawn), "lost": list(lost), "at": _stamp(),
     }, indent=1) + "\n", encoding="utf-8")
 
 

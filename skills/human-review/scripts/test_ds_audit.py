@@ -209,14 +209,21 @@ def test_a_component_kit_widget_is_considered_rather_than_invisible(tmp_path):
     """Material renders its picker as a `<mat-select role="combobox">`, not a `<select>`.
     An auditor that only knew tag names would be *silent* about it — not "considered and
     let past", silent, which is the answer a reviewer cannot check and an agent cannot
-    quote. It is a candidate, and it comes back `uncovered` with the reason."""
+    quote. It is a candidate.
+
+    Run 6 (hr-claude-6): it used to come back `uncovered` — "role combobox, not covered" —
+    beside a registry whose combo covers `select`. A select-only combobox *is* a select,
+    so it is judged as one: a gap where combo belongs, said in words."""
     reg = registry_of([node("h", "div", ds="combo"),
                        control("h>s", ds_host="combo", ds_host_sig="h")])
-    widget = control("mat", "mat-select", "role=combobox", id="spec", aria_role="combobox")
+    widget = control("mat", "mat-select", "role=combobox", id="spec", aria_role="combobox",
+                     kit="mat-select")
     f, = ds.audit_side(snap(widget), reg, "new")
-    assert f["verdict"] == "uncovered"
-    assert "No design-system component claims that role" in f["message"]
-    assert "<code>select</code>" in f["message"], "it names what the registry does cover"
+    assert f["verdict"] == "bare" and f["role"] == "select" and f["expected_ds"] == ["combo"]
+    assert "Angular Material select" in f["message"] and "<b>combo</b>" in f["message"]
+    # A text input wearing role=combobox (an autocomplete) is not a select.
+    auto = control("ac", "input", "role=combobox", id="q", aria_role="combobox")
+    assert ds.audit_side(snap(auto), reg, "new")[0]["verdict"] == "uncovered"
 
 
 def test_the_widget_roles_are_read_off_aria_not_guessed_from_the_tag():
@@ -230,10 +237,10 @@ def test_what_was_let_past_is_shown_rather_than_left_to_trust():
                        control("h>s", ds_host="combo", ds_host_sig="h")])
     screen = ds.build_screen(
         "Edit a vet",
-        snap(control("mat", "mat-select", "role=combobox", id="spec",
-                     selector="#spec", aria_role="combobox")),
-        snap(control("mat", "mat-select", "role=combobox", id="spec",
-                     selector="#spec", aria_role="combobox")),
+        snap(control("sw", "div", "role=switch", id="spec", selector="#spec",
+                     aria_role="switch")),
+        snap(control("sw", "div", "role=switch", id="spec", selector="#spec",
+                     aria_role="switch")),
         reg, sides_meta={s: {"label": s, "page": {"w": 10, "h": 10}} for s in ("new", "old")},
         delta={"dom": {"added": [], "removed": [], "changed": [], "moved": {}},
                "elements": {}})
@@ -313,7 +320,7 @@ def test_the_form_id_trap():
     screen read as rewritten. Caught on the live app, not in a test."""
     assert not re.search(r"\bel\.id\b(?![^\n]*NEVER)", ds.SNAPSHOT_JS.replace(
         "// NEVER `el.id`.", ""))
-    assert "const idOf = (el) => el.getAttribute('id')" in ds.SNAPSHOT_JS
+    assert "const rawIdOf = (el) => el.getAttribute('id')" in ds.SNAPSHOT_JS
 
 
 # ── DOM diff: which element, without crying wolf ──────────────────────────────────
@@ -1137,3 +1144,215 @@ def test_a_screen_without_frames_gets_no_checkbox():
     frag = ds.render(ds.build_result([screen], reg), "")
     assert "dsa-frameon" not in frag.replace("'.dsa-frameon'", "").replace(
         "contains('dsa-frameon')", "")
+
+
+# ── run 6 (hr-claude-6): a paginated, sortable owners grid built from Angular Material ──
+#
+# The tab said "1 of 19 screens changed", green, `clean` — while ds-audit.json's own
+# `uncovered` went 41 → 42. The one new control, the paginator's page-size select, was
+# listed as "#mat-select-0 — role combobox, not covered", and the paginator and matSort
+# were never judged at all. Below, the same screen in miniature.
+
+def _combo_registry():
+    return registry_of([node("h", "div", ds="combo"),
+                        control("h>s", ds_host="combo", ds_host_sig="h")])
+
+
+def _owners_grid():
+    """The new side of /owners: a table with matSort on two headers, a mat-paginator with
+    its page-size mat-select inside a mat-form-field, and the last-name search input."""
+    return snap(
+        control("input#lastName", "input", "input[type=text]", id="lastName",
+                name="lastName", label="Last name"),
+        node("t", "table", kit="mat-sort", box={"x": 60, "y": 250, "w": 1160, "h": 440}),
+        node("t>th:1", "th", kit="mat-sort-header", label="Name", kit_hosts=["mat-sort"]),
+        node("t>th:3", "th", kit="mat-sort-header", label="City", kit_hosts=["mat-sort"]),
+        node("p", "mat-paginator", kit="mat-paginator", label="Select page of owners",
+             box={"x": 60, "y": 715, "w": 1160, "h": 56}),
+        control("p>f>mat-select", "mat-select", "role=combobox", id="mat-select-0",
+                aria_role="combobox", kit="mat-select", label="Items per page:",
+                kit_hosts=["mat-form-field", "mat-paginator"],
+                box={"x": 816, "y": 731, "w": 52, "h": 25}))
+
+
+def _owners_screen():
+    reg = _combo_registry()
+    old = snap(control("input#lastName", "input", "input[type=text]", id="lastName",
+                       name="lastName", label="Last name"),
+               node("t0", "table"))
+    sides = {"new": {"label": "hr-claude-6", "commit": "", "page": {"w": 1280, "h": 900}},
+             "old": {"label": "5a97353e", "commit": "", "page": {"w": 1280, "h": 900}}}
+    added = {"dom": "added", "pixel_churn": None, "status": "added"}
+    screen = ds.build_screen(
+        "Owners", old, _owners_grid(), reg, sides_meta=sides,
+        delta={"dom": {"added": ["t", "p", "p>f>mat-select"], "removed": ["t0"],
+                       "changed": [], "moved": {}},
+               "elements": {"t": added, "p": added, "p>f>mat-select": added}},
+        route="/owners")
+    return reg, screen
+
+
+def test_the_new_material_controls_are_judged_not_waved_through():
+    """mat-paginator and matSort are not design-system components and the registry has
+    none for their role: each is a gap, with the reason. The page-size select is the
+    paginator's own machinery — not a second gap — and the paginator's reason names it:
+    a mat-select where the registry's combo covers `select`."""
+    reg, screen = _owners_screen()
+    by_kit = {f["element"].get("kit"): f for f in screen["findings"] if f["side"] == "new"}
+    paginator, sort, select = by_kit["mat-paginator"], by_kit["mat-sort"], by_kit["mat-select"]
+    assert paginator["verdict"] == sort["verdict"] == "foreign"
+    assert select["verdict"] == "internal"
+    assert "Angular Material paginator" in paginator["message"]
+    assert "“Items per page” control is a <code>&lt;mat-select&gt;</code>, not " \
+           "<b>combo</b>" in paginator["message"]
+    assert sort["element"]["label"] == "matSort on Name, City"
+    assert "no component for a <code>sortable table header</code>" in sort["message"]
+    assert sorted(screen["summary"]["regressions"]) == sorted([paginator["id"], sort["id"]])
+    assert screen["summary"]["new"]["foreign"] == 2
+    result = ds.build_result([screen], reg)
+    assert result["verdict"] == "gaps", "two new outside controls are not a clean audit"
+
+
+def test_a_lone_material_select_is_the_gap_where_combo_belongs():
+    """Outside a kit control it is judged on its own: a select-only combobox fills the role
+    combo covers, so it is `bare`, named as the Material control it is — not "plain"."""
+    sel = control("s", "mat-select", "role=combobox", id="mat-select-3", kit="mat-select",
+                  aria_role="combobox", label="Vet")
+    f, = ds.audit_side(snap(sel), _combo_registry(), "new")
+    assert f["verdict"] == "bare" and f["expected_ds"] == ["combo"]
+    mark, = ds._marks_for([dict(f, delta={"status": "added"})], "new")
+    assert mark["badge"] == "✗ <mat-select>, not the combo component · added"
+
+
+def test_a_kit_multi_select_the_base_already_had_is_context_not_a_gap():
+    """The vet form's specialties picker is a Material multi-select, left there on
+    purpose: a multi-select is not the combo's `select`, and the base renders it too. It
+    stays considered-and-let-past, never charged to a branch that did not touch it."""
+    spec = control("mat-select#spec", "mat-select", "role=combobox", id="spec",
+                   kit="mat-select", aria_role="combobox", label="Specialties",
+                   cls=["mat-mdc-select", "mat-mdc-select-multiple"])
+    reg = _combo_registry()
+    f, = ds.audit_side(snap(spec), reg, "new")
+    assert f["role"] == "select[multiple]" and f["verdict"] == "foreign"
+    sides = {s: {"label": s, "page": {"w": 10, "h": 10}} for s in ("new", "old")}
+    screen = ds.build_screen("Edit a vet", snap(spec), snap(spec), reg, sides_meta=sides,
+                             delta={"dom": {"added": [], "removed": [], "changed": [],
+                                            "moved": {}}, "elements": {}})
+    assert {f["verdict"] for f in screen["findings"]} == {"uncovered"}
+    assert screen["summary"]["regressions"] == [] and screen["summary"]["pre_existing"] == []
+
+
+def test_an_element_is_named_by_its_accessible_name_never_a_kit_counter():
+    """"#mat-select-0" is Material's counter, not a name. The page-side extractor reads
+    the name the control carries (`aria-labelledby` → "Items per page:") and refuses an
+    auto id as identity; the row and the considered list say the name."""
+    f = {"element": {"tag": "mat-select", "id": "mat-select-0", "label": "Items per page:",
+                     "kit": "mat-select"}}
+    assert ds.element_name(f) == "Items per page"
+    f["element"]["label"] = ""
+    assert ds.element_name(f) == "Angular Material select"
+    assert ds.element_name({"element": {"tag": "input", "id": "lastName"}}) == "lastName"
+    assert "aria-labelledby" in ds.SNAPSHOT_JS and "!el.contains(l)" in ds.SNAPSHOT_JS
+    assert "AUTO_ID.test(i) ? '' : i" in ds.SNAPSHOT_JS
+    # Angular's per-build animation namespace is not a difference between two builds.
+    assert "tns-[\\w-]+" in ds.SNAPSHOT_JS
+    reg = _combo_registry()
+    lone = control("s", "div", "role=switch", id="mat-slide-toggle-2", aria_role="switch",
+                   selector="#mat-slide-toggle-2", label="Notify me")
+    sides = {s: {"label": s, "page": {"w": 10, "h": 10}} for s in ("new", "old")}
+    screen = ds.build_screen("s", snap(lone), snap(lone), reg, sides_meta=sides,
+                             delta={"dom": {"added": [], "removed": [], "changed": ["s"],
+                                            "moved": {}}, "elements": {}})
+    frag = ds.render(ds.build_result([screen], reg), "")
+    considered = frag[frag.index('class="dsa-considered"'):]
+    considered = considered[:considered.index("</details>")]
+    assert "<b>Notify me</b>" in considered and "#mat-slide-toggle-2" not in considered
+
+
+def test_the_header_says_the_gaps_and_components_and_never_just_a_screen_count():
+    """"1 of 19 screens changed" alone could not be told from an audit that judged nothing.
+    The gaps are said in the warning chip, and a move in what was let past is said too."""
+    reg, screen = _owners_screen()
+    frag = ds.render(ds.build_result([screen], reg), "")
+    hdr = re.sub(r"<[^>]+>", "", frag[frag.index('<p class="dsa-hdr">'):].split("</p>")[0])
+    assert hdr == ("1 of 1 screens changed · ⚠ +2 gaps — controls from "
+                   "outside the design system")
+    txt = lambda c, **kw: re.sub(r"<[^>]+>", "", " · ".join(ds.delta_parts(c, **kw)))
+    moved = {"new": {"ds": 3, "uncovered": 42}, "old": {"ds": 3, "uncovered": 41},
+             "regressions": [], "improvements": [], "pre_existing": []}
+    assert txt(moved, long=True) == "+1 control no design-system component claims"
+    assert txt(moved) == "+1 not judged"
+    # Nothing moved for the design system: said, not left blank.
+    _, quiet = _owners_screen()
+    for f in quiet["findings"]:
+        f["verdict"] = "uncovered"
+    quiet["summary"] = dict(quiet["summary"], regressions=[],
+                            new={"ds": 0, "bare": 0, "foreign": 0, "uncovered": 1},
+                            old={"ds": 0, "bare": 0, "foreign": 0, "uncovered": 1})
+    hdr = ds.render(ds.build_result([quiet], reg), "")
+    assert "no gap and no design-system component added or removed" in hdr
+
+
+def test_a_changed_screen_always_gets_its_findings_table():
+    """side / element / role / why / delta / churn, with the gap rows — and on a screen
+    with nothing to judge, a row saying so instead of no table at all."""
+    reg, screen = _owners_screen()
+    frag = ds.render(ds.build_result([screen], reg), "")
+    table = frag[frag.index('<table class="dsa-table">'):frag.index("</table>")]
+    for th in ("side", "element", "role", "why", "delta", "churn"):
+        assert f"<th>{th}</th>" in table
+    assert table.count('<tr class="bad"') == 2 and table.count(">gap</span>") == 2
+    assert "<b>Select page of owners</b>" in table and "<b>matSort on Name, City</b>" in table
+    _, quiet = _owners_screen()
+    quiet["findings"] = [f for f in quiet["findings"] if f["verdict"] == "uncovered"]
+    frag = ds.render(ds.build_result([quiet], reg), "")
+    assert "nothing to judge here" in frag[frag.index('<table class="dsa-table">'):]
+
+
+def test_the_change_frame_is_labelled_and_its_colour_is_in_the_legend():
+    """A purple box with no words and no key: the frame now carries a chip naming what
+    was judged inside it, and the legend carries the frame's colour."""
+    reg, screen = _owners_screen()
+    screen["frames"] = {"new": [{"x": 52, "y": 240, "w": 1176, "h": 540, "insert": False}],
+                        "old": [{"x": 52, "y": 240, "w": 1176, "h": 900, "insert": False}]}
+    frag = ds.render(ds.build_result([screen], reg), "")
+    assert "<b>✗ matSort · ✗ mat-paginator — added</b></div>" in frag
+    assert "<b>changed — nothing here to judge</b>" in frag     # the Old view
+    assert 'class="k-frame"' in ds.LEGEND and 'class="k-frame"' in ds.DIFF_LEGEND
+    assert ".dsa-legend .k-frame i" in ds.CSS and "var(--dsa-frame)" in ds.CSS
+    assert "changed on this branch</span>" not in ds.LEGEND, "blue named no box in New/Old"
+
+
+def _repo(tmp_path):
+    def git(*a):
+        return subprocess.run(["git", "-C", str(tmp_path), *a], capture_output=True,
+                              text=True, check=True).stdout.strip()
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@t"); git("config", "user.name", "t")
+    (tmp_path / "f").write_text("1")
+    git("add", "f"); git("commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    git("checkout", "-qb", "feature")
+    (tmp_path / "f").write_text("2")
+    git("commit", "-qam", "branch")
+    head = git("rev-parse", "HEAD")
+    git("checkout", "-q", "main")
+    (tmp_path / "g").write_text("main moved on")
+    git("add", "g"); git("commit", "-qm", "main moves")
+    git("checkout", "-q", "feature")
+    return base, head
+
+
+def test_each_side_records_its_commit_and_the_old_side_is_labelled_by_it(tmp_path):
+    """Run 6: `sides.old.commit` and `sides.new.commit` were `''`, and the old side said
+    `main` — neither the review base nor the merge-base. The commit is recorded, and a
+    label that does not point at it gives way to it; the branch name over HEAD stays."""
+    base, head = _repo(tmp_path)
+    assert ds.page_base_commit("main", tmp_path) == base     # forked here, not main's tip
+    sides = {"new": {"label": "feature", "commit": ""}, "old": {"label": "main", "commit": ""}}
+    ds.stamp_sides(sides, {"new": head, "old": base}, tmp_path)
+    assert sides["new"] == {"label": "feature", "commit": head}
+    assert sides["old"] == {"label": base[:8], "commit": base}
+    # A recorded commit is not overwritten by a later resolution.
+    again = ds.stamp_sides({"old": {"label": "x", "commit": base}}, {"old": head}, tmp_path)
+    assert again["old"]["commit"] == base

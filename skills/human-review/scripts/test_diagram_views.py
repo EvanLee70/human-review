@@ -441,7 +441,10 @@ def test_puml_diff_carries_the_base_sidecar_for_the_old_render():
 def test_puml_diff_pins_the_work_tree_sidecar_to_the_picture_it_drew():
     """A copy beside the SVG, not a path back to a file that keeps moving."""
     sh = (HERE / "puml-diff.sh").read_text()
-    assert 'cp "$ROOT/${rel%.puml}.json" "$OUT_DIR/$name.new.json"' in sh
+    assert 'sidecar="$ROOT/${rel%.puml}.json"' in sh
+    # This run's copy wins when the Sequence step filed one (it restores the work tree).
+    assert 'sidecar="$OVERLAY/${rel%.puml}.json"' in sh
+    assert 'cp "$sidecar" "$OUT_DIR/$name.new.json"' in sh
     assert "\\told_details\\tnew_details\\n' > \"$MANIFEST\"" in sh
 
 

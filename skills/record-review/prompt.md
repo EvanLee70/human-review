@@ -54,7 +54,10 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
                    section nobody else can write. A choice the human made in this
                    conversation is not your assumption — give it `source: human` and
                    confidence 1.0, or leave it out.
-   Every entry names a file:line. An unanchored entry is dropped by the build. On a Fixed
+   Every entry names a file:line. An unanchored entry is dropped by the build. Write each
+   line number as it reads now, with your fixes on disk; `finish` carries an assumption
+   written at the implementation commit across the fixes, and prints a WARNING for any
+   ref whose line is gone or blank — a card the page cannot show the code for. On a Fixed
    entry the lines are what the page uses to show each card its own hunks of the fix
    commit: a hunk no Fixed entry's lines reach is listed apart, as another change.
    On an assumption, `source:` is only `human` (the human chose it here) or left out;

@@ -154,9 +154,21 @@ def voice_switch(rel: str, voices: list[tuple[str, str, str]]) -> str:
         return ""
     name = "voice-" + re.sub(r"[^A-Za-z0-9]+", "-", rel)
     opts = [("", rel, "standard")] + voices
+
+    def named(key: str, label: str) -> tuple[str, str]:
+        # A label that is a bare emoji (`🐘`) gives a screen reader nothing to say and a
+        # sighted reader nothing to go on until they press it. The face stays as designed;
+        # the radio gets a spoken name and the label a hover, both naming the voice.
+        if not key or re.search(r"\w", label):
+            return "", ""
+        spoken = html.escape(f"cloned voice: {key}", quote=True)
+        return f' aria-label="{spoken}"', f' data-tip="{spoken}"'
+
     return ('<div class="voice-switch" role="radiogroup" aria-label="Narration voice">'
-            + "".join(f'<label><input type="radio" name="{html.escape(name)}" '
+            + "".join(f'<label{named(key, label)[1]}><input type="radio" '
+                      f'name="{html.escape(name)}" '
                       f'value="{html.escape(key)}" data-src="{html.escape(src)}"'
+                      f'{named(key, label)[0]}'
                       f'{" checked" if not key else ""}> {html.escape(label)}</label>'
                       for key, src, label in opts)
             + "</div>")

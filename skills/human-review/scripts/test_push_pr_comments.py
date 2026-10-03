@@ -303,3 +303,47 @@ def test_the_pages_copy_of_slug_agrees_with_this_one():
                   "An unknown vetId is a 404, not a quietly unattended visit",
                   "word " * 40, ""):
         assert review.pr_comment_slug(title) == ppc.slug(title)
+
+
+def _branch_with_record(root: Path) -> None:
+    _git(root, "init", "-q", "-b", "main")
+    _git(root, "config", "user.email", "t@t"), _git(root, "config", "user.name", "t")
+    (root / "src").mkdir()
+    (root / "src/A.java").write_text("class A {\n  Vet vet;\n  Vet vet() { return vet; }\n}\n")
+    (root / "src/Other.java").write_text("class Other {}\n")
+    (root / "review-points.md").write_text(POINTS)
+    _git(root, "add", "."), _git(root, "commit", "-qm", "feature")
+
+
+def test_a_payload_pinned_to_another_branch_is_rebuilt_or_refused(tmp_path, capsys):
+    """Run 6 kept run 5's pr-comments.json, pinned to 0746abc5 of another branch."""
+    root = tmp_path
+    _branch_with_record(root)
+    _git(root, "checkout", "-qb", "other")
+    (root / "src/A.java").write_text("class A { int elsewhere; }\n")
+    _git(root, "commit", "-qam", "another branch")
+    foreign = _git(root, "rev-parse", "HEAD").strip()
+    _git(root, "checkout", "-q", "main")
+    file = root / ppc.DEFAULT_FILE
+    file.parent.mkdir(parents=True)
+    stale = {"version": 1, "commit_id": foreign, "event": "COMMENT", "body": "x",
+             "comments": [{"pile": "ignored", "title": "t", "path": "src/A.java",
+                           "line": 1, "side": "RIGHT", "body": "b"}]}
+    file.write_text(json.dumps(stale))
+    assert "not on this branch" in ppc.stale_reason(root, stale)
+    # Sending it is refused: its lines were written for code this branch never had.
+    assert ppc.main(["--root", str(root), "--check"]) == 2
+    assert "is not this branch's" in capsys.readouterr().err
+    # --drop-stale rebuilds it from the record, at a commit of this branch.
+    assert ppc.main(["--root", str(root), "--drop-stale"]) == 0
+    assert "rebuilt from review-points.md" in capsys.readouterr().out
+    fresh = json.loads(file.read_text())
+    assert fresh["commit_id"] == _git(root, "rev-parse", "HEAD").strip()
+    assert ppc.stale_reason(root, fresh) is None
+    assert ppc.main(["--root", str(root), "--drop-stale"]) == 0
+    assert "current" in capsys.readouterr().out
+    # With no record to rebuild it from, it is dropped.
+    file.write_text(json.dumps(stale))
+    (root / "review-points.md").unlink()
+    assert ppc.main(["--root", str(root), "--drop-stale"]) == 0
+    assert not file.exists() and "dropped" in capsys.readouterr().out

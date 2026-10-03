@@ -279,8 +279,47 @@ def _priced(out: str):
             doc.get("result") or "")
 
 
+#: The four token counts a turn is billed for, in the CLI's two spellings: `usage` is the
+#: API's snake_case, `modelUsage` (one entry per model the run called) its camelCase.
+_USAGE_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens",
+               "cache_read_input_tokens")
+_MODEL_USAGE_KEYS = ("inputTokens", "outputTokens", "cacheCreationInputTokens",
+                     "cacheReadInputTokens")
+
+
+def _usage(out: str) -> tuple[int | None, dict]:
+    """`(tokens, {model id: tokens})` out of `claude -p --output-format json`.
+
+    Eval run 6's cost tab billed the mapping `$0.16` beside `0` tokens: the ledger kept the
+    CLI's dollar figure and dropped the token counts printed right next to it, so the run
+    read as money spent on nothing. The same four fields `review-cost.py` counts for a
+    transcript turn (`turn_tokens`), so the two kinds of row add up in one column.
+    `modelUsage` first — it names every model the run called; `usage` when that is absent.
+    `(None, {})` for anything unrecognised, for `_priced`'s reason: bookkeeping never fails
+    a run."""
+    try:
+        doc = json.loads(out)
+        if not isinstance(doc, dict):
+            raise ValueError
+    except Exception:
+        return None, {}
+    per_model = {}
+    for name, u in (doc.get("modelUsage") or {}).items():
+        if isinstance(u, dict):
+            n = sum(int(u.get(k) or 0) for k in _MODEL_USAGE_KEYS)
+            if n:
+                per_model[str(name)] = n
+    if per_model:
+        return sum(per_model.values()), per_model
+    u = doc.get("usage")
+    if isinstance(u, dict):
+        n = sum(int(u.get(k) or 0) for k in _USAGE_KEYS)
+        return (n, {}) if n else (None, {})
+    return None, {}
+
+
 def record_run(review: Path, cost, seconds: float, ledger: str = RUNS_LEDGER,
-               model: str | None = None) -> None:
+               model: str | None = None, out: str | None = None) -> None:
     """Append what this run cost, so the button can stop guessing what the next one will.
 
     Appended even when the cost could not be read, with `cost: null` — the *number* of runs
@@ -294,6 +333,9 @@ def record_run(review: Path, cost, seconds: float, ledger: str = RUNS_LEDGER,
     `ledger` is the file it goes in: the matrix's by default, `rerun-film.py` passes its
     own — the two buttons buy different amounts of work, and an average over both would be
     the right price for neither.
+
+    `out` is the CLI's own JSON reply: its token counts go in beside the cost (`tokens`,
+    and `models` as `{model id: tokens}`), so the cost tab's row is not `$0.16 · 0`.
     """
     path = review / ledger
     try:
@@ -303,9 +345,14 @@ def record_run(review: Path, cost, seconds: float, ledger: str = RUNS_LEDGER,
             runs = []
     except Exception:
         runs = []
-    runs.append({"when": datetime.datetime.now(datetime.timezone.utc)
-                 .isoformat(timespec="seconds"),
-                 "model": model or MODEL, "cost": cost, "seconds": round(seconds, 1)})
+    run = {"when": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+           "model": model or MODEL, "cost": cost, "seconds": round(seconds, 1)}
+    tokens, per_model = _usage(out) if out else (None, {})
+    if tokens is not None:
+        run["tokens"] = tokens
+        if per_model:
+            run["models"] = per_model
+    runs.append(run)
     try:
         path.write_text(json.dumps({"version": 1, "runs": runs[-RUNS_KEPT:]}, indent=2)
                         + "\n", encoding="utf-8")
@@ -422,7 +469,7 @@ def main(argv=None) -> int:
     cost, said = _priced(proc.stdout)
     if proc.stderr:
         print(proc.stderr, end="", file=sys.stderr)
-    record_run(review, cost, time.time() - started, model=model)
+    record_run(review, cost, time.time() - started, model=model, out=proc.stdout)
     if proc.returncode != 0:
         print(f"[model] {model} exited {proc.returncode}; {WRITES[0]} is left as it was.",
               file=sys.stderr)

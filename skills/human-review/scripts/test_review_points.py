@@ -1055,3 +1055,59 @@ def test_an_assumption_with_no_why_is_told_to_say_what_holds_its_confidence(tmp_
     warnings = rp.parse(REFUTED)["warnings"]
     assert any("Empty sort falls back" in w and "no `why:`" in w
                and "confidence where it is" in w for w in warnings)
+
+
+# ── eval run 6 ──────────────────────────────────────────────────────────────────
+
+def test_a_code_span_is_escaped_once(tmp_path):
+    """Run 6: `?size=&page=` in backticks reached the JSON as `&amp;amp;` and the screen as
+    `&amp;` — the line was escaped whole, then the code span again."""
+    assert rp.inline("Reviewer: `?size=&page=` answers 200 & <b>") == \
+        "Reviewer: <code>?size=&amp;page=</code> answers 200 &amp; &lt;b&gt;"
+    doc = _doc(tmp_path, "## Ignored\n### Empty `size=&page=`\n- file: a.py:1\n"
+                         "- observation: encodes `+ & % #` only\n")
+    item = doc["findings"][0]
+    assert item["title"] == "Empty <code>size=&amp;page=</code>"
+    assert item["observation"] == "encodes <code>+ &amp; % #</code> only"
+    assert "&amp;amp;" not in json.dumps(doc)
+
+
+def _two_commits(tmp_path):
+    def git(*a):
+        return subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                              capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    old = [f"l{i}" for i in range(1, 21)]
+    (tmp_path / "a.py").write_text("\n".join(old) + "\n")
+    git("add", ".")
+    git("commit", "-qm", "impl")
+    impl = git("rev-parse", "HEAD")
+    new = old[:3] + ["new1", "", "new2"] + old[3:9] + old[10:]   # +3 after l3, l10 gone
+    new[new.index("l15")] = "l15 rewritten"
+    (tmp_path / "a.py").write_text("\n".join(new) + "\n")
+    git("commit", "-qam", "[auto-fix]")
+    return impl, git("rev-parse", "HEAD")
+
+
+def test_a_ref_is_carried_through_the_hunks_of_the_diff(tmp_path):
+    impl, fix = _two_commits(tmp_path)
+    assert rp.remap_ref(tmp_path, "a.py:2", impl) == "a.py:2"          # above every hunk
+    assert rp.remap_ref(tmp_path, "a.py:5", impl) == "a.py:8"          # below an insertion
+    assert rp.remap_ref(tmp_path, "a.py:10", impl) is None             # deleted
+    assert rp.remap_ref(tmp_path, "a.py:15", impl) == "a.py:17"        # rewritten in place
+    assert rp.remap_ref(tmp_path, "a.py:9-11", impl) == "a.py:12-13"   # a range, one line lost
+    assert rp.remap_ref(tmp_path, "a.py", impl) == "a.py"              # no lines, nothing to do
+    assert rp.remap_ref(tmp_path, "a.py:5", fix) == "a.py:5"           # already at HEAD
+
+
+def test_reanchor_falls_back_past_a_blank_line_but_never_past_a_deleted_one(tmp_path):
+    impl, fix = _two_commits(tmp_path)
+    # Written at HEAD: line 5 is blank there, read as the implementation's l5 → 8.
+    got = rp.reanchor(tmp_path, "a.py:5", [fix, impl])
+    assert got == {"ref": "a.py:8", "from": impl, "moved": True, "blank": False}
+    # The implementation's l10 is gone: said, not swapped for whatever now sits at 10.
+    got = rp.reanchor(tmp_path, "a.py:10", [impl, fix])
+    assert got["ref"] is None and got["from"] == impl
+    assert rp.reanchor(tmp_path, "a.py:5", [rp.WORKTREE, impl])["ref"] == "a.py:8"

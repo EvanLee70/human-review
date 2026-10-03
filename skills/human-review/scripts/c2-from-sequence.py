@@ -550,7 +550,8 @@ def shape_changed(delta: dict) -> bool:
 
 
 def stale_note(verdict_path: Path) -> str:
-    """The line under the card when the traces it is projected from were not re-run.
+    """The line under the card when the traces it is projected from were not re-run, or
+    when the re-traced ones lost participants or calls the committed diagrams show.
 
     `run-steps.py` `_sequence` leaves `sequence.verdict.json` beside the assets whenever
     the traced suites drew nothing; the Sequence tab says so in a band, and this card —
@@ -559,11 +560,25 @@ def stale_note(verdict_path: Path) -> str:
         doc = json.loads(verdict_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return ""
-    if not isinstance(doc, dict) or doc.get("state") != "skipped":
+    if not isinstance(doc, dict):
         return ""
-    return ("Projected from the sequence diagrams committed on the branch: the traced suites "
-            "were not re-run on this run (see the Sequence tab), so this view may be stale "
-            "against the code under review.")
+    if doc.get("state") == "skipped":
+        return ("Projected from the sequence diagrams committed on the branch: the traced "
+                "suites were not re-run on this run (see the Sequence tab), so this view may "
+                "be stale against the code under review.")
+    # Eval run 6: the re-traced AddVisitApiTest lost NotificationService and the SMS
+    # gateway, and this card called the container view UNCHANGED off that degraded set.
+    lost = [x for x in doc.get("lost") or [] if isinstance(x, dict)]
+    if not lost:
+        return ""
+    gone = list(dict.fromkeys(p for x in lost for p in x.get("participants") or []))
+    what = (", ".join(gone) if gone else
+            f"{sum(len(x.get('calls') or []) for x in lost)} call(s)")
+    n = len(lost)
+    return (f"Projected from this run's traces, and {n} of them lost what the committed "
+            f"diagram{'s' if n != 1 else ''} show{'' if n != 1 else 's'} ({what}) — see the "
+            "Sequence tab. A container or line missing here may be a gap in the trace, not "
+            "in the code.")
 
 
 def is_datastore_edge(e: dict) -> bool:
@@ -798,7 +813,11 @@ def sh(args: list[str], root: Path) -> subprocess.CompletedProcess:
 
 
 def matches(rel: str, sources: list[str], exclude: list[str]) -> bool:
-    if any(fnmatch.fnmatch(rel, pat) for pat in exclude):
+    # The same `**/` rule as below, for the excludes: `**/.human-review/**` has to rule out
+    # the review directory at the root too, where the Sequence step files its own copies
+    # of the diagrams — a repository that does not gitignore it would project each twice.
+    if any(fnmatch.fnmatch(rel, pat)
+           or (pat.startswith("**/") and fnmatch.fnmatch(rel, pat[3:])) for pat in exclude):
         return False
     # `**/*.genseq.puml` has to match `a.genseq.puml` at the root too, which fnmatch's
     # `**/` does not: it wants at least one directory. Test the basename form as well.
@@ -817,6 +836,29 @@ def worktree_sources(root: Path, sources: list[str], exclude: list[str]) -> list
             if rel and matches(rel, sources, exclude) and (root / rel).is_file():
                 seen[rel] = None
     return sorted(seen)
+
+
+def traced_overlay(root: Path, overlay: Path) -> Path | None:
+    """Where the Sequence step filed what its traced run drew, if that is this HEAD's run.
+
+    `run-steps.py` `_sequence` copies each re-traced diagram there under its repository path
+    and gives the committed files their bytes back, so the work tree alone would project the
+    committed diagrams, not this run's. `.head` is the commit it traced: after a new commit
+    the committed files are the newer truth, and the copy is ignored."""
+    try:
+        head = (overlay / ".head").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return overlay if head and head == sh(["git", "rev-parse", "HEAD"], root).stdout.strip() \
+        else None
+
+
+def overlay_sources(overlay: Path | None, sources: list[str], exclude: list[str]) -> list[str]:
+    if overlay is None:
+        return []
+    return sorted(p.relative_to(overlay).as_posix() for p in overlay.rglob("*.puml")
+                  if matches(p.relative_to(overlay).as_posix(), sources,
+                             [x for x in exclude if ".human-review" not in x]))
 
 
 def base_sources(root: Path, base: str, sources: list[str], exclude: list[str]) -> list[str]:
@@ -885,6 +927,9 @@ def main(argv=None) -> int:
     ap.add_argument("--sequence-verdict", default="",
                     help="the Sequence step's verdict (default: sequence.verdict.json beside "
                          "--out-dir); a 'skipped' one puts a stale note under the card")
+    ap.add_argument("--overlay", default="",
+                    help="where the Sequence step filed this run's diagrams (default: genseq "
+                         "beside --out-dir); read before the work tree while it is HEAD's")
     ap.add_argument("--print", action="store_true", dest="dump",
                     help="print the projected graph as JSON and write nothing")
     a = ap.parse_args(argv)
@@ -905,13 +950,19 @@ def main(argv=None) -> int:
     # default is the same convention for a project that has no DSL to copy from.
     name = a.name or c2.get("name") or DEFAULT_NAME
 
-    rels = worktree_sources(root, sources, exclude)
+    overlay = traced_overlay(root, Path(a.overlay) if a.overlay
+                             else (root / a.out_dir).parent / "genseq")
+    rels = sorted(set(worktree_sources(root, sources, exclude))
+                  | set(overlay_sources(overlay, sources, exclude)))
     if not rels:
         print("[c2] no sequence diagrams to project from — nothing to draw", file=sys.stderr)
         return 3
 
-    new = build(root, rels, lambda r: (root / r).read_text(encoding="utf-8", errors="replace"),
-                containers)
+    def traced(rel: str) -> str:
+        path = overlay / rel if overlay is not None and (overlay / rel).is_file() else root / rel
+        return path.read_text(encoding="utf-8", errors="replace")
+
+    new = build(root, rels, traced, containers)
     if not new.edges:
         print(f"[c2] {len(rels)} sequence diagram(s), and no call between two containers "
               "in any of them — nothing to draw", file=sys.stderr)

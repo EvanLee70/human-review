@@ -70,6 +70,16 @@ fi
 # this branch started are not this branch's changes.
 MERGE_BASE="$(git merge-base "$BASE_REF" HEAD)"
 
+# What the Sequence step's traced run drew is filed in the review directory, never over the
+# committed files: run-steps.py `_sequence` copies it there and puts the work tree back, so
+# a review leaves the branch clean. Read through that copy — it wins over the work tree —
+# but only while HEAD is the commit it was traced at (`.head`): after a new commit, the
+# committed diagrams are the newer truth.
+OVERLAY="${PUML_OVERLAY:-.human-review/assets/genseq}"
+if [ ! -d "$OVERLAY" ] || [ "$(cat "$OVERLAY/.head" 2>/dev/null)" != "$(git rev-parse HEAD)" ]; then
+  OVERLAY=""
+fi
+
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 TMP="$(mktemp -d)"
@@ -86,6 +96,7 @@ done < <(
   {
     git diff --name-only "$MERGE_BASE" -- '*.puml'
     git ls-files --others --exclude-standard -- '*.puml'
+    [ -z "$OVERLAY" ] || (cd "$OVERLAY" && find . -type f -name '*.puml' | sed 's|^\./||')
   } | sort -u
 )
 
@@ -175,6 +186,7 @@ for rel in "${CHANGED[@]}"; do
   fi
 
   new="$ROOT/$rel"
+  [ -n "$OVERLAY" ] && [ -f "$OVERLAY/$rel" ] && new="$OVERLAY/$rel"
   if [ ! -f "$new" ]; then
     new="$TMP/$name.empty.puml"
     : >"$new"
@@ -306,8 +318,9 @@ for rel in "${CHANGED[@]}"; do
       else
         rm -f "$OUT_DIR/$name.old.json"
       fi
-      if [ -s "$ROOT/${rel%.puml}.json" ] \
-         && cp "$ROOT/${rel%.puml}.json" "$OUT_DIR/$name.new.json"; then
+      sidecar="$ROOT/${rel%.puml}.json"
+      [ -n "$OVERLAY" ] && [ -s "$OVERLAY/${rel%.puml}.json" ] && sidecar="$OVERLAY/${rel%.puml}.json"
+      if [ -s "$sidecar" ] && cp "$sidecar" "$OUT_DIR/$name.new.json"; then
         new_details="$(basename "$OUT_DIR/$name.new.json")"
       else
         rm -f "$OUT_DIR/$name.new.json"

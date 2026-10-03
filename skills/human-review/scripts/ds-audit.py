@@ -66,8 +66,10 @@ SNAPSHOT_JS = r"""
   const MAX = 4000;
 
   // Angular writes validity and touch state into the class list. Those flip on a
-  // stray focus and would report every input as "changed" between two runs.
-  const VOLATILE = /^(ng-(untouched|touched|pristine|dirty|valid|invalid|star-inserted)|cdk-(focused|mouse-focused|keyboard-focused|program-focused)|mat-focus-indicator|_ng)/;
+  // stray focus and would report every input as "changed" between two runs. And
+  // `ng-tns-c<hash>-<n>` is the animation namespace stamped per component *build*: two
+  // builds of one template carry two hashes, so every node under it read as replaced.
+  const VOLATILE = /^(ng-(untouched|touched|pristine|dirty|valid|invalid|star-inserted|tns-[\w-]+)|cdk-(focused|mouse-focused|keyboard-focused|program-focused)|mat-focus-indicator|_ng)/;
 
   const classesOf = (el) =>
     Array.from(el.classList).filter((c) => !VOLATILE.test(c)).sort();
@@ -107,11 +109,45 @@ SNAPSHOT_JS = r"""
   // NEVER `el.id`. On a <form>, the id *property* is the named child control — a
   // petclinic form with <input name="id"> answers `[object HTMLInputElement]`, and every
   // signature under it is garbage that matches nothing on the other side.
-  const idOf = (el) => el.getAttribute('id') || '';
+  const rawIdOf = (el) => el.getAttribute('id') || '';
+  // A component kit numbers its own ids — `mat-select-0`, `mat-input-3`, `cdk-overlay-1`.
+  // That is a counter, not a name: it shifts when one more select renders above, and on
+  // the page it read "#mat-select-0" where the reader needed "Items per page". It is
+  // still recorded (`id`), but it never anchors a signature, a selector or a label.
+  const AUTO_ID = /^(mat|cdk|mdc|ng|mat-mdc)-[\w-]*?\d+$/;
+  const idOf = (el) => { const i = rawIdOf(el); return AUTO_ID.test(i) ? '' : i; };
+  // A component from a UI kit (Angular Material, CDK, PrimeNG, ng-zorro, Ionic, Shoelace)
+  // and the kit directive that has no element of its own: `matSort` on a <table>, its
+  // `mat-sort-header` cells. Which of them is a *control* is decided in Python
+  // (`KIT_CONTROLS`); here they are only recorded with a name and their kit ancestors.
+  const KIT_TAG = /^(mat|cdk|p|nz|ion|sl)-/;
+  const kitOf = (el) => {
+    const t = el.tagName.toLowerCase();
+    if (KIT_TAG.test(t)) return t;
+    if (el.classList.contains('mat-sort-header')) return 'mat-sort-header';
+    if (el.classList.contains('mat-sort')) return 'mat-sort';
+    return '';
+  };
+  const kitHostsOf = (el) => {
+    const out = [];
+    for (let p = el.parentElement; p && p !== document.body && out.length < 6; p = p.parentElement) {
+      const k = kitOf(p);
+      if (k) out.push(k);
+    }
+    return out;
+  };
 
   const labelOf = (el) => {
     const aria = el.getAttribute('aria-label');
     if (aria) return aria.trim();
+    // The accessible name a kit control actually carries: mat-paginator points its
+    // page-size select at "Items per page:" this way. The element's own parts (the
+    // select's current value, also listed) are not its name and are left out.
+    const by = (el.getAttribute('aria-labelledby') || '').split(/\s+/)
+      .map((i) => i && document.getElementById(i))
+      .filter((l) => l && !el.contains(l))
+      .map((l) => l.textContent.trim()).filter(Boolean).join(' ');
+    if (by) return by;
     if (idOf(el)) {
       const l = document.querySelector('label[for="' + CSS.escape(idOf(el)) + '"]');
       if (l) return l.textContent.trim();
@@ -123,7 +159,12 @@ SNAPSHOT_JS = r"""
       const l = group.querySelector('label');
       if (l) return l.textContent.trim();
     }
-    return (el.getAttribute('placeholder') || '').trim();
+    const ph = (el.getAttribute('placeholder') || '').trim();
+    if (ph) return ph;
+    // A kit component with nothing pointing at it: a sort header is named by what it
+    // says ("Name"); a paginator says forty characters of counts, which is no name.
+    const said = kitOf(el) ? el.textContent.replace(/\s+/g, ' ').trim() : '';
+    return said.length <= 40 ? said : '';
   };
 
   // A path that survives the branch. An id or a form control name is worth more than
@@ -195,7 +236,8 @@ SNAPSHOT_JS = r"""
       sig: sigOf(el),
       selector: selectorOf(el),
       tag: t,
-      id: idOf(el) || null,
+      id: rawIdOf(el) || null,
+      auto_id: !!rawIdOf(el) && !idOf(el),
       name: el.getAttribute('name') || el.getAttribute('formcontrolname') || null,
       type: t === 'input' ? (el.getAttribute('type') || 'text').toLowerCase() : null,
       aria_role: el.getAttribute('role') || null,
@@ -206,7 +248,10 @@ SNAPSHOT_JS = r"""
       ds_host_sig: dsHostEl ? sigOf(dsHostEl) : null,
       native: isNative(el),
       role: isNative(el) ? roleOf(el) : null,
-      label: isNative(el) || el.getAttribute('data-ds') ? labelOf(el) : '',
+      label: isNative(el) || el.getAttribute('data-ds') || kitOf(el) ? labelOf(el) : '',
+      kit: kitOf(el) || null,
+      multiple: el.hasAttribute('multiple') || el.getAttribute('aria-multiselectable') === 'true',
+      kit_hosts: isNative(el) || kitOf(el) ? kitHostsOf(el) : [],
       disabled: el.disabled === true,
       leaf: el.children.length === 0,
       // Page coordinates, not viewport ones: the shot is full-page.
@@ -490,6 +535,82 @@ def scan_sources(roots: list[Path]) -> dict:
 
 # ── the audit ─────────────────────────────────────────────────────────────────────
 
+# The UI-kit controls the audit judges, keyed on what the page records as `kit` (the tag,
+# or the class a kit directive puts on its host). Each is (what to call it, the role it
+# fills). A kit control is never the design system's component — that is a `data-ds`
+# host, whatever library it is built on — so it is judged either way: in a role the
+# registry covers it is the gap the role model exists to find; in a role the registry
+# does not know it is still a control from outside the design system, and saying so with
+# the reason is the difference between "0 gaps" and "never looked". `mat-sort-header` is
+# judged through its table (`mat-sort`), once per table, not once per column.
+KIT_CONTROLS = {
+    "mat-select": ("Angular Material select", "select"),
+    "mat-paginator": ("Angular Material paginator", "paginator"),
+    "mat-sort": ("Angular Material sort directive", "sortable table header"),
+    "mat-checkbox": ("Angular Material checkbox", "input[type=checkbox]"),
+    "mat-radio-button": ("Angular Material radio button", "input[type=radio]"),
+    "mat-slide-toggle": ("Angular Material slide toggle", "role=switch"),
+    "mat-slider": ("Angular Material slider", "input[type=range]"),
+    "mat-button-toggle-group": ("Angular Material button toggle", "toggle group"),
+    "mat-tab-group": ("Angular Material tabs", "tabs"),
+    "p-dropdown": ("PrimeNG dropdown", "select"),
+    "p-select": ("PrimeNG select", "select"),
+    "p-paginator": ("PrimeNG paginator", "paginator"),
+    "nz-select": ("ng-zorro select", "select"),
+    "nz-pagination": ("ng-zorro pagination", "paginator"),
+    "ion-select": ("Ionic select", "select"),
+    "sl-select": ("Shoelace select", "select"),
+}
+
+# The ids a component kit numbers itself. Kept in step with `AUTO_ID` in the page-side
+# extractor; here it decides what a row is *called* on a capture that predates it.
+AUTO_ID = re.compile(r"^(?:mat|cdk|mdc|ng|mat-mdc)-[\w-]*?\d+$")
+
+
+def effective_role(n: dict) -> str | None:
+    """The role a control fills, which is not always the role its markup states.
+
+    A `role="combobox"` on anything but a text input is the ARIA "select-only combobox":
+    `<mat-select>`, a PrimeNG dropdown, a div picker. It answers exactly the question a
+    `<select>` answers, so it is judged as one — reported as `role=combobox`, a role
+    nothing claims, it walked past a registry whose combo covers `select`."""
+    role = n.get("role")
+    if role == "role=combobox" and n.get("tag") != "input":
+        return "select[multiple]" if _multiple(n) else "select"
+    return role
+
+
+def _multiple(n: dict) -> bool:
+    """A multi-select, however the kit says so: the attribute, ARIA, or Material's own
+    `mat-mdc-select-multiple` class on a capture taken before `multiple` was recorded."""
+    return bool(n.get("multiple") or any(c.endswith("-select-multiple")
+                                         for c in n.get("cls") or []))
+
+
+def element_name(f: dict) -> str:
+    """What a reader calls the element: its accessible name, else its control name, else
+    an id a person wrote — never a kit's counter (`mat-select-0`) — else what it is."""
+    el = f["element"]
+    label = (el.get("label") or "").strip().rstrip(":").strip()
+    if label:
+        return label
+    if el.get("name"):
+        return el["name"]
+    if el.get("id") and not AUTO_ID.match(el["id"]):
+        return el["id"]
+    kit = KIT_CONTROLS.get(el.get("kit") or el.get("tag") or "")
+    return kit[0] if kit else el.get("tag") or "element"
+
+
+def _kit_host(n: dict) -> str | None:
+    """The nearest kit *control* this node sits inside: its machinery, not a control of
+    its own. The select inside a paginator is the paginator's page-size picker."""
+    for k in n.get("kit_hosts") or []:
+        if k in KIT_CONTROLS:
+            return k
+    return None
+
+
 def audit_side(snapshot: dict, registry: dict, side: str) -> list[dict]:
     """One side's verdicts. Three of them, and only two get drawn.
 
@@ -501,21 +622,34 @@ def audit_side(snapshot: dict, registry: dict, side: str) -> list[dict]:
                  drawn: it is the auditor showing its work, not a finding.
     """
     covered = {r["role"]: r for r in registry["roles"]}
+    claimed = ", ".join(f'<code>{r}</code>' for r in sorted(covered)) or "nothing"
+    nodes = snapshot["nodes"]
     out = []
-    for n in snapshot["nodes"]:
+    for n in nodes:
         if n.get("ds"):
             out.append(_finding(side, n, "ds", None,
                                 f'design-system component <b>{n["ds"]}</b>'))
             continue
+        kit = KIT_CONTROLS.get(n.get("kit") or "")
+        host = _kit_host(n)
+        if host and not n.get("ds_host") and (kit or n.get("native")):
+            # The kit control around it is the one judged; its parts are its machinery,
+            # the way a combo's own <select> is the combo's.
+            out.append(_finding(side, n, "internal", None,
+                                f'inside the {KIT_CONTROLS[host][0]} — its own control',
+                                role_name=effective_role(n)))
+            continue
+        if kit and not n.get("ds_host"):
+            out.append(_kit_finding(side, n, kit, covered, claimed, nodes))
+            continue
         if not n.get("native"):
             continue
-        role = covered.get(n["role"])
+        role = covered.get(effective_role(n))
         if not role:
             # Considered and not judged. It is in the JSON so the agent reading it can
             # see the auditor looked at this control and can say why it let it past —
             # an audit that only reports what it flagged cannot be argued with. Never
             # badged on the picture: that is what "leave everything else unmarked" means.
-            claimed = ", ".join(f'<code>{r}</code>' for r in sorted(covered)) or "none"
             out.append(_finding(side, n, "uncovered", None,
                                 f'<code>&lt;{n["tag"]}&gt;</code> in role '
                                 f'<code>{n["role"]}</code>. No design-system component '
@@ -540,16 +674,57 @@ def audit_side(snapshot: dict, registry: dict, side: str) -> list[dict]:
     return out
 
 
-def _finding(side: str, n: dict, verdict: str, role: dict | None, message: str) -> dict:
+def _kit_finding(side, n, kit, covered, claimed, nodes) -> dict:
+    """A UI-kit control: the design system's component if the registry names one for its
+    role (then it is in the wrong library: a gap where that component belongs), else a
+    control from outside the design system — `foreign`, a gap with its reason."""
+    what, kit_role = kit
+    if kit_role == "select" and _multiple(n):
+        what, kit_role = what.replace("select", "multi-select"), "select[multiple]"
+    tag = f'<code>&lt;{html.escape(n["tag"])}&gt;</code>'
+    if n.get("kit") == "mat-sort":
+        cols = [m.get("label") for m in nodes
+                if m.get("kit") == "mat-sort-header" and m.get("label")
+                and "mat-sort" in (m.get("kit_hosts") or [])]
+        if cols:
+            n = dict(n, label="matSort on " + ", ".join(cols))
+        tag = "<code>matSort</code>"
+    role = covered.get(kit_role)
+    if role:
+        owners = " or ".join(f"<b>{d}</b>" for d in role["covered_by"])
+        return _finding(
+            side, n, "bare", role,
+            f"not the design-system component — {tag}, an {what}, where {owners} "
+            f"belongs. It fills <code>{html.escape(kit_role)}</code>, the role {owners} "
+            "covers, and nothing above it carries a <code>[data-ds]</code> marker")
+    inner = [m for m in nodes if _kit_host(m) == n.get("kit")
+             and KIT_CONTROLS.get(m.get("kit") or "", (None, None))[1] in covered]
+    parts = "".join(
+        f'; its \u201c{html.escape(element_name({"element": m}))}\u201d control is a '
+        f'<code>&lt;{html.escape(m["tag"])}&gt;</code>, not '
+        + " or ".join(f"<b>{d}</b>" for d in covered[KIT_CONTROLS[m["kit"]][1]]["covered_by"])
+        for m in inner)
+    return _finding(
+        side, n, "foreign", None,
+        f"not from the design system — {tag} is an {what}. The registry knows {claimed} "
+        f"and no component for a <code>{html.escape(kit_role)}</code>, so this control "
+        f"comes from another library{parts}. Register a design-system component for it "
+        "(<code>data-ds</code>) or accept it on purpose",
+        role_name=kit_role)
+
+
+def _finding(side: str, n: dict, verdict: str, role: dict | None, message: str,
+             *, role_name: str | None = None) -> dict:
     return {
         "id": f'{side}:{n["sig"]}',
         "side": side,
         "verdict": verdict,
-        "role": (role or {}).get("role") or n.get("role"),
+        "role": (role or {}).get("role") or role_name or n.get("role"),
         "expected_ds": (role or {}).get("covered_by") or [],
         "ds": n.get("ds"),
         "element": {"tag": n["tag"], "id": n.get("id"), "name": n.get("name"),
-                    "label": n.get("label") or "", "sig": n["sig"]},
+                    "label": n.get("label") or "", "sig": n["sig"],
+                    **({"kit": n["kit"]} if n.get("kit") else {})},
         "selector": n["selector"],
         "box": n["box"],
         "message": message,
@@ -970,6 +1145,8 @@ CSS = """/* ds-audit — the annotated screenshots and the findings table, and n
 .dsa-legend .k-ok i  { background: var(--dsa-ok); }
 .dsa-legend .k-bad i { background: var(--dsa-bad); }
 .dsa-legend .k-new i { background: var(--dsa-new); }
+.dsa-legend .k-frame i { background: transparent; border: 2px solid var(--dsa-frame);
+  box-sizing: border-box; }
 .dsa-legend .dsa-ink i { background: #d61fa5; }
 .dsa-legend .dsa-ghost i { background: #f5cde8; border: 1px solid #d61fa5; }
 .dsa-legend .dsa-ink, .dsa-legend .dsa-ghost { display: inline-flex;
@@ -988,6 +1165,8 @@ CSS = """/* ds-audit — the annotated screenshots and the findings table, and n
 .dsa-table tr.ok td:first-child { border-left: 4px solid var(--dsa-ok); }
 .dsa-prov { opacity: .7; font-style: italic; }
 .dsa-sel { font-size: .78rem; opacity: .72; word-break: break-all; }
+/* A side is a branch name or a short sha: one word, never broken over three lines. */
+.dsa-table td:nth-child(2) { white-space: nowrap; }
 /* One collapsible row per screen, closed by default — the same furniture the Sequence
    tab's `details.testpair` wears for the same reason: a run audits the whole catalogue,
    and most of it did not change in a way worth a picture. The triangle and the
@@ -1015,6 +1194,12 @@ details.dsa-screen > summary:hover { color: var(--link); }
 .dsa-frame { position: absolute; box-sizing: border-box; pointer-events: none;
   border: 3px solid var(--dsa-frame); border-radius: .35rem; }
 .dsa-frame.insert { border: 0; border-top: 3px dashed var(--dsa-frame); border-radius: 0; }
+/* The frame's chip sits on its top edge, right-aligned: the marks' own badges take the
+   top-left corner of the boxes inside it, which is often the frame's corner too. */
+.dsa-frame > b { position: absolute; right: -3px; top: -1.15rem; font: 700 .68rem/1.15rem
+  -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--dsa-label-fg);
+  background: var(--dsa-frame); padding: 0 .35rem; border-radius: .2rem; white-space: nowrap;
+  z-index: 2; }
 .dsa:has(.dsa-frameon:not(:checked)) .dsa-frame { display: none; }
 .dsa-frametoggle { margin-left: .6rem; font-size: .82rem; display: inline-flex; gap: .35rem;
   align-items: center; cursor: pointer; user-select: none; color: var(--fg); }
@@ -1090,8 +1275,9 @@ def shot_html(png_rel: str, page: dict, marks: list[dict],
                  f'width:{_pct(fr["w"], w)};height:{_pct(fr["h"], h)}')
         tip = ("the change goes in here \u2014 the other side has it"
                if fr.get("insert") else "changed on this branch")
+        chip = "" if fr.get("insert") else f'<b>{html.escape(frame_label(fr, marks))}</b>'
         out.append(f'<div class="dsa-frame{" insert" if fr.get("insert") else ""}" '
-                   f'style="{style}" data-tip="{tip}"></div>')
+                   f'style="{style}" data-tip="{tip}">{chip}</div>')
     for m in marks:
         b = m["box"]
         style = (f'left:{_pct(b["x"], w)};top:{_pct(b["y"], h)};'
@@ -1102,6 +1288,34 @@ def shot_html(png_rel: str, page: dict, marks: list[dict],
             f'<b>{html.escape(m["badge"])}</b></div>')
     out.append("</div>")
     return "".join(out)
+
+
+def short_selector(selector: str, keep: int = 2) -> str:
+    """A path selector cut to its last `keep` steps. An element with no id or name has a
+    signature from the app root down — six lines of `div.container-fluid:1>…` in a table
+    cell — and only its tail tells two rows apart. The whole path stays in the tip."""
+    steps = selector.split(">")
+    return selector if len(steps) <= keep + 1 else "\u2026>" + ">".join(steps[-keep:])
+
+
+def frame_label(frame: dict, marks: list[dict]) -> str:
+    """The chip on a change frame: what was judged inside it, in the marks' own words.
+
+    An unlabelled purple box said "something here changed" and left the reader to work
+    out what, and whether it was fine. The chip names the verdicts the frame holds —
+    `✗ matSort · ✗ Select page of owners — added` — or says there is nothing to judge."""
+    def inside(m):
+        b = m["box"]
+        cx, cy = b["x"] + b["w"] / 2, b["y"] + b["h"] / 2
+        return (frame["x"] <= cx <= frame["x"] + frame["w"]
+                and frame["y"] <= cy <= frame["y"] + frame["h"])
+    held = [m for m in marks if inside(m)]
+    names = list(dict.fromkeys(m.get("short") or m["badge"] for m in held))
+    if not names:
+        return "changed \u2014 nothing here to judge"
+    status = {m.get("status") for m in held}
+    tail = f" \u2014 {status.pop()}" if len(status) == 1 and None not in status else ""
+    return " \u00b7 ".join(names) + tail
 
 
 def _plain(message: str) -> str:
@@ -1124,12 +1338,23 @@ def _marks_for(findings, side):
             continue
         st = f.get("delta", {})
         note = ""
-        if st.get("status") in ("added", "restyled", "changed"):
+        status = st.get("status") if st.get("status") in ("added", "restyled", "changed") \
+            else None
+        if status:
             note = f' · {st["status"]}'
         if f["verdict"] == "ds":
             marks.append({"id": f["id"], "cls": "ok", "box": f["box"],
-                          "badge": f'✓ {f["ds"]}{note}',
-                          "tip": _plain(f["message"])})
+                          "badge": f'✓ {f["ds"]}{note}', "short": f'✓ {f["ds"]}',
+                          "tip": _plain(f["message"]), "status": status})
+        elif f["verdict"] == "foreign":
+            # The kit's own name on the picture (`mat-paginator`, `matSort`): it says what
+            # library the control came from, which is the finding. The accessible name is
+            # in the table row, where there is room for both.
+            kit = f["element"].get("kit") or f["element"]["tag"]
+            name = "matSort" if kit == "mat-sort" else kit
+            marks.append({"id": f["id"], "cls": "bad", "box": f["box"],
+                          "badge": f'✗ {name}, not from the design system{note}',
+                          "short": f'✗ {name}', "tip": _plain(f["message"]), "status": status})
         else:
             # "select → combo" was an arrow between two words the reader had to
             # already know to decode. The badge now says the verdict itself, and names
@@ -1137,23 +1362,29 @@ def _marks_for(findings, side):
             expect = "/".join(f["expected_ds"])
             expect = f"not the {expect} component" if expect else \
                 "not a design-system component"
+            plain = "" if f["element"].get("kit") else "plain "
             marks.append({"id": f["id"], "cls": "bad", "box": f["box"],
-                          "badge": f'✗ plain <{f["element"]["tag"]}>, {expect}{note}',
-                          "tip": _plain(f["message"])})
+                          "badge": f'✗ {plain}<{f["element"]["tag"]}>, {expect}{note}',
+                          "short": f'✗ <{f["element"]["tag"]}>',
+                          "tip": _plain(f["message"]), "status": status})
     return marks
 
+
+# The frame's purple is in the legend because it is on the picture. The blue entry that
+# used to sit here named no box the New/Old views draw — blue is the Diff view's pen.
+FRAME_KEY = '<span class="k-frame"><i></i>where this branch changed the screen</span>'
 
 LEGEND = (
     '<div class="dsa-legend">'
     '<span class="k-ok"><i></i>design-system component</span>'
-    '<span class="k-bad"><i></i>native control where one belongs</span>'
-    '<span class="k-new"><i></i>changed on this branch</span>'
+    '<span class="k-bad"><i></i>native or outside control where one belongs</span>'
+    f"{FRAME_KEY}"
     "</div>")
 
 DIFF_LEGEND = (
     '<div class="dsa-legend"><span class="k-new"><i></i>new or changed</span>'
     '<span class="dsa-ink"><i></i>differs</span>'
-    '<span class="dsa-ghost"><i></i>only moved</span></div>')
+    f'<span class="dsa-ghost"><i></i>only moved</span>{FRAME_KEY}</div>')
 
 
 def slug(name: str) -> str:
@@ -1221,9 +1452,20 @@ def delta_parts(counts: dict, *, long: bool = False, gap_tip: str = "") -> list[
     reg, fixed = len(counts["regressions"]), len(counts["improvements"])
     pre = len(counts.get("pre_existing") or [])
     d = counts["new"]["ds"] - counts["old"]["ds"]
+    # A `foreign` gap is a kit control from outside the design system, not a native one;
+    # the long form names whichever kinds the gaps are, rather than calling a Material
+    # paginator a "native control".
+    foreign = counts["new"].get("foreign", 0) - counts["old"].get("foreign", 0)
+    plural = "" if reg == 1 else "s"
+    if foreign > 0 and foreign >= reg:
+        kind = f"control{plural} from outside the design system"
+    elif foreign > 0:
+        kind = ("native controls where a design-system component belongs, or from outside "
+                "the design system")
+    else:
+        kind = f"native control{plural} where a design-system component belongs"
     if reg:
-        word = (f'{_n(reg, "gap")} — native control{"" if reg == 1 else "s"} where a '
-                f'design-system component belongs') if long else _n(reg, "gap")
+        word = f'{_n(reg, "gap")} — {kind}' if long else _n(reg, "gap")
         tip = gap_tip or ("a native control this branch added where a design-system "
                           "component belongs, or a component it replaced with one")
         parts.append(f'<span class="dsa-gap" data-tip-html="{html.escape(tip, quote=True)}">'
@@ -1242,6 +1484,19 @@ def delta_parts(counts: dict, *, long: bool = False, gap_tip: str = "") -> list[
         parts.append(f'<span class="dsa-pre" data-tip="already bare on the base; this branch '
                      f'did not add it and did not close it">{_n(pre, "gap")} '
                      f'already on the base</span>')
+    # The controls considered and let past, as a delta too. `uncovered` going 41 → 42 under
+    # a tab that said nothing was a control the branch added that the audit never judged;
+    # said here, "0 gaps" can no longer be mistaken for "not looked at".
+    u = counts["new"].get("uncovered", 0) - counts["old"].get("uncovered", 0)
+    if u:
+        sign = "+" if u > 0 else "\u2212"
+        what = "control no design-system component claims" if long else "not judged"
+        if long and abs(u) != 1:
+            what = "controls no design-system component claims"
+        parts.append(f'<span class="dsa-pre" data-tip="native controls in a role no '
+                     f'design-system component claims: {counts["old"].get("uncovered", 0)} on '
+                     f'the base, {counts["new"].get("uncovered", 0)} on this branch \u2014 '
+                     f'considered and deliberately not judged">{sign}{abs(u)} {what}</span>')
     return parts
 
 
@@ -1250,7 +1505,7 @@ def screen_has_nothing_to_judge(screen: dict) -> bool:
     grew a column, a detail page. The audit has no verdict on it, and its heading has to
     say that rather than print `0 gaps · 0 components` as if that were a clean bill."""
     c = screen["summary"]
-    return not (c["new"]["bare"] or c["new"]["ds"] or c["old"]["ds"] or c["old"]["bare"])
+    return not any(c[side].get(k) for side in ("new", "old") for k in ("bare", "ds", "foreign"))
 
 
 def render_screen(screen: dict, assets_prefix: str, build) -> str:
@@ -1276,8 +1531,7 @@ def render_screen(screen: dict, assets_prefix: str, build) -> str:
             churn_txt = "not comparable (no counterpart)" if c is None else f"{c:.0%}"
             delta_marks.append({
                 "id": f["id"] + ":d", "cls": "new", "box": f["box"],
-                "badge": f'{st["status"]}: {f["element"]["tag"]}'
-                         + (f' #{f["element"]["id"]}' if f["element"]["id"] else ""),
+                "badge": f'{st["status"]}: {element_name(f)}',
                 "tip": f'the DOM says {st["dom"]}; pixels differ over {churn_txt} '
                        "of the element\u2019s own box"})
     # Order is the control's, not the reader's: Diff is always the first button. Which
@@ -1288,20 +1542,22 @@ def render_screen(screen: dict, assets_prefix: str, build) -> str:
              ("new", annotated("new")), ("old", annotated("old"))]
 
     rows = []
-    for f in sorted(findings, key=lambda f: (f["verdict"] != "bare", f["side"] != "new",
-                                             f["box"]["y"])):
+    for f in sorted(findings, key=lambda f: (f["verdict"] not in ("bare", "foreign"),
+                                             f["side"] != "new", f["box"]["y"])):
         if f["verdict"] in ("internal", "uncovered"):
             continue
         st = f.get("delta", {})
-        cls = "bad" if f["verdict"] == "bare" and not f.get("resolved") else "ok"
+        cls = ("bad" if f["verdict"] in ("bare", "foreign") and not f.get("resolved")
+               else "ok")
         word = "gap" if cls == "bad" else ("fixed" if f.get("resolved") else "ok")
         churn_txt = "\u2014" if st.get("pixel_churn") is None else f'{st["pixel_churn"]:.0%}'
         rows.append(
             f'<tr class="{cls}" data-find="{html.escape(f["id"])}">'
             f'<td><span class="dsa-v {cls}">{word}</span></td>'
             f'<td>{html.escape(screen["sides"][f["side"]]["label"])}</td>'
-            f'<td><b>{html.escape(f["element"]["label"] or f["element"]["id"] or f["element"]["tag"])}</b>'
-            f'<br><code class="dsa-sel">{html.escape(f["selector"])}</code></td>'
+            f'<td><b>{html.escape(element_name(f))}</b>'
+            f'<br><code class="dsa-sel" data-tip="{html.escape(f["selector"])}">'
+            f'{html.escape(short_selector(f["selector"]))}</code></td>'
             f'<td>{html.escape(f["role"] or "")}</td>'
             + f'<td>{f["message"]}'
             + (f'<br><span class="dsa-prov">{f["history"]}</span>'
@@ -1313,7 +1569,7 @@ def render_screen(screen: dict, assets_prefix: str, build) -> str:
     # One line: the fold's arrow, the verdict icon, the name, the route, and the two
     # counts that used to sit on lines of their own under it. Opening it is what "pictures
     # and findings" used to be a second fold for.
-    gaps = counts["new"]["bare"]
+    gaps = counts["new"]["bare"] + counts["new"].get("foreign", 0)
     icon = "\u26a0\ufe0f" if gaps else "\u2705"
     route = screen.get("route")
     route_html = (f' <span class="dsa-route">({html.escape(route)})</span>' if route else "")
@@ -1325,10 +1581,16 @@ def render_screen(screen: dict, assets_prefix: str, build) -> str:
             if parts else "")
     summary = (f'{icon} {html.escape(_title_case(screen["screen"]))}{route_html}{tail}')
 
+    # Every changed screen gets the table, the place a reviewer looks for the verdicts. A
+    # screen with nothing in it to judge says so in the table's own body: no table at all
+    # read the same as a table nobody filled in.
+    if not rows:
+        rows.append('<tr class="none"><td></td><td colspan="6">No control on this screen '
+                    "is a design-system component or fills a role one covers \u2014 "
+                    "nothing to judge here; what was considered is listed below.</td></tr>")
     table = ('<table class="dsa-table"><thead><tr><th></th><th>side</th><th>element</th>'
              '<th>role</th><th>why</th><th>delta</th><th>churn</th></tr></thead><tbody>'
-             + "".join(rows) + "</tbody></table>") if rows else (
-        "")
+             + "".join(rows) + "</tbody></table>")
 
     # What the audit looked at and let past. "Nothing was flagged" is not a claim anyone
     # can check; "these five controls were considered, and here is the role each one
@@ -1339,8 +1601,9 @@ def render_screen(screen: dict, assets_prefix: str, build) -> str:
     considered = ""
     if passed:
         items = "".join(
-            f'<li><code>{html.escape(f["selector"])}</code>'
-            + (f' <b>{html.escape(f["element"]["label"])}</b>' if f["element"]["label"] else "")
+            f'<li><b>{html.escape(element_name(f))}</b>'
+            + ("" if AUTO_ID.match(f["selector"].lstrip("#"))
+               else f' <code>{html.escape(f["selector"])}</code>')
             + f' \u2014 role <code>{html.escape(f["role"] or "")}</code>, not covered</li>'
             for f in passed)
         considered = (f'<details class="dsa-considered"><summary>{len(passed)} control'
@@ -1384,9 +1647,15 @@ def regression_tip(result: dict) -> str:
     for sc in result["screens"]:
         ids = set(sc["summary"]["regressions"])
         for f in sc["findings"]:
-            if f["id"] in ids and f["side"] == "new" and f["verdict"] == "bare":
+            if f["id"] in ids and f["side"] == "new" and f["verdict"] in ("bare", "foreign"):
                 el = f["element"]
-                tag = f'<{el["tag"]}' + (f' id="{el["id"]}"' if el.get("id") else "") + ">"
+                tag = f'<{el["tag"]}' + (f' id="{el["id"]}"' if el.get("id")
+                                         and not AUTO_ID.match(el["id"]) else "") + ">"
+                name = element_name(f)
+                if f["verdict"] == "foreign":
+                    rows.append(f'{html.escape(sc["screen"])}: {html.escape(name)} '
+                                f'{html.escape(tag)}, from outside the design system')
+                    continue
                 where = " or ".join(f.get("expected_ds") or []) or "a DS component"
                 was = f.get("history", "").startswith("was a design-system")
                 rows.append(f'{html.escape(sc["screen"])}: {html.escape(tag)} where '
@@ -1414,9 +1683,13 @@ def render(result: dict, assets_prefix: str) -> str:
     # to explain them. It used to open on `1 gap · 1 introduced by this branch`: the same
     # gap counted twice, then `4 components (+1 on this branch)`, a total over every
     # screen of the app, changed or not, that left "components" undefined.
-    verdict_line = " \u00b7 ".join(
-        [f'{len(touched)} of {n} screens changed']
-        + delta_parts(counts, long=True, gap_tip=regression_tip(result)))
+    deltas = delta_parts(counts, long=True, gap_tip=regression_tip(result))
+    # Nothing to say is still said: a bare "1 of 19 screens changed" could not be told
+    # apart from a tab whose audit never judged anything.
+    if touched and not deltas:
+        deltas = ['<span class="dsa-pre">no gap and no design-system component added or '
+                  "removed</span>"]
+    verdict_line = " \u00b7 ".join([f'{len(touched)} of {n} screens changed'] + deltas)
 
     # The embedded copy drops the per-element table. It is keyed on every signature on
     # every screen — 190KB of it on a seven-screen run, most of the fragment's weight —
@@ -1522,6 +1795,57 @@ def capture(url: str, png: Path, *, viewport, epoch: int, seed: int, wait_for: s
 
 # ── main ──────────────────────────────────────────────────────────────────────────
 
+def _git(*args: str, cwd: Path | None = None) -> str:
+    try:
+        return subprocess.run(["git", *args], capture_output=True, text=True, check=True,
+                              cwd=cwd).stdout.strip()
+    except Exception:
+        return ""
+
+
+def page_base_commit(named: str, cwd: Path | None = None) -> str:
+    """The commit the old side was built from, worked out the way `run-steps.py` works it
+    out before it builds that side: the page's one base (the commit the review audited,
+    when `review-points.md` records one inside the branch), forked from HEAD.
+
+    `run-steps.py` used to be the only one who knew, and it passed nothing on: every
+    screen's `sides.old.commit` was `''` and the side was labelled `main`, which was
+    neither the review base nor the merge-base."""
+    root = Path(cwd or Path.cwd())
+    base = named
+    try:
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        from hrbuild.shared.chips import page_base
+        st = page_base(root, None, named)
+        if st and st.get("diffBaseSource") == "audited":
+            base = st["diffBase"]
+    except Exception:  # noqa: BLE001 - no answer is the named base, as run-steps does
+        pass
+    return _git("merge-base", base, "HEAD", cwd=root) or _git(
+        "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", cwd=root)
+
+
+def side_label(label: str, commit: str, cwd: Path | None = None) -> str:
+    """A side's label is a ref name; one that does not point at the commit that side was
+    rendered from is a wrong label, so it gives way to the commit. `main` over a build of
+    the review base `5a97353e` becomes `5a97353e`; the branch name over HEAD stays."""
+    if not commit:
+        return label
+    at = _git("rev-parse", "--verify", "--quiet", f"{label}^{{commit}}", cwd=cwd)
+    return label if at and at == commit else commit[:8]
+
+
+def stamp_sides(sides: dict, commits: dict, cwd: Path | None = None) -> dict:
+    """Fill in each side's `commit` (where it is missing) and fix its label to match."""
+    for side, meta in sides.items():
+        if not meta.get("commit") and commits.get(side):
+            meta["commit"] = commits[side]
+        if meta.get("commit"):
+            meta["label"] = side_label(meta.get("label") or side, meta["commit"], cwd)
+    return sides
+
+
 def _git_head(path: Path) -> str:
     try:
         return subprocess.run(["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
@@ -1560,13 +1884,28 @@ def build_screen(name, old_snap, new_snap, registry, *, sides_meta, delta,
     # that speaks for it — "this field is a combo" — so it wins the slot; without the
     # precedence the `internal` child overwrites it and a component the branch tore out
     # reads as a gap that was always there.
-    rank = {"ds": 0, "bare": 1, "internal": 2, "uncovered": 3}
+    rank = {"ds": 0, "bare": 1, "foreign": 1, "internal": 2, "uncovered": 3}
     by = {}
     for f in sorted(findings, key=lambda f: rank[f["verdict"]]):
         by.setdefault((f["side"], field[f["id"]]), f)
 
+    # A kit control from outside the design system is this branch's gap only when this
+    # branch brought it. One the base already renders on the same field — the vet form's
+    # Material multi-select, left there on purpose — is a decision somebody already made:
+    # considered and let past, like any control in a role nothing claims. One only the
+    # base has is gone.
+    for f in findings:
+        if f["verdict"] != "foreign":
+            continue
+        twin = by.get(("old" if f["side"] == "new" else "new", field[f["id"]]))
+        if f["side"] == "old" or (twin is not None and twin["verdict"] != "ds"):
+            f["verdict"] = "uncovered"
+            f["message"] += (" — the base already renders it, so it is context here, "
+                             "not a gap this branch added" if twin is not None else
+                             " — this branch removed it")
+
     def count(side):
-        c = {"ds": 0, "bare": 0, "internal": 0, "uncovered": 0}
+        c = {"ds": 0, "bare": 0, "foreign": 0, "internal": 0, "uncovered": 0}
         for f in findings:
             if f["side"] == side:
                 c[f["verdict"]] += 1
@@ -1574,7 +1913,9 @@ def build_screen(name, old_snap, new_snap, registry, *, sides_meta, delta,
 
     regressions, improvements, preexisting = [], [], []
     for f in findings:
-        if f["side"] != "new" or f["verdict"] != "bare":
+        # `foreign` is charged the same way: a kit control this branch added is a gap it
+        # is to blame for, one the base already rendered is context.
+        if f["side"] != "new" or f["verdict"] not in ("bare", "foreign"):
             continue
         was = by.get(("old", field[f["id"]]))
         if was and was["verdict"] == "ds":
@@ -1583,7 +1924,9 @@ def build_screen(name, old_snap, new_snap, registry, *, sides_meta, delta,
             regressions.append(f["id"])
         elif was is None:
             f["severity"] = "high"
-            f["history"] = "new on this branch: it shipped bare, it was never migrated"
+            f["history"] = ("new on this branch: added from outside the design system"
+                            if f["verdict"] == "foreign" else
+                            "new on this branch: it shipped bare, it was never migrated")
             regressions.append(f["id"])
         else:
             f["severity"] = "medium"
@@ -1638,20 +1981,20 @@ WEIGHTING = (
 def build_result(screens, registry) -> dict:
     """The run. One registry for all of it — a component is a component whichever screen
     happens to render it — and one rolled-up verdict over every screen audited."""
-    roll = {"new": {"ds": 0, "bare": 0, "internal": 0, "uncovered": 0},
-            "old": {"ds": 0, "bare": 0, "internal": 0, "uncovered": 0}}
+    roll = {"new": {"ds": 0, "bare": 0, "foreign": 0, "internal": 0, "uncovered": 0},
+            "old": {"ds": 0, "bare": 0, "foreign": 0, "internal": 0, "uncovered": 0}}
     regressions, preexisting, improvements = [], [], []
     for sc in screens:
         for side in ("new", "old"):
             for k, v in sc["summary"][side].items():
-                roll[side][k] += v
+                roll[side][k] = roll[side].get(k, 0) + v
         regressions += sc["summary"]["regressions"]
         preexisting += sc["summary"]["pre_existing"]
         improvements += sc["summary"]["improvements"]
     return {
         "schema": SCHEMA,
         "generated": _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat(),
-        "verdict": "gaps" if roll["new"]["bare"] else "clean",
+        "verdict": "gaps" if roll["new"]["bare"] or roll["new"]["foreign"] else "clean",
         "registry": registry,
         "determinism": {"pins": PINS,
                         "settled": {sc["screen"]: sc["settled"] for sc in screens}},
@@ -1718,6 +2061,12 @@ def main():
     ap.add_argument("--label-old", default="old")
     ap.add_argument("--repo-new", help="working tree behind the branch, for the commit stamp")
     ap.add_argument("--repo-old", help="working tree behind the base, for the commit stamp")
+    ap.add_argument("--commit-new", help="commit the branch side was built from "
+                                         "(default: HEAD of the working tree)")
+    ap.add_argument("--commit-old", help="commit the base side was built from (default: the "
+                                         "page base, worked out as run-steps.py does)")
+    ap.add_argument("--base-ref", default="origin/main",
+                    help="the ref the branch merges into, for the default --commit-old")
     ap.add_argument("--source", action="append", default=[],
                     help="tree scanned for design-system component sources (repeatable)")
     ap.add_argument("--viewport", default="1280x900")
@@ -1756,8 +2105,11 @@ def main():
         print(CSS)
         return
     args.asset_prefix = asset_prefix(args.asset_prefix)
+    commits = {"new": args.commit_new or _git("rev-parse", "HEAD"),
+               "old": args.commit_old or page_base_commit(args.base_ref)}
     if args.rerender:
-        rerender(Path(args.rerender), Path(args.assets), args.asset_prefix, Path(args.out))
+        rerender(Path(args.rerender), Path(args.assets), args.asset_prefix, Path(args.out),
+                 commits)
         return
 
     assets = Path(args.assets)
@@ -1889,6 +2241,7 @@ def main():
                     "page": _png_size(pngs["old"], pair["old"]["page"]),
                     "viewport": pair["old"]["viewport"]},
         }
+        stamp_sides(sides_meta, commits)
         screen = build_screen(name, pair["old"], pair["new"], registry,
                               sides_meta=sides_meta,
                               delta={"dom": dom, "elements": elements},
@@ -1906,16 +2259,21 @@ def main():
     Path(args.out).write_text(render(result, args.asset_prefix), encoding="utf-8")
 
     s = result["summary"]
-    print(f'[ds-audit] {args.out} · {len(screens)} screen(s), {s["new"]["bare"]} gap(s), '
+    print(f'[ds-audit] {args.out} · {len(screens)} screen(s), '
+          f'{s["new"]["bare"] + s["new"]["foreign"]} gap(s), '
           f'{s["new"]["ds"]} component(s), {len(s["regressions"])} regression(s) '
           f'→ {args.json_out}', file=sys.stderr)
 
 
-def rerender(json_path: Path, assets: Path, prefix: str, out: Path) -> None:
+def rerender(json_path: Path, assets: Path, prefix: str, out: Path,
+             commits: dict | None = None) -> None:
     """A generator change, seen without a second pair of builds: the result JSON already
-    carries every verdict, and the frames only need the two PNGs beside it."""
+    carries every verdict, and the frames only need the two PNGs beside it. A side whose
+    commit was never recorded gets it now, from the same resolution a capture uses."""
     result = json.loads(json_path.read_text(encoding="utf-8"))
     for sc in result["screens"]:
+        if commits:
+            stamp_sides(sc["sides"], commits)
         stem = assets / f'ds-audit-{slug(sc["screen"])}'
         old, new = Path(f"{stem}-old.png"), Path(f"{stem}-new.png")
         if screen_touched(sc) and old.is_file() and new.is_file():

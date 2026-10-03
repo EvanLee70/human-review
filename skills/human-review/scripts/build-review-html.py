@@ -89,7 +89,7 @@ from hrbuild.shared.svg import (
 )
 from hrbuild.shared.genseq import (
     genseq_by_test, GENSEQ_CALL_TITLE, genseq_details, genseq_details_at_base,
-    genseq_details_at_render, GENSEQ_HANDLE, HTTP_VERBS, MAPPING_ANNOTATION, MAPPING_NAMED_PATH,
+    genseq_details_at_render, genseq_file, genseq_overlay, GENSEQ_OVERLAY, GENSEQ_HANDLE, HTTP_VERBS, MAPPING_ANNOTATION, MAPPING_NAMED_PATH,
     MAPPING_POSITIONAL_PATH, METHOD_NAME, pair_anchor, REQUEST_METHOD, SKIP_DIRS,
     spring_handlers, test_of_genseq, TYPE_DECL, _annotation_span, _controller_routes,
     _declared_test, _details_carrier, _join_route, _mapping_path, _with_handlers
@@ -120,7 +120,7 @@ from hrbuild.shared.footer import (
     ISSUES_URL, PAST_INVITATIONS, PROVENANCE, RUNNING_STACK, TAKEAWAY, _link_home
 )
 from hrbuild.shared.tabstrip import (
-    check_tab_enumeration, NUMBER_WORDS, spelled, TAB_COUNT_TOKEN
+    check_tab_enumeration, NUMBER_WORDS, QUIET_LINE, spelled, TAB_COUNT_TOKEN
 )
 from hrbuild.shared.postprocess import (
     ANCHOR, check_baked_excerpts, one_tooltip_only, open_links_in_new_tabs, TARGET_ATTR
@@ -156,7 +156,11 @@ from hrbuild.tabs.review import (
     _evidence_signal, _git_out, _git_root, _out_of_range_signal, _pile_signals, _plain_text,
     _read_json, _signal, cap_grade, grade_signals,
     FIX_BOOKKEEPING, FIX_HUNK_REACH, _fix_range, _gap, _ref_spans, attribute_fix_hunks,
-    fix_hunks, _assumption_why, drop_model_summary, pr_exists, resolve_piles
+    fix_hunks, _assumption_why, drop_model_summary, pr_exists, resolve_piles,
+    _reviewers, CLAUSE_CAP, _CODE_SPAN, TEST_MAPPING_FILES, REQMAP_HTML, NARROWED_LINES,
+    NARROWED_QUOTE, _quote, _decision_link, _narrowed_signals, _grade_rows, fix_commit,
+    ANCHORS_KEY, ANCHORS_AT_REVIEW, _written_at, reanchor_refs, _anchor_note,
+    drop_stale_pr_comments, NO_PR_LINE, no_pr_line
 )
 from hrbuild.tabs.sequence import (
     CODE_BADGE, FILE_PAGE, FILE_PENCIL, FILE_PLUS, render_testpairs, SEQ_ARROW, SEQ_DECL,
@@ -165,7 +169,7 @@ from hrbuild.tabs.sequence import (
     _pair_runner, _scenario_extents, _scenarios_drawn, _share_excerpts, _spans_for,
     _stale_sequence, _unchanged_sequence, _unquoted_note,
     SEQ_VERDICT, SEQ_VERDICT_ALARM, SEQ_VERDICT_FACE, sequence_verdict,
-    sequence_verdict_alarm, sequence_verdict_html,
+    sequence_verdict_alarm, sequence_verdict_html, lost_note_html, _lost,
     AUTO_SNIPPETS, derived_snippets, GENSEQ_TAG, scenario_span, tagged_scenarios, _counted,
     _drew_nothing, _FEATURE_DECL, _FEATURE_STOP, _JAVA_DECL, _ref, _SKIP_LINE, _STRINGS,
     _tagged_decl, _test_kind, _TS_DECL
@@ -199,7 +203,7 @@ from hrbuild.tabs.logging import (
     LOGEXTRACT, logging_fragment, logging_libraries, logging_libraries_tip,
     MAX_ORIGIN_LINES_SHOWN, SRCREF_HREF, type_hint_html, _aim_at_statement, _hint_arguments,
     _CHAR, _insert_at, _LOG_PKGS_RE, _logextract, _logging_aside, _logging_listing,
-    _logging_ref, _plain, _PRE, _ROW, _TAG_SPLIT, _change_line
+    _logging_ref, _plain, _PRE, _ROW, _TAG_SPLIT, _change_line, _mark_rewritten, _ADDED_ROW
 )
 from hrbuild.tabs.owners import (
     codeowners_fragment
@@ -210,7 +214,7 @@ from hrbuild.tabs.cost import (
     _cost_env, _cost_inputs, _cost_money, cost_session,
     _cost_tab_rows, _cost_tokens, _when, components_html, cost_pill_label,
     _legacy_ledger_html, _HARNESS, _aic, _component_money, _minutes, _entry_line,
-    COMPONENT_HINTS
+    COMPONENT_HINTS, guide_breakdown_html
 )
 
 
@@ -575,6 +579,11 @@ def _main(argv=None) -> int:
             # the implementation's, and named four Sonnet reviewers `Opus 5`.
             import harness_cost
             reviewer = ", ".join(harness_cost.reviewer_models(root, out_dir)) or c.get("by")
+            # The hover's opening sentence: who read the diff AND who briefed them —
+            # "Reviewers: Sonnet 5.5 (4 subagents), orchestrated by Opus 5.5" — because the
+            # cost row for the review splits Opus/Sonnet and "Reviewed by Sonnet" hid half.
+            reviewed = (harness_cost.review_line(root, out_dir)
+                        or (f"Reviewed by {reviewer}" if reviewer else ""))
             computed = {
                 # A colon, not a gap. The pill reads as one sentence — `🤖Fable 5
                 # reviewer: 6 open, 4 fixed` — where before it was a label, a gap and a
@@ -635,7 +644,7 @@ def _main(argv=None) -> int:
                 #
                 # The model that reviewed opens the hover: the face says only `Review`,
                 # so the name has one home and it is here.
-                "tip": (f"Reviewed by {reviewer}. " if reviewer else "")
+                "tip": (f"{reviewed}. " if reviewed else "")
                 + _raised_by(spec.get("findings", []) + spec.get("autofixes", []), total)
                 + (f'. {assumed} assumption{"" if assumed == 1 else "s"} the coding agent '
                    "recorded while implementing — listed under the Review tab"
@@ -1117,7 +1126,8 @@ def _main(argv=None) -> int:
                 f'<section class="panel" id="{tid}" role="tabpanel" '
                 f'aria-labelledby="tabbtn-{tid}">'
                 f'<p class="paneltag">{html.escape(tab["label"])}</p>'
-                f'{tab.get("intro", "")}{body}</section>'
+                + (QUIET_LINE if still else "")
+                + f'{tab.get("intro", "")}{body}</section>'
             )
             emitted.append(tab)
         # A diagram in the manifest that no tab claimed would vanish without a word —
