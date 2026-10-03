@@ -174,7 +174,8 @@ from hrbuild.tabs.review import (
     _OPEN_END, widen_anchor, _snapped_spans, _spans_ref, _first_lines, snippet_card,
     GRADE_LINES_MAX, SPARE_SIGNALS, _REPEATS, _PILE_WORD, _PILE_OF_WORD, _PILE_SAID,
     _plain_words, named_items, hunk_bodies, _layout_free, format_only_hunk, _OBS_LABELS,
-    _obs_label, _STOPWORDS, _words, restates_title, REFUTED_TIP
+    _obs_label, _STOPWORDS, _words, restates_title, REFUTED_TIP,
+    _CONST_DECL, constants_declared, replaces_constant
 )
 from hrbuild.tabs.sequence import (
     CODE_BADGE, FILE_PAGE, FILE_PENCIL, FILE_PLUS, render_testpairs, SEQ_ARROW, SEQ_DECL,
@@ -208,7 +209,7 @@ from hrbuild.tabs.tests import (
     COV_NOT_MEASURED, load_coverage, coverage_join, model_pairing, coverage_side, _model_key,
     TEMPLATE_UNSEEN, _rendered_templates,
     _cov_files, _cov_ranges, _snippet_module, COV_PART_MAX, _GHERKIN_NEXT, _cov_part,
-    _API_MARKERS, _cov_cat, coverage_tests, coverage_gaps, _load_test_changes
+    _API_MARKERS, _cov_cat, coverage_tests, coverage_gaps, _load_test_changes, suite_chips
 )
 from hrbuild.tabs.demo import (
     voice_films, voice_switch, embed_html, VERDICT_FACE, video_html, VIDEO_VERDICT,

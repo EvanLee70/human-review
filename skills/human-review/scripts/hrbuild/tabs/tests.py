@@ -982,11 +982,29 @@ def coverage_tests(frag: str, doc: dict, test_doc: dict | None, root: Path) -> s
     return frag[:m.start(2)] + body + frag[m.end(2):]
 
 
+def suite_chips(doc: dict) -> str:
+    """One muted chip per suite whose coverage is not on the card — stale, skipped, failed —
+    the reason on its hover. Eval run 12's Playwright coverage was measured on another
+    branch's commit, dropped as stale, and the page never said a suite was missing from the
+    right-hand column: a reader took "no UI test runs this line" at face value."""
+    chips = []
+    for su in doc.get("suites") or []:
+        status = su.get("status") or ""
+        if status == "ran":
+            continue
+        why = f'{su.get("name", "")}: {su.get("note") or status}'
+        chips.append(f'<span class="cov-suite" data-tip="{html.escape(why, quote=True)}">'
+                     f'{html.escape(su.get("name") or "a suite")} coverage: '
+                     f'{html.escape(status or "missing")}</span>')
+    return f'<p class="cov-suites">{"".join(chips)}</p>' if chips else ""
+
+
 def coverage_gaps(doc: dict, root: Path) -> str:
     """What no test reaches, folded under the card: the changed lines no run executed, and
-    the changes no probe can see run at all."""
+    the changes no probe can see run at all — after a chip for each suite whose coverage is
+    missing or stale (`suite_chips`), since every count under it is short by that suite."""
     j = coverage_join(doc)
-    blocks = []
+    blocks = [suite_chips(doc)] if suite_chips(doc) else []
     if j["gaps"]:
         n = sum(map(len, j["gaps"].values()))
         items = "".join(

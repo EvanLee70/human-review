@@ -167,6 +167,32 @@ def test_a_spec_is_found_by_its_description():
     assert tc.spec_line(src, "should submit the 'vet'") == 2
 
 
+def test_a_karma_spec_with_an_escaped_quote_is_placed_at_its_file_and_line():
+    """Eval run 12: Karma reported "… the newer one's loading" and the source says
+    `'… the newer one\\'s loading'`; the plain substring search found no file, the row
+    carried no file and no line, and the matrix dropped the spec. Escapes are decoded
+    before the source is searched."""
+    repo = tc.Repo.__new__(tc.Repo)
+    repo.root = Path("/r")
+    spec = "fe/src/a.component.spec.ts"
+    repo.files = [spec, "fe/src/b.component.spec.ts"]
+    srcs = {spec: ["describe('OwnerListComponent', () => {",
+                   "  it('does not end the newer one\\'s loading', () => {",
+                   '  it("says \\"hi\\"", () => {'],
+            "fe/src/b.component.spec.ts": ["describe('B', () => {"]}
+    repo.text = lambda f: srcs.get(f, [])
+    doc = {"tests": [
+        {"id": "OwnerListComponent does not end the newer one's loading",
+         "description": "does not end the newer one's loading", "status": "passed",
+         "hits": {"/r/fe/src/a.component.ts": [3]}},
+        {"id": 'OwnerListComponent says "hi"', "description": 'says "hi"', "hits": {}}]}
+    got = tc.karma_tests(doc, repo, "Frontend Karma", "fe", lambda p: p[3:])
+    assert [(t["file"], t["line"]) for t in got] == [(spec, 2), (spec, 3)]
+    assert got[0]["title"] == "does not end the newer one's loading"
+    assert got[0]["hits"] == {"fe/src/a.component.ts": [3]}
+    assert tc.spec_line(["  it('a \\\\ b', () => {"], "a \\ b") == 1
+
+
 # --------------------------------------------------------------------------- run-steps
 
 def test_the_step_feeds_the_tests_tab_after_the_traced_run():
@@ -347,6 +373,28 @@ def test_gaps_and_unmeasurable_changes_fold_under_the_card(tmp_path):
     assert "Not measurable <b>2</b>" in page
     # Under the card they are a footnote to.
     assert page.index("rm-code") < page.index("cov-after")
+
+
+def test_a_suite_whose_coverage_is_stale_or_missing_is_named_on_the_tab(tmp_path):
+    """Eval run 12: the Playwright coverage was measured on another branch's commit,
+    dropped as stale, and the page never said a suite was missing from the column. Each
+    such suite is a muted chip under the card — a few words, the reason on hover; a suite
+    that ran is not mentioned."""
+    page = _with_coverage(tmp_path)
+    chip = ('<span class="cov-suite" data-tip="E2E Playwright: measured on abc, not on HEAD">'
+            "E2E Playwright coverage: stale</span>")
+    assert chip in page
+    assert "Backend JUnit coverage" not in page and "Frontend Karma coverage" not in page
+    assert page.index("rm-code") < page.index("cov-suites") < page.index("cov-gaps")
+    doc = _doc()
+    doc["suites"] = [s for s in doc["suites"] if s["status"] == "ran"]
+    doc["suites"].append({"name": "E2E Cucumber", "status": "skipped", "note": "no run.json"})
+    assert ('data-tip="E2E Cucumber: no run.json">E2E Cucumber coverage: skipped</span>'
+            in _with_coverage(tmp_path, doc))
+    doc["suites"] = doc["suites"][:-1]
+    assert "cov-suite" not in _with_coverage(tmp_path, doc).split("</style>")[-1]
+    css = (HERE / "hrbuild" / "assets" / "css" / "tests.css").read_text(encoding="utf-8")
+    assert ".cov-suite {" in css and "cursor:help" in css
 
 
 def test_a_zero_is_said_rather_than_the_block_left_out(tmp_path):

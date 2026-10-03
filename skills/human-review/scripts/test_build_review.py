@@ -5484,6 +5484,73 @@ def test_a_fix_hunk_goes_only_to_a_card_whose_line_is_on_it(tmp_path):
     assert "line 40 fixed" in spec["_reviewPoints"]["fixOther"]
 
 
+def test_a_file_the_branch_added_keeps_its_diff_link(tmp_path, monkeypatch):
+    """Eval run 12 dropped the diff link of every file the branch added — OwnerListPaging,
+    OwnerListTest — with 'does not exist at <base>'. A new file's before-state is recorded
+    too: nothing. The link stays (an all-additions diff, never through the extension URI,
+    which reads the base side out of git); only a base that is not a commit drops it."""
+    def git(*a):
+        return subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                              capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    (tmp_path / "old.py").write_text("x = 1\n")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    (tmp_path / "New.java").write_text("class New {}\n")
+    git("add", ".")
+    git("commit", "-qm", "add")
+    monkeypatch.setenv("HUMAN_REVIEW_DIFF_URI_HANDLER", "victorrentea.victor-vsc")
+    link = build.diff_link_html("New.java", base, tmp_path, face="diff")
+    assert 'class="srcref diffref srcbar-diff"' in link and 'data-diff-base="' + base in link
+    assert ":1:1" in link and "data-diff-uri" not in link
+    assert build.diff_link_html("New.java", "no-such-ref", tmp_path) == ""
+    block = build.diff_html("New.java", base, tmp_path, None, "HEAD")
+    assert "class New {}" in block, "the inline diff of a new file is all additions"
+
+
+def test_an_extracted_constant_takes_its_use_sites_onto_its_own_card(tmp_path):
+    """Eval run 12's Sonar S1192 fix: the card showed the two `static final` declarations
+    and the eight lines that swap the literal for the constant sat under *Other changes*,
+    where nothing said they were the same fix. A hunk of the same file that replaces the
+    literal with the constant's name now goes to the card that declares it; a hunk that
+    swaps nothing stays where it was."""
+    def git(*a):
+        return subprocess.run(["git", "-C", str(tmp_path), *a], check=True,
+                              capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    body = ["class Advice {", "    Logger log;"] + [f"    // filler {i}" for i in range(30)] \
+        + ['    void a() { log.warn("Validation failed: {}", x); }'] \
+        + [f"    // more {i}" for i in range(30)] + ["    int unrelated = 1;", "}"]
+    (tmp_path / "Advice.java").write_text("\n".join(body) + "\n")
+    git("add", ".")
+    git("commit", "-qm", "impl")
+    impl = git("rev-parse", "HEAD")
+    body.insert(2, '    private static final String VALIDATION_FAILED = "Validation failed: {}";')
+    body = [ln.replace('"Validation failed: {}", x', "VALIDATION_FAILED, x") for ln in body]
+    body[body.index("    int unrelated = 1;")] = "    int unrelated = 2;"
+    (tmp_path / "Advice.java").write_text("\n".join(body) + "\n")
+    git("add", ".")
+    git("commit", "-qm", "[auto-fix]")
+    fix = git("rev-parse", "HEAD")
+    card = {"title": "Validation literals duplicated", "refs": ["Advice.java:3"]}
+    spec = {"autofixes": [card],
+            "_reviewPoints": {"provenance": {"implementation": impl, "reviewCommit": fix}}}
+    build.attribute_fix_hunks(spec, tmp_path, root=tmp_path)
+    assert "VALIDATION_FAILED = " in card["_fixDiffs"]
+    assert "log.warn(VALIDATION_FAILED, x)" in card["_fixDiffs"], "the use site, on its card"
+    other = spec["_reviewPoints"].get("fixOther") or ""
+    assert "VALIDATION_FAILED, x" not in other
+    assert "unrelated = 2" in other, "a hunk that swaps no literal is still nobody's"
+    assert build.constants_declared(['  const MAX_SIZE = 20;', "  const x = 3;"]) == \
+        {"MAX_SIZE": "20"}
+    assert not build.replaces_constant(["y = 2026"], ["y = MAX"], {"MAX": "20"})
+
+
 # ── eval run 10: the Review tab's judges ────────────────────────────────────────
 
 def test_refuted_findings_are_their_own_pile_after_the_open_one_and_unnumbered():

@@ -94,7 +94,21 @@ JAVA_TYPE = re.compile(r"^\s*(?:(?:public|protected|private|static|final|abstrac
                        r"(?:class|interface|record|enum)\s+\w+")
 # `it(...)`, `test(...)`, and their modifiers -- `it.only`, `test.skip`, `xit`, and the
 # table form `it.each([...])('name', ...)`, whose title sits in the *second* call.
-JS_CASE = re.compile(r"""^\s*(?P<head>x?(?:it|test)(?:\.\w+)*)\s*(?:\([^;]*?\)\s*)?\(\s*(?P<q>['"`])(?P<name>.+?)(?P=q)""")
+# The title runs to the first *unescaped* closing quote: `it('ends the newer one\'s
+# loading')` is one title, not `ends the newer one\` (eval run 12 lost that spec from the
+# matrix over it). `js_title` then decodes the escapes, so the name is what the runner
+# reports, the string a coverage row carries.
+JS_CASE = re.compile(r"""^\s*(?P<head>x?(?:it|test)(?:\.\w+)*)\s*(?:\([^;]*?\)\s*)?\(\s*(?P<q>['"`])(?P<name>(?:\\.|(?!(?P=q))[^\\])+)(?P=q)""")
+_JS_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0"}
+
+
+def js_title(raw: str) -> str:
+    r"""A JS/TS string literal's body as the runtime sees it: `\'` `\"` `\``  `\\` and the
+    common control escapes decoded. A template literal's `${…}` is kept as written — what it
+    interpolates is only known at run time."""
+    return re.sub(r"\\(.)", lambda m: _JS_ESCAPES.get(m.group(1), m.group(1)), raw)
+
+
 JS_SUITE = re.compile(r"""^(?P<indent>\s*)(?P<head>x?(?:describe|context|suite)(?:\.\w+)*)\s*\(""")
 PY_CASE = re.compile(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(")
 PY_CLASS = re.compile(r"^(\s*)class\s+\w+")
@@ -181,7 +195,7 @@ def _js_scan(lines: list[str]) -> dict[str, tuple[int, str | None]]:
         m = JS_CASE.match(line)
         if m:
             inside = off_from is not None and _indent(line) > off_from
-            out.setdefault(m.group("name"),
+            out.setdefault(js_title(m.group("name")),
                            (i, "disabled" if JS_SKIP.search(m.group("head")) or inside else None))
     return out
 

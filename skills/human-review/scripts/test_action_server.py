@@ -699,6 +699,42 @@ def test_a_review_directory_outside_the_repository_gets_no_rerun(tmp_path):
     assert srv.rerun_plan(tmp_path) is None
 
 
+def test_a_file_added_since_the_base_opens_as_an_all_additions_diff(tmp_path, monkeypatch):
+    """Eval run 12: the page dropped every added file's diff link, and the server would
+    have refused it too ('does not exist at <sha>'). A file the branch added has a recorded
+    before-state — empty — so the diff opens with an empty left side, through `code
+    --diff`: the extension bridge reads the base side out of git, where there is none."""
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    (tmp_path / "old.py").write_text("x = 1\n")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    (tmp_path / "New.java").write_text("class New {}\n")
+    git("add", ".")
+    git("commit", "-qm", "add")
+    srv.ROOT = tmp_path
+    ran, bridged = [], []
+    monkeypatch.setattr(srv, "code_cli", lambda: "code")
+    monkeypatch.setattr(srv, "bridge_diff", lambda *a: bridged.append(a) or True)
+    real = subprocess.run
+
+    def fake(argv, **kw):
+        ran.append(argv)
+        return real(argv, **kw) if argv[0] == "git" else None
+    monkeypatch.setattr(srv.subprocess, "run", fake)
+    served = tmp_path / ".human-review"
+    assert srv.open_diff("New.java", "HEAD^", served, line=1) is None
+    diff = next(a for a in ran if a[:2] == ["code", "--diff"])
+    before = Path(diff[2])
+    assert before.read_bytes() == b"" and before.name.startswith("New@")
+    assert bridged == [], "never through the bridge for a file git has no base side of"
+    assert srv.open_diff("New.java", "no-such-ref", served) is not None
+    srv.ROOT = None
+
+
 def test_the_probe_says_whether_this_page_can_rebuild_itself(server, tmp_path):
     srv.ROOT = tmp_path
     assert json.loads(_call(server, "GET", srv.MARKER)[1])["rerun"] is True
@@ -1279,6 +1315,35 @@ def test_the_model_step_refuses_rather_than_half_writing(tmp_path):
     assert model.missing(review) == ["test-mapping.json"]
     model.install(review, good)
     assert model.missing(review) == []
+
+
+def test_a_paid_assertion_with_its_line_quoted_survives_the_word_filter():
+    """Eval run 12: Sonnet paired the two tests that reverse the whole sort chain with "The
+    selected direction SHALL apply to every field in the chain", the script's word filter
+    threw both out, and the page showed a false red `missing`. The answer now quotes the
+    assertion line of each `asserted` link; one found in the body is not the filter's to
+    take — and without a quote the filter may lower, never paint red on its own."""
+    model = _load("rerun_model", "rerun-model.py")
+    sc = model._semcov()
+    body = ("@Test void traversingAllPages() {\n"
+            "  assertThat(visited(sort)).isEqualTo(expectedIds(sort));\n}")
+    g = {"sentences": [{"id": "s000001",
+                        "text": "The selected direction SHALL apply to every field in the chain."}],
+         "docs": {"Q.java:127": {"title": sc.terms("traversingAllPages"), "body": sc.terms(body),
+                                 "asserts": set(), "lits": set(), "body_text": body}}}
+    link = {"id": "Q.java:127", "strength": "asserted", "why": "the whole chain reverses",
+            "line": "assertThat(visited(sort)).isEqualTo(expectedIds(sort));"}
+    doc = {"schema": "test-mapping/1",
+           "sentences": [{"id": "s000001", "coverage": "covered", "tests": [link]}]}
+    asked = {"sentences": [{"id": "s000001", "text": "x", "candidates": ["Q.java:127"]}],
+             "tests": [{"id": "Q.java:127"}]}
+    assert model.check_answer(doc, asked) == [], "`line` is part of a link"
+    kept, said = model.downgrade(sc, doc, g)
+    assert kept == doc and said == ""
+    bare = json.loads(json.dumps(doc))
+    del bare["sentences"][0]["tests"][0]["line"]
+    lowered, said = model.downgrade(sc, bare, g)
+    assert lowered["sentences"][0]["coverage"] == "exercised" and said
 
 
 def test_an_answer_made_elsewhere_is_checked_and_installed(tmp_path):

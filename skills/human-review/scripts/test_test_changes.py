@@ -94,6 +94,24 @@ def test_playwright_and_jest_cases_come_back_by_their_written_title():
     assert cases == {"Add a visit attended by a vet": 1, "renders the attending vet": 3}
 
 
+def test_an_escaped_quote_does_not_end_a_js_title():
+    """Eval run 12: `it('… the newer one\\'s loading')` came back as `… the newer one\\`,
+    matched no coverage row, and the spec fell out of the matrix (a false "partly"). The
+    title runs to the first unescaped quote and is decoded as the runner reports it —
+    template literals and double quotes alike."""
+    src = ("  it('an older request completing does not end the newer one\\'s loading', () => {\n"
+           "  });\n"
+           '  it("says \\"hi\\" back", () => {});\n'
+           "  test(`a \\` tick and ${n} kept`, () => {});\n"
+           "  it('a \\\\ backslash', () => {});\n")
+    assert tc.test_cases("owner-list.component.spec.ts", src) == {
+        "an older request completing does not end the newer one's loading": 1,
+        'says "hi" back': 3,
+        "a ` tick and ${n} kept": 4,
+        "a \\ backslash": 5,
+    }
+
+
 def test_python_go_and_gherkin_each_have_a_shape():
     assert tc.test_cases("test_x.py", "def helper():\n    pass\ndef test_one():\n    pass\n") \
         == {"test_one": 3}

@@ -2282,6 +2282,31 @@ NEEDS = {
     "dsaudit":   {"basestack"},        # reuses the merge-base stack it started
 }
 
+#: What a step harvests from another step's run, and so has to be re-run with it: a subset
+#: of NEEDS, not all of it. `traces` NEEDS `tests` only to start after it — pulling the
+#: cucumber run into every `--only tests` re-read would turn a one-second press into two
+#: minutes of Docker — while `testcov` reads the per-test coverage the browser suites of
+#: `city` and `traces` dumped, and nothing else re-reads it.
+HARVESTS = {"testcov": {"city", "traces"}}
+
+
+def downstream(names: set[str]) -> set[str]:
+    """`names` and every step that harvests what one of them writes (`HARVESTS`).
+
+    Eval run 12: the first run's browser suite never started (the stack would not come up),
+    so `testcov` harvested the Playwright coverage another run had left in
+    `.human-review/coverage/` — measured on a commit of another branch — and dropped the
+    suite as stale. The suite was then re-run with `--only sequence,city`; city rewrote the
+    coverage, and nothing re-read it: the page kept the stale verdict. A harvesting step is
+    re-run with the step it reads — its cache key (`STEP_INPUTS`' `reads`) makes that free
+    when the output did not move."""
+    out = set(names)
+    for step, sources in HARVESTS.items():
+        if sources & out:
+            out.add(step)
+    return out
+
+
 #: What a step holds that no other step may hold at the same time. Measured on petclinic:
 #: `city`'s browser suite, `traces`' cucumber run, `video` and `dsaudit` all run against
 #: the one Docker stack of
@@ -2478,6 +2503,12 @@ def main(argv=None) -> int:
               args.no_ledger)
     only = {s.strip() for s in args.only.split(",")} if args.only else None
     skip = {s.strip() for s in args.skip.split(",")} if args.skip else set()
+    if only:
+        pulled = downstream(only) - only - skip
+        if pulled:
+            only |= pulled
+            print(f"[run-steps] also running {', '.join(sorted(pulled))}: it reads what "
+                  "the chosen steps' suites write", file=sys.stderr)
 
     ART.mkdir(parents=True, exist_ok=True)
 

@@ -28,7 +28,8 @@ Five properties are the whole point:
   an empty answer written and no model run.
 - **What it claims is checked by passes that can only lower it.** Eval run 8's Haiku answer
   called 25 of 27 sentences covered and none partial. A free script rule drops a link whose
-  test shares nothing specific with its sentence (`semcov.sanity`); a second cheap call
+  test shares nothing specific with its sentence (`semcov.sanity`) — unless the model quoted
+  the assertion line and it is in the body, and never down to red on its own; a second cheap call
   re-reads every kept link against the test body and must quote the assertion line, looked
   up in the real body (`matrix-check-prompt.md`, `semcov.apply_check`). Neither ever adds a
   link or raises a coverage word. `--no-check` / `"mappingCheck": false` skips the second.

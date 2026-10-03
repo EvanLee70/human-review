@@ -234,7 +234,9 @@ drawn as covering anything — the sentence reads *unconfirmed*. It writes
 test or decision it was not given, or leaves a scripted link without a verdict; it asks
 nothing only when no sentence makes a claim. Two passes then check the answer and can only
 lower it, each recording what it took away in the sentence's `downgrades`: a free script rule
-drops a link whose test shares nothing specific with its sentence, and a second cheap call
+drops a link whose test shares nothing specific with its sentence — never an `asserted` link
+whose quoted assertion `line` is in the body, and never the last links of a sentence (those
+it lowers to `exercised`: a word filter alone does not turn a sentence red) — and a second cheap call
 (`reference/matrix-check-prompt.md`) re-reads every kept link against the test body, must
 copy the assertion line that proves the claim (looked up in the real body), and turns
 `covered` into `partial`/`exercised`/`missing` where it cannot (`--no-check`, or

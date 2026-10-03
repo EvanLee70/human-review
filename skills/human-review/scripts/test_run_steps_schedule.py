@@ -99,3 +99,19 @@ def test_a_capture_never_runs_beside_a_step_that_writes_into_its_stack():
         for writer in STACK_WRITERS - {capture}:
             (s1, e1), (s2, e2) = spans[capture], spans[writer]
             assert e1 <= s2 or e2 <= s1, f"{capture} overlapped {writer}"
+
+
+def test_a_step_that_harvests_another_step_s_suite_is_re_run_with_it():
+    """Eval run 12: the first run's browser suite never started, `testcov` harvested the
+    Playwright coverage another run had left behind and dropped it as stale; the suite was
+    then re-run with `--only sequence,city`, and nothing re-read what it wrote. `--only`
+    now pulls in the harvester — and only it: `traces` NEEDS `tests` merely to start after
+    it, and a one-second `--only tests` must not buy a cucumber run."""
+    assert rs.downstream({"sequence", "city"}) == {"sequence", "city", "testcov"}
+    assert rs.downstream({"traces"}) == {"traces", "testcov"}
+    assert rs.downstream({"tests"}) == {"tests"}
+    assert rs.downstream({"api", "logging"}) == {"api", "logging"}
+    assert all(src <= set(rs.NEEDS[h]) for h, src in rs.HARVESTS.items()), \
+        "a harvest is a dependency too: the harvester starts after what it reads"
+    assert {"coverage/playwright/run.json", "coverage/cucumber/run.json"} <= \
+        set(rs.STEP_INPUTS["testcov"]["reads"]), "and is a cache hit when nothing moved"

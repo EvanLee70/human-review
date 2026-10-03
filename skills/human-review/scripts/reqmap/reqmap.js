@@ -205,35 +205,46 @@
   // semcov: the "untouched and unpaired" groups (rank >= D.fold.from) start folded behind
   // one button that counts them - tests about something else that only happen to run a
   // changed line. Folded only when something stays open above them: a card of nothing but
-  // pass-through tests shows them, rather than an empty card and a button.
-  var F=D.fold,foldN=0,foldBtn=null;
-  if(F&&ids.some(function(id){return rank(id)<F.from;}))
-    ids.forEach(function(id){if(rank(id)>=F.from)foldN++;});
-  function folded(id){return foldN>0&&rank(id)>=F.from;}
-  function setFold(open){
-    list.dataset.unfold=open?'yes':'no';
-    foldBtn.setAttribute('aria-expanded',open?'true':'false');
-    foldBtn.textContent=foldN+' '+(foldN===1?F.label.replace(/^more tests/,'more test'):F.label)
-      +' — '+(open?'hide':'show');
+  // pass-through tests shows them, rather than an empty card and a button. The branch's own
+  // tests that ran no measured changed line (D.foldOwn, ranks from..to) fold the same way,
+  // behind a count of their own: listed, never silently left out (eval run 12).
+  function mkFold(F,mark,flag){
+    if(!F)return null;
+    var to=F.to===undefined?Infinity:F.to,f={F:F,n:0,btn:null,mark:mark,flag:flag};
+    f.has=function(id){var r=rank(id);return r>=F.from&&r<to;};
+    if(ids.some(function(id){return rank(id)<F.from;}))
+      ids.forEach(function(id){if(f.has(id))f.n++;});
+    return f;
+  }
+  var FOLDS=[mkFold(D.foldOwn,'own','unown'),mkFold(D.fold,'fold','unfold')]
+    .filter(function(f){return f&&f.n>0;});
+  function foldOf(id){
+    for(var i=0;i<FOLDS.length;i++)if(FOLDS[i].has(id))return FOLDS[i];return null;}
+  function setFold(f,open){
+    list.dataset[f.flag]=open?'yes':'no';
+    f.btn.setAttribute('aria-expanded',open?'true':'false');
+    f.btn.textContent=f.n+' '+(f.n===1?f.F.label.replace(/^more tests/,'more test'):f.F.label)
+      +' \u2014 '+(open?'hide':'show');
   }
   var lastRank=null;
   ids.forEach(function(id){
-    if(folded(id)&&!foldBtn){
-      foldBtn=document.createElement('button');
-      foldBtn.type='button';foldBtn.className='rm-fold';
-      list.appendChild(foldBtn);setFold(false);
+    var f=foldOf(id);
+    if(f&&!f.btn){
+      f.btn=document.createElement('button');
+      f.btn.type='button';f.btn.className='rm-fold';f.btn.dataset.which=f.mark;
+      list.appendChild(f.btn);setFold(f,false);
     }
     if(groupsShown&&rank(id)!==lastRank){
       lastRank=rank(id);
       var g=document.createElement('div');
       g.className='rm-tgroup';g.dataset.rank=lastRank;
-      if(folded(id))g.dataset.fold='yes';
+      if(f)g.dataset[f.mark]='yes';
       g.textContent=D.ranks[String(lastRank)]||'';
       list.appendChild(g);
     }
     var t=D.tests[id],row=document.createElement('div');
     row.className='rm-t';row.dataset.open='no';row.dataset.id=id;
-    if(folded(id))row.dataset.fold='yes';
+    if(f)row.dataset[f.mark]='yes';
     // A test the branch deleted is listed and not openable: this checkout has no source
     // for it, and the run has no assertion from it.
     if(t.status==='deleted')row.dataset.gone='yes';
@@ -405,8 +416,9 @@
     gap.innerHTML='';gap.hidden=true;
   }
   list.addEventListener('click',function(e){
-    if(e.target.closest('.rm-fold')){                   // semcov: show/hide the folded rest
-      setFold(list.dataset.unfold!=='yes');redraw();return;}
+    var fb=e.target.closest('.rm-fold');                // semcov: show/hide the folded rest
+    if(fb){FOLDS.forEach(function(f){if(f.btn===fb)setFold(f,list.dataset[f.flag]!=='yes');});
+      redraw();return;}
     var l=e.target.closest('.rm-link');                 // draws, never opens
     if(l){link(l.closest('.rm-t'));return;}
     if(e.target.closest('.rm-tw'))return;              // the editor link is not a toggle

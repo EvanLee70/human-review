@@ -605,7 +605,12 @@ def parse_ticket(body: str) -> list[dict]:
                         and not re.match(r"^\s{0,3}(?:\d+[.)]|[-*+])\s+", lines[i]):
                     text.append(lines[i].strip())
                     i += 1
-                lst["items"].append({"sentences": sentences(" ".join(text))})
+                got = sentences(" ".join(text))
+                # One bullet's sentences are clauses of one requirement: a test proposed
+                # for one of them is offered to the others (`model_input`).
+                for snt in got:
+                    snt["item"] = f"{len(blocks)}.{len(lst['items'])}"
+                lst["items"].append({"sentences": got})
             blocks.append(lst)
             continue
         para.append(ln)
@@ -689,6 +694,25 @@ def covering_tests(spec: dict, out_dir: Path, root: Path) -> tuple[list[dict], b
                          "cat": T._cov_cat(r, root),
                          "status": _stamp(st), "viaHelper": st.get("viaHelper") or [],
                          "hits": r.get("changedHits") or {}, "aimed": bool(r.get("aimed"))})
+        # Every test the branch wrote or edited is on the card, measured or not. Eval run
+        # 12 listed 53 of its 59 under "Written or edited by this branch" and said nothing
+        # of the rest: the V4 migration's only two tests, a proxy test, an edited create
+        # test — each ran no changed line a probe can see (SQL, a test-only edit), so the
+        # join above never named them. They come last, in a group of their own that starts
+        # folded (`test_rank` 2), and the model is offered them like any other row.
+        named = {(r["file"], r["title"]) for r in rows}
+        for t in (test_doc or {}).get("tests") or []:
+            file, line = t.get("path"), t.get("line")
+            if t.get("status") not in ("added", "modified") or not file or not line:
+                continue
+            if f"{file}:{line}" in seen or (file, t.get("name") or "") in named:
+                continue
+            seen.add(f"{file}:{line}")
+            rows.append({"id": f"{file}:{line}", "file": file, "line": int(line),
+                         "title": t.get("name") or "", "suite": "",
+                         "cat": T._cov_cat({"file": file}, root),
+                         "status": _stamp(t), "viaHelper": t.get("viaHelper") or [],
+                         "hits": {}, "aimed": True, "unmeasured": True})
         return rows, True
     for t in (test_doc or {}).get("tests") or []:
         file, line = t.get("path"), t.get("line")
@@ -977,12 +1001,129 @@ PRIOR = {"new": 1.0, "changed": 1.0, "helper": 0.5, "unchanged": 0.5, "deleted":
 PASSING_THROUGH = 0.75
 
 
+# --- a Gherkin scenario's steps, with the code that runs them -----------------------------
+#
+# Eval run 12: "Sorting by City twice orders the owners by city, descending" and "Paging
+# through every owner lists each one once, in name order" — the branch's only UI proof of
+# sorting and paging — reached the model as four lines of Gherkin, and it paired component
+# specs instead: a scenario's own text names an outcome, the `expect` that checks it lives
+# in the step definition. So a scenario is read with each step's definition under it.
+
+_STEP_LINE = re.compile(r"^\s*(Given|When|Then|And|But|\*)\s+(.+?)\s*$")
+#: A step definition: JS/TS `Then('text', …)` / `Then(/regex/, …)`, Java/Kotlin
+#: `@Then("text")`, Python `@then("text")` / `@then(parsers.parse("text"))`.
+_STEP_DEF = re.compile(
+    r"""(?:^|[^\w.])@?(?:Given|When|Then|And|But|Step|defineStep|given|when|then|step)\s*\(\s*"""
+    r"""(?:parsers\.\w+\(\s*)?(?:(?P<q>['"`])(?P<text>(?:\\.|(?!(?P=q))[^\\])*)(?P=q)|/(?P<rx>(?:\\.|[^/\\])+)/)""")
+_STEP_SOURCES = (".ts", ".js", ".mjs", ".java", ".kt", ".py")
+#: Lines of one step definition carried under its step, and of all of them per scenario.
+STEP_BODY_MAX = 14
+GLUE_MAX = 48
+
+
+def cucumber_regex(expr: str) -> "re.Pattern[str]":
+    """A Cucumber expression (`the first {int} owners by {word} are listed`, optional
+    `owner(s)`, alternatives `a/b`) — or a regular expression, anchored `^…$` — as a
+    pattern a step's text must match whole."""
+    if expr.startswith("^") or expr.endswith("$"):
+        try:
+            return re.compile(expr)
+        except re.error:
+            return re.compile(re.escape(expr))
+    out, i = [], 0
+    types = {"int": r"-?\d+", "float": r"-?\d*\.?\d+", "word": r"[^\s]+",
+             "string": r"(?:\"[^\"]*\"|'[^']*')", "": r".*?"}
+    for m in re.finditer(r"\{(\w*)\}|\(([^()]*)\)|(\w+(?:/\w+)+)", expr):
+        out.append(re.escape(expr[i:m.start()]))
+        if m.group(3):
+            out.append("(?:" + "|".join(map(re.escape, m.group(3).split("/"))) + ")")
+        elif m.group(2) is not None:
+            out.append("(?:" + re.escape(m.group(2)) + ")?")
+        else:
+            out.append(types.get(m.group(1), r".*?"))
+        i = m.end()
+    out.append(re.escape(expr[i:]))
+    return re.compile("".join(out))
+
+
+_GLUE_CACHE: dict = {}
+
+
+def step_definitions(root: Path, feature: str) -> list[tuple["re.Pattern[str]", str, int]]:
+    """`[(pattern, file, line)]` — every step definition in the module the feature file
+    belongs to (its first path segment), from the files git tracks there."""
+    top = feature.split("/", 1)[0] if "/" in feature else ""
+    key = (str(root), top)
+    if key in _GLUE_CACHE:
+        return _GLUE_CACHE[key]
+    try:
+        listed = subprocess.run(["git", "-C", str(root), "ls-files", "--", top or "."],
+                                capture_output=True, text=True, timeout=20).stdout.split("\n")
+    except (OSError, subprocess.SubprocessError):
+        listed = []
+    defs = []
+    for f in listed:
+        if not f.endswith(_STEP_SOURCES):
+            continue
+        try:
+            text = (root / f).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not re.search(r"\b(?:Given|When|Then|given|when|then)\b", text):
+            continue
+        for n, ln in enumerate(text.splitlines(), start=1):
+            m = _STEP_DEF.search(ln)
+            if not m:
+                continue
+            expr = m.group("rx") if m.group("rx") is not None else \
+                re.sub(r"\\(.)", r"\1", m.group("text"))
+            defs.append((cucumber_regex(expr), f, n))
+    _GLUE_CACHE[key] = defs
+    return defs
+
+
+def gherkin_glue(root: Path, feature: str, body: list[str]) -> list[str]:
+    """Under each step of a scenario, the definition that runs it — `# step: Then …` and
+    the definition's lines, each definition once, at most GLUE_MAX lines in all."""
+    defs = step_definitions(root, feature)
+    if not defs:
+        return []
+    out, used, texts = [], set(), {}
+    for ln in body:
+        m = _STEP_LINE.match(ln)
+        if not m:
+            continue
+        step = m.group(2)
+        hit = next(((f, n) for rx, f, n in defs if rx.fullmatch(step)), None)
+        if hit is None or hit in used:
+            continue
+        used.add(hit)
+        f, n = hit
+        if f not in texts:
+            texts[f] = (root / f).read_text(encoding="utf-8").splitlines()
+        lines = texts[f]
+        # An annotation (`@Then("…")`) opens nothing itself: the method under it does.
+        opens = n
+        while opens < min(len(lines), n + 5) and "{" not in re.sub(
+                r"""(['"`])(?:\\.|(?!\1).)*\1""", "", lines[opens - 1]):
+            opens += 1
+        end = _tests_tab()._snippet_module()._closing_line(lines, n, opens)
+        block = lines[n - 1:min(end, n + STEP_BODY_MAX - 1)]
+        if len(out) + len(block) + 1 > GLUE_MAX:
+            break
+        out.append(f"# step: {m.group(1)} {step}  ({Path(f).name}:{n})")
+        out.extend(block)
+    return out
+
+
 def test_documents(rows: list[dict], root: Path) -> dict:
     """Per test: `{"title": terms, "body": terms, "cov": terms, "asserts": terms,
     "lits": set, "prior": float, "body_text": str, "from": int}` — what the pairing reads."""
     docs, cache = {}, {}
     for r in rows:
         start, body = test_source(root, r["file"], r["line"])
+        if r["file"].endswith(".feature") and body:
+            body = body + gherkin_glue(root, r["file"], body)
         text = "\n".join(body)
         stem_name = Path(r["file"]).name.split(".")[0]
         assert_text = "\n".join(assertion_lines(body))
@@ -1247,7 +1388,15 @@ def model_input(ticket: dict, sentences: list[dict], rows: list[dict], scripted:
     links = {e["id"]: e for e in scripted["decided"]}
     cands = scripted.get("candidates") or {}
     offered = scripted.get("offered") or {}
+    clause_of = {s["id"]: s.get("item") or s.get("requirement") for s in sentences}
     asked, want = [], []
+
+    def proposed(sid: str) -> list[str]:
+        """What the script put forward for one sentence: its links, then its best few."""
+        e = links.get(sid)
+        made = [t["id"] for t in (e or {}).get("tests") or []]
+        pool = (scripted["open"].get(sid) if e is None else cands.get(sid)) or []
+        return made + [t for t in pool[:MAX_CANDIDATES] if t not in made]
     for s in sentences:
         sid = s["id"]
         e = links.get(sid)
@@ -1261,6 +1410,18 @@ def model_input(ticket: dict, sentences: list[dict], rows: list[dict], scripted:
         # best for (`_offers`) — still in rank order.
         keep = set(pool[:MAX_CANDIDATES]) | set(offered.get(sid) or [])
         others = [t for t in pool if t in keep]
+        # Then what was proposed for the other clauses of the same requirement (one bullet,
+        # one OpenSpec requirement): eval run 12's "The selected direction SHALL apply to
+        # every field in the chain" is proven by the two tests that reverse the whole chain,
+        # and those were proposed only for the clause beside it.
+        if clause_of.get(sid):
+            for other in sentences:
+                if other["id"] == sid or clause_of.get(other["id"]) != clause_of[sid]:
+                    continue
+                if (links.get(other["id"]) or {}).get("coverage") == "n/a":
+                    continue
+                others += [t for t in proposed(other["id"])[:MAX_LINKS]
+                           if t not in made_ids and t not in others]
         item = {"id": sid, "text": by_id[sid]["text"],
                 "section": by_id[sid].get("section") or "",
                 "scripted": made, "candidates": others}
@@ -1483,9 +1644,20 @@ def _specific(text: str, docs: dict) -> tuple[set, set]:
 
 
 def sanity(doc: dict, texts: dict, docs: dict) -> tuple[dict, int]:
-    """`(the answer, links dropped)`: every link of a `covered`/`partial`/`exercised`
+    """`(the answer, links lowered)`: every link of a `covered`/`partial`/`exercised`
     sentence whose test shares no specific stem, route or quoted string with the sentence
-    is dropped, with the reason, and the sentence settles to what is left. Never adds."""
+    is taken off, with the reason, and the sentence settles to what is left. Never adds.
+
+    A word filter is the weaker witness of the two, so it gives way (eval run 12: it threw
+    out the two tests that reverse the whole sort chain, `OwnerListQueryTest:127/:132`, from
+    "The selected direction SHALL apply to every field in the chain" — no shared word, a
+    true pairing — and painted the sentence a false red `missing`):
+
+    - an `asserted` link whose `line` — the assertion the model quoted — is really in the
+      test's body (`quoted_in`) is never touched: the model named the line that proves it;
+    - the filter alone never turns a sentence red. When it would take a sentence's last
+      links, it lowers them to `exercised` instead (still not `covered`, still a gap), and
+      the sentence settles no lower than `exercised`."""
     doc = json.loads(json.dumps(doc))
     dropped = 0
     for e in doc.get("sentences") or []:
@@ -1493,15 +1665,36 @@ def sanity(doc: dict, texts: dict, docs: dict) -> tuple[dict, int]:
         if before not in CHECKED or e["id"] not in texts:
             continue
         stems, lits = _specific(texts[e["id"]], docs)
-        for t in list(e["tests"]):
+        doomed = []
+        for t in e["tests"]:
             d = docs.get(t["id"])
             if d is None:
+                continue
+            if t.get("strength") == "asserted" and quoted_in(str(t.get("line") or ""),
+                                                             d.get("body_text") or ""):
                 continue
             words_ = d["title"] | d["body"] | d["asserts"]
             if stems & words_ or lits & d["lits"]:
                 continue
-            _drop_link(e, t["id"], "script", "the test shares no word, route or identifier "
-                       "of the sentence's subject with it — only the PR's common vocabulary")
+            doomed.append(t)
+        if not doomed:
+            continue
+        why = ("the test shares no word, route or identifier of the sentence's subject "
+               "with it — only the PR's common vocabulary")
+        if len(doomed) == len(e["tests"]):
+            # Every link would go, and the sentence with them: a word filter does not get
+            # to call a claim untested. Lowered, kept — the reader still sees the tests.
+            for t in doomed:
+                if t["strength"] == "asserted":
+                    t["strength"] = "exercised"
+                    _downgrade(e, id=t["id"], by="script", why=why,
+                               **{"from": "asserted", "to": "exercised"})
+                    dropped += 1
+            _settle(e, "script", "No paired test shares the sentence's subject in words; "
+                    "none quoted an assertion of it.", before)
+            continue
+        for t in doomed:
+            _drop_link(e, t["id"], "script", why)
             dropped += 1
         _settle(e, "script", "No remaining paired test shares the sentence's subject.", before)
     return doc, dropped
@@ -1876,8 +2069,9 @@ def _sentence_data(entry: dict, rows_by: dict) -> dict:
 RANK_LABELS = {
     "0": "Paired with a sentence of the ticket",
     "1": "Written or edited by this branch, paired with no sentence",
-    "2": "Untouched and unpaired — run a changed line few other tests run",
-    "3": "Untouched and unpaired — only pass through changed code most tests run",
+    "2": "Written or edited by this branch — no changed line measured",
+    "3": "Untouched and unpaired — run a changed line few other tests run",
+    "4": "Untouched and unpaired — only pass through changed code most tests run",
 }
 
 
@@ -1886,21 +2080,27 @@ RANK_LABELS = {
 #: else that happen to run a changed line, and listing them open doubled the tab's height.
 #: They stay one click away, counted on the button that shows them (`reqmap.js`); the
 #: paired and the branch-written groups are never folded.
-FOLD_FROM_RANK = 2
+FOLD_FROM_RANK = 3
 FOLD_LABEL = "more tests that only pass through changed code"
+#: The branch's own tests that ran no changed line a probe measured (rank 2): listed, never
+#: dropped, but folded behind their count — one line, not six rows of tests the coverage
+#: column has nothing to say about.
+FOLD_OWN = {"from": 2, "to": FOLD_FROM_RANK,
+            "label": "more written by this branch, no changed line measured"}
 #: The hover on a deleted test's location: it opens the base commit, not this checkout.
 DELETED_HREF_TIP = "Deleted on this branch — open it as it was at the base commit, on GitHub"
 
 
 def test_rank(r: dict, paired: set) -> int:
-    """0 paired with a sentence; 1 a test the branch wrote, edited or deleted; 2 an
-    untouched test aimed at the change (`coverage_join`'s `aimed`); 3 one that only passes
-    through changed lines most of its suite runs."""
+    """0 paired with a sentence; 1 a test the branch wrote, edited or deleted; 2 one it
+    wrote or edited whose coverage ran no changed line (`covering_tests`' `unmeasured`);
+    3 an untouched test aimed at the change (`coverage_join`'s `aimed`); 4 one that only
+    passes through changed lines most of its suite runs."""
     if r["id"] in paired:
         return 0
     if r.get("status") in ("new", "changed", "helper", "deleted"):
-        return 1
-    return 2 if r.get("aimed", True) else 3
+        return 2 if r.get("unmeasured") else 1
+    return 3 if r.get("aimed", True) else 4
 
 
 def test_why(r: dict) -> str:
@@ -1944,6 +2144,7 @@ def render(ticket: dict, blocks: list[dict], rows: list[dict], entries: list[dic
                                               if k in used) + "</div>")
     data = {"cats": CATS, "tests": tests, "ranks": RANK_LABELS,
             "fold": {"from": FOLD_FROM_RANK, "label": FOLD_LABEL},
+            "foldOwn": FOLD_OWN,
             "sentences": {e["id"]: _sentence_data(e, rows_by) for e in entries
                           if e["coverage"] != "n/a"},
             # For the layout's title row (`tests.py:reqmap_layout`): the ticket this matrix

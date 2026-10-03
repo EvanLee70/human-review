@@ -62,6 +62,8 @@
         "id": {"type": "string", "pattern": "^[^\\s]+:[0-9]+$"},
         "strength": {"enum": ["asserted", "exercised"]},
         "why": {"type": "string", "minLength": 1},
+        "line": {"type": "string",
+                 "description": "`asserted` links: the assertion line of the test's body that proves the claim, copied verbatim. A link whose quoted line is found in the body is never dropped by the script's word filter."},
         "by": {"enum": ["script", "model"]},
         "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}}
       }

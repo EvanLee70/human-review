@@ -389,14 +389,22 @@ def decl_line(src: list[str], name: str) -> int | None:
     return None
 
 
+def js_unescaped(line: str) -> str:
+    r"""A source line with its JS string escapes decoded (`\'` `\"` `\`` `\\`), so the
+    title a runner reports — `the newer one's loading` — is found in the literal that wrote
+    it, `'the newer one\'s loading'`. Eval run 12 lost a spec this way: no file, no line,
+    no row in the matrix."""
+    return re.sub(r"\\(.)", r"\1", line) if "\\" in line else line
+
+
 def spec_line(src: list[str], description: str) -> int | None:
     for quote in ("'", '"', "`"):
-        needle = quote + description.replace(quote, "\\" + quote) + quote
+        needle = quote + description + quote
         for i, t in enumerate(src):
-            if needle in t and re.search(r"\b(f|x)?it\s*\(", t):
+            if needle in js_unescaped(t) and re.search(r"\b(f|x)?it\s*\(", t):
                 return i + 1
     for i, t in enumerate(src):
-        if description in t:
+        if description in js_unescaped(t):
             return i + 1
     return None
 
@@ -488,6 +496,28 @@ def junit_suites(cfg: list[dict], repo: Repo, tools: dict,
     return tests, suites, executable
 
 
+def karma_tests(doc: dict, repo: Repo, label: str, cwd: str, rel) -> list[dict]:
+    """The rows of one Karma run (`karma-N.json`), each placed at the spec that declares it:
+    the file whose source holds the description (escapes decoded — see `js_unescaped`),
+    the describe's first word breaking a tie, and the `it(` line in it."""
+    specs = [f for f in repo.files if f.endswith(".spec.ts")
+             and f.startswith(cwd.rstrip("/") + "/" if cwd else "")]
+    texts = {f: [js_unescaped(l) for l in repo.text(f)] for f in specs}
+    out = []
+    for t in doc.get("tests", []):
+        desc, full = t.get("description", ""), t.get("id", "")
+        top = full[: max(0, len(full) - len(desc))].strip().split(" ")[0]
+        cands = [f for f, src in texts.items() if any(desc in l for l in src)]
+        if len(cands) > 1 and top:
+            cands = [f for f in cands if any(top in l for l in texts[f])] or cands
+        file = cands[0] if cands else None
+        hits = {r: v for p, v in t.get("hits", {}).items() if (r := rel(p))}
+        out.append({"id": f"{label}:{full}", "suite": label, "title": desc or full,
+                    "file": file, "line": spec_line(repo.text(file), desc) if file else None,
+                    "status": t.get("status", ""), "source": "karma", "hits": hits})
+    return out
+
+
 def karma_suites(cfg: list[dict], repo: Repo) -> tuple[list[dict], list[dict], dict]:
     tests, suites, executable = [], [], {}
     conf = TOOLS / "karma" / "karma.conf.js"
@@ -518,20 +548,7 @@ def karma_suites(cfg: list[dict], repo: Repo) -> tuple[list[dict], list[dict], d
             r = rel(p)
             if r:
                 executable.setdefault(r, set()).update(lines)
-        specs = [f for f in repo.files if f.endswith(".spec.ts")
-                 and f.startswith(run.get("cwd", "").rstrip("/") + "/" if run.get("cwd") else "")]
-        texts = {f: repo.text(f) for f in specs}
-        for t in doc.get("tests", []):
-            desc, full = t.get("description", ""), t.get("id", "")
-            top = full[: max(0, len(full) - len(desc))].strip().split(" ")[0]
-            cands = [f for f, src in texts.items() if any(desc in l for l in src)]
-            if len(cands) > 1 and top:
-                cands = [f for f in cands if any(top in l for l in texts[f])] or cands
-            file = cands[0] if cands else None
-            hits = {r: v for p, v in t.get("hits", {}).items() if (r := rel(p))}
-            tests.append({"id": f"{label}:{full}", "suite": label, "title": desc or full,
-                          "file": file, "line": spec_line(texts[file], desc) if file else None,
-                          "status": t.get("status", ""), "source": "karma", "hits": hits})
+        tests.extend(karma_tests(doc, repo, label, run.get("cwd", ""), rel))
         suites.append({"name": label, "source": "karma", "status": "ran",
                        "tests": len(doc.get("tests", [])),
                        "seconds": round(time.monotonic() - t0, 1),

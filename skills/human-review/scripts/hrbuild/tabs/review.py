@@ -2158,6 +2158,40 @@ def format_only_hunk(removed: list[str], added: list[str]) -> tuple[int, bool] |
     return len(removed), len(removed) != len(added)
 
 
+#: A constant declared on an added line, and the value it names: Java/Kotlin
+#: `static final String NAME = "…";` / `const val NAME = …`, TS/JS `const NAME = '…'` /
+#: `readonly NAME = …`, Python `NAME = "…"` at the start of a line.
+_CONST_DECL = re.compile(
+    r"""(?:\b(?:static\s+final|final\s+static|const\s+val|const|readonly)\s+"""
+    r"""(?:[\w<>\[\],.? ]+?\s+)?|^\s*)(?P<name>[A-Z][A-Z0-9_]{2,})\s*(?::\s*[\w<>\[\]]+\s*)?="""
+    r"""\s*(?P<value>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`[^`]*`|-?\d[\w.]*)\s*;?\s*$""")
+
+
+def constants_declared(added: list[str]) -> dict[str, str]:
+    """`{NAME: value}` for every constant an added line declares (`_CONST_DECL`)."""
+    out = {}
+    for ln in added:
+        m = _CONST_DECL.search(ln)
+        if m:
+            out[m.group("name")] = m.group("value")
+    return out
+
+
+def replaces_constant(removed: list[str], added: list[str], consts: dict[str, str]) -> bool:
+    """Whether a hunk swaps a literal for the constant that names it: a removed line holds
+    the value, an added line the name. The use-site half of a Sonar S1192 extract-constant
+    fix — eval run 12 drew the two declarations under the card and the eight uses under
+    *Other changes*, where nothing said they were the same fix."""
+    for name, value in consts.items():
+        used = re.compile(r"\b" + re.escape(name) + r"\b")
+        # A number is matched whole: `20` must not claim every line holding `2026`.
+        lit = re.compile((r"(?<![\w.])" + re.escape(value) + r"(?![\w.])")
+                         if value[:1] not in "\"'`" else re.escape(value))
+        if any(lit.search(ln) for ln in removed) and any(used.search(ln) for ln in added):
+            return True
+    return False
+
+
 def _ref_spans(ref: str) -> tuple[str, list[tuple[int, int]] | None]:
     """`path:12-30,40` → `("path", [(12, 30), (40, 40)])`; a bare path → `(path, None)`."""
     m = re.match(r"^(.*?):(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$", ref)
@@ -2313,6 +2347,24 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
                         pointers[i].append((rel, takers[0]))
                 if not takers:
                     unowned.setdefault(rel, []).append(idx)
+        # A card that extracts a constant (Sonar S1192) also owns the hunks of the same file
+        # that swap that constant's literal for its name — attributed by the name, since
+        # the uses sit far from the declaration its anchor points at.
+        for i in range(len(items)):
+            for rel, idxs in list(owned[i].items()):
+                consts: dict[str, str] = {}
+                for k in idxs:
+                    if k < len(bodies(rel)):
+                        consts.update(constants_declared(bodies(rel)[k][1]))
+                if not consts or rel not in unowned:
+                    continue
+                moved = [k for k in unowned[rel] if k < len(bodies(rel))
+                         and replaces_constant(*bodies(rel)[k], consts)]
+                if moved:
+                    owned[i][rel] = sorted(set(idxs) | set(moved))
+                    unowned[rel] = [k for k in unowned[rel] if k not in moved]
+                    if not unowned[rel]:
+                        del unowned[rel]
         for i, (f, mine) in enumerate(zip(items, owned)):
             # The card's own files first, in the order it named them; then any other file
             # its anchors reached (a whole-file ref), in diff order.

@@ -231,7 +231,10 @@ def diff_html(rel: str, base: str, root: Path, caption: str | None = None,
         print(f"[review] diff: no file at {rel} — block dropped", file=sys.stderr)
         return ""
     show = subprocess.run(["git", "-C", str(root), "show", f"{base}:{rel}"], capture_output=True)
-    if show.returncode != 0:
+    # A file added since `base` has an empty before-state — all additions, still a diff.
+    if show.returncode != 0 and subprocess.run(
+            ["git", "-C", str(root), "cat-file", "-e", f"{base}^{{commit}}"],
+            capture_output=True).returncode != 0:
         print(f"[review] diff: {rel} does not exist at {base} — block dropped, because a "
               "diff needs a before-state that was actually recorded", file=sys.stderr)
         return ""
@@ -341,8 +344,9 @@ def diff_link_html(rel: str, base: str, root: Path, face: str | None = None,
     prose ("diff vs 5acf2472") would fight the file name beside it. The tooltip already
     carried the whole comparison, so nothing is lost by the shorter face.
 
-    **Emitted only when the before-side is real.** The ref has to resolve, the file has to
-    exist in it, and the two sides have to actually differ. A diff whose left half is a
+    **Emitted only when the before-side is real.** The ref has to resolve and the two sides
+    have to actually differ; a file absent from the ref is one the branch added, and its
+    before-side is recorded too — empty. A diff whose left half is a
     guess would be this page telling a confident lie about history — the exact failure it
     exists to prevent — so a base that is missing, unreadable, or identical to the working
     tree drops the link and says which on stderr. No link is strictly better than a wrong
@@ -360,12 +364,20 @@ def diff_link_html(rel: str, base: str, root: Path, face: str | None = None,
         return ""
     show = subprocess.run(["git", "-C", str(root), "show", f"{base}:{rel}"],
                           capture_output=True)
+    added = False
     if show.returncode != 0:
-        print(f"[review] difflink: {rel} does not exist at {base} "
-              f"({show.stderr.decode(errors='replace').strip()}) — link dropped, because a "
-              "diff needs a before-state that was actually recorded", file=sys.stderr)
-        return ""
-    before, after = show.stdout, src.read_bytes()
+        # A file the branch ADDED has a recorded before-state too: nothing. Its diff is all
+        # additions, and that is what the reviewer needs for a new OwnerListPaging.java —
+        # eval run 12 dropped every such link. Only a base that is not a commit is unknown.
+        known = subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{base}^{{commit}}"],
+                               capture_output=True).returncode == 0
+        if not known:
+            print(f"[review] difflink: {rel} does not exist at {base} "
+                  f"({show.stderr.decode(errors='replace').strip()}) — link dropped, because "
+                  "a diff needs a before-state that was actually recorded", file=sys.stderr)
+            return ""
+        added = True
+    before, after = (b"" if added else show.stdout), src.read_bytes()
     if before == after:
         print(f"[review] difflink: {rel} is identical at {base} and in the working tree — "
               "link dropped rather than opening an empty diff", file=sys.stderr)
@@ -385,7 +397,10 @@ def diff_link_html(rel: str, base: str, root: Path, face: str | None = None,
     short = base[:8]
     # The extra handle for the unserved case. The `href` stays the ordinary
     # `vscode://file/...`, so dropping this attribute costs the diff and nothing else.
-    handler = diff_uri_handler()
+    # The extension's diff reads the base side out of git itself, and a file added since
+    # has none there: an added file goes through the served diff (an empty left side) or
+    # the plain file link, never a URL that would dead-end.
+    handler = None if added else diff_uri_handler()
     uri = ""
     if handler:
         q = urllib.parse.urlencode({"file": str(src.resolve()), "base": base, "line": line})

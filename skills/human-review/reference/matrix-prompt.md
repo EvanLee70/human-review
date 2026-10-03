@@ -50,7 +50,8 @@ is checked by a program before anything uses it.
   "sentences": [
     {"id": "s1a2b3c", "coverage": "covered",
      "tests": [{"id": "src/test/…/VisitTest.java:231", "strength": "asserted",
-                "why": "POSTs a visit with no vet and asserts it is stored with none"}],
+                "why": "POSTs a visit with no vet and asserts it is stored with none",
+                "line": "assertThat(visit.getVet()).isNull();"}],
      "review": [{"id": "src/test/…/VisitTest.java:231", "verdict": "confirm",
                  "why": "asserts the stored vet is null"},
                 {"id": "src/test/…/OwnerTest.java:40", "verdict": "reject",
@@ -59,7 +60,8 @@ is checked by a program before anything uses it.
      "gap": "Nothing clears the vet on an existing visit and reads it back."},
     {"id": "s7a8b9c", "coverage": "narrowed", "decision": "d3",
      "tests": [{"id": "src/app/…/list.component.spec.ts:88", "strength": "asserted",
-                "why": "asserts only Name and City headers are sortable"}],
+                "why": "asserts only Name and City headers are sortable",
+                "line": "expect(sortable).toEqual(['Name', 'City']);"}],
      "gap": "Sorting is limited to Name and City; the ticket asks for any column."}
   ]
 }
@@ -88,6 +90,9 @@ One entry per sentence in `sentences`, every one of them, none twice:
   *this sentence's* claim, `exercised` when the body only runs the code or asserts
   something else nearby (the same endpoint, another field) — and a `why` of one line that
   names **the assertion line** (what it compares, against what), not the test's title.
+  Every `asserted` link also carries `line`: that assertion line, **copied verbatim** from
+  the body (one line, or one fluent chain) — a program looks it up in the body, and an
+  `asserted` link without a line it can find there may be lowered.
   Only ids from `tests`; never invent or retype one.
   `missing` and `n/a` have `"tests": []`; `narrowed` may list the tests that pin what was
   delivered instead.
@@ -119,6 +124,17 @@ One entry per sentence in `sentences`, every one of them, none twice:
   it. A sentence about the API is proven by an API test. When the right layer's test is
   in `candidates` or anywhere in `tests`, pair it — do not let a test of the other layer
   stand in for it.
+- **One test can prove several clauses of one requirement.** The sentences of one
+  requirement (the same `requirement`, or one bullet of the ticket) are its clauses, and a
+  test that asserts a whole sort chain proves "Name orders by last name, first name, id"
+  *and* "the direction applies to every field in the chain". Each sentence's `candidates`
+  include the tests proposed for its sibling clauses: **before you answer `missing`, read
+  them** and pair every one that asserts this clause too.
+- **A UI scenario the branch wrote is the strongest proof of a sentence about the
+  screen.** Its `body` carries the scenario's steps and, under `# step:` lines, the code of
+  each step's definition — the `expect` that checks it is there. When such a scenario
+  drives the screen through what the sentence describes (paging through owners, sorting a
+  column) and a step asserts it, pair it as `asserted`, beside any component spec.
 - **Read the `candidates`, and the whole `tests` list, for every sentence.** The test that
   asserts a claim most directly is often not among the `scripted` guesses: an e2e scenario
   titled for exactly this case, a component spec named for the initial state.

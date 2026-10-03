@@ -218,6 +218,41 @@ def test_the_right_column_is_only_the_tests_that_run_a_changed_line(tmp_path):
     assert {r["cat"] for r in rows} == {"unit"}
 
 
+def test_a_test_the_branch_wrote_that_ran_no_changed_line_is_still_listed(tmp_path):
+    """Eval run 12: "Written or edited by this branch" listed 53 of the branch's 59 tests
+    and said nothing of the rest — the V4 migration's only two tests among them. Each ran
+    no changed line a probe measures, so the coverage join never named it. It is listed
+    now, last, in a group of its own that starts folded (rank 2), and offered to the model
+    like any other row."""
+    root, review = _repo(tmp_path)
+    (root / "test" / "MigrationTest.java").write_text(
+        "class MigrationTest {\n  @Test\n  void freshDatabase() {\n"
+        "    assertThat(indexes()).contains(\"owners_city\");\n  }\n}\n", encoding="utf-8")
+    doc = json.loads((review / "assets" / "test-changes.json").read_text(encoding="utf-8"))
+    doc["tests"] += [{"name": "freshDatabase", "path": "test/MigrationTest.java", "line": 3,
+                      "status": "added"},
+                     {"name": "gone", "path": "test/GoneTest.java", "line": 3,
+                      "status": "deleted"}]
+    (review / "assets" / "test-changes.json").write_text(json.dumps(doc), encoding="utf-8")
+    rows, measured = S.covering_tests(S._spec(review), review, root)
+    assert measured
+    assert [r["id"] for r in rows] == ["test/VisitTest.java:3", "test/VisitTest.java:8",
+                                       "test/MigrationTest.java:3"], \
+        "the measured ones first; a deleted test has no run to place"
+    extra = rows[-1]
+    assert extra["status"] == "new" and extra["unmeasured"] and extra["hits"] == {}
+    assert S.test_rank(extra, set()) == 2 and S.test_rank(extra, {extra["id"]}) == 0
+    g = S.gather(S._spec(review), review, root)
+    asked = S.model_input(g["ticket"], g["sentences"], g["rows"], g["scripted"], g["docs"])
+    assert "test/MigrationTest.java:3" in {r["id"] for r in g["rows"]}
+    page = S.render(g["ticket"], g["blocks"], g["rows"],
+                    S.merge(g["sentences"], g["scripted"], None), root)
+    data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
+    assert data["tests"]["test/MigrationTest.java:3"]["rank"] in (0, 2)
+    assert data["ranks"]["2"] == "Written or edited by this branch — no changed line measured"
+    assert isinstance(asked["tests"], list)
+
+
 def test_without_a_coverage_run_the_column_is_the_branch_s_own_tests(tmp_path):
     root, review = _repo(tmp_path)
     (review / "assets" / "test-coverage.json").unlink()
@@ -281,6 +316,85 @@ def _crowded():
                   "section": ""},
                  {"id": "s2", "text": "A vet booking is shown on the visit.", "section": ""}]
     return sentences, rows, docs
+
+
+def test_a_sentence_is_offered_the_tests_proposed_for_its_sibling_clauses():
+    """Eval run 12: "The selected direction SHALL apply to every field in the chain" is
+    proven by the two tests that reverse the whole sort chain, and those were proposed only
+    for the clause beside it in the same requirement. One bullet's sentences are clauses of
+    one requirement: each is offered what the script proposed for the others."""
+    blocks = S.parse_ticket("1. Name SHALL order by last name, then id. The selected direction "
+                            "SHALL apply to every field in the chain.\n"
+                            "2. Owners are greeted by a pirate.\n")
+    sentences = S.ticket_sentences(blocks)
+    assert sentences[0]["item"] == sentences[1]["item"] != sentences[2]["item"]
+    chain, direction, pirate = (x["id"] for x in sentences)
+    rows = [{"id": "QueryTest.java:127", "title": "traversingAllPages_visitsEveryOwnerOnceInOrder",
+             "cat": "api", "status": "new"},
+            {"id": "PirateTest.java:3", "title": "greets", "cat": "unit", "status": "new"}]
+    docs = {r["id"]: {**_doc(r["title"], 1.0), "body_text": r["title"]} for r in rows}
+    scripted = {"decided": [{"id": chain, "coverage": "covered", "by": "script",
+                             "tests": [{"id": "QueryTest.java:127", "strength": "asserted",
+                                        "why": "shares name"}]}],
+                "open": {direction: [], pirate: ["PirateTest.java:3"]},
+                "candidates": {}, "offered": {}}
+    asked = S.model_input({"number": 1}, sentences, rows, scripted, docs)
+    by = {x["id"]: x for x in asked["sentences"]}
+    assert "QueryTest.java:127" in by[direction]["candidates"], "offered from its sibling"
+    assert "QueryTest.java:127" not in by[pirate]["candidates"], "another bullet is not one"
+    assert "QueryTest.java:127" not in by[chain]["candidates"], "already its scripted link"
+    prompt = (S.SKILL / "reference" / "matrix-prompt.md").read_text(encoding="utf-8")
+    assert "before you answer `missing`, read\n  them" in prompt
+
+
+def test_a_gherkin_scenario_is_read_with_the_step_definitions_under_it(tmp_path):
+    """Eval run 12: the branch's two new UI scenarios — the only UI proof of paging and
+    sorting — reached the model as four lines of Gherkin, and it paired component specs
+    instead: the `expect` that checks a scenario lives in its step definitions. They now
+    ride under the scenario, once each, in the body the model and the script read."""
+    import subprocess
+    root = tmp_path / "repo"
+    (root / "e2e" / "src").mkdir(parents=True)
+    (root / "e2e" / "src" / "search.feature").write_text(
+        "Feature: Owners\n\n"
+        "  Scenario: Sorting by City twice orders the owners by city, descending\n"
+        "    When I open the owners page\n"
+        "    And I sort owners by \"City\"\n"
+        "    And I sort owners by \"City\"\n"
+        "    Then the first 10 owners by city descending are listed\n", encoding="utf-8")
+    (root / "e2e" / "src" / "search.glue.ts").write_text(
+        "When('I open the owners page', async function () {\n"
+        "  await this.page.goto('/owners');\n});\n"
+        "When('I sort owners by {string}', async function (column: string) {\n"
+        "  await this.page.click(column);\n});\n"
+        "Then('the first {int} owner(s) by city descending are listed', async function (n) {\n"
+        "  await expectOwnersListedInOrder(this, byCityDescending.slice(0, n));\n});\n",
+        encoding="utf-8")
+    (root / "e2e" / "Steps.java").write_text(
+        "class Steps {\n    @Then(\"the response status is {int}\")\n"
+        "    public void status(int s) {\n        assertThat(code).isEqualTo(s);\n    }\n}\n",
+        encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    S._GLUE_CACHE.clear()
+    rows = [{"id": "e2e/src/search.feature:3", "file": "e2e/src/search.feature", "line": 3,
+             "title": "Sorting by City twice orders the owners by city, descending",
+             "cat": "e2e", "status": "new"}]
+    d = S.test_documents(rows, root)["e2e/src/search.feature:3"]
+    text = d["body_text"]
+    assert text.startswith("  Scenario: Sorting by City twice")
+    assert "# step: Then the first 10 owners by city descending are listed" in text
+    assert "expectOwnersListedInOrder(this, byCityDescending.slice(0, n));" in text
+    assert text.count("# step: And I sort owners by") == 1, "a definition used twice, once"
+    assert S.terms("descending") <= d["asserts"], "the step's expect counts as an assertion"
+    # Java annotations reach the method under them.
+    rx = S.cucumber_regex("the response status is {int}")
+    assert rx.fullmatch("the response status is 200") and not rx.fullmatch("the status is 2")
+    assert S.cucumber_regex("the page has {int} owner(s)").fullmatch("the page has 1 owner")
+    assert S.cucumber_regex("I click/press {string}").fullmatch('I press "Go"')
+    assert S.cucumber_regex("^I wait (\\d+)s$").fullmatch("I wait 5s")
+    defs = S.step_definitions(root, "e2e/x.feature")
+    assert ("e2e/Steps.java", 2) in {(f, n) for _, f, n in defs}
 
 
 def test_a_test_the_branch_wrote_is_offered_to_the_sentences_it_scores_best_on():
@@ -669,16 +783,18 @@ def test_every_test_says_why_it_is_listed_and_the_ones_about_the_change_come_fir
     rows["test/VisitTest.java:8"]["aimed"] = False
     paired = {"test/VisitTest.java:3"}
     assert S.test_rank(rows["test/VisitTest.java:3"], paired) == 0
-    assert S.test_rank(rows["test/VisitTest.java:8"], set()) == 3
-    assert S.test_rank({**rows["test/VisitTest.java:8"], "aimed": True}, set()) == 2
+    assert S.test_rank(rows["test/VisitTest.java:8"], set()) == 4
+    assert S.test_rank({**rows["test/VisitTest.java:8"], "aimed": True}, set()) == 3
     assert S.test_rank({**rows["test/VisitTest.java:8"], "status": "new"}, set()) == 1
+    assert S.test_rank({**rows["test/VisitTest.java:8"], "status": "new",
+                        "unmeasured": True}, set()) == 2
     assert S.test_why(rows["test/VisitTest.java:3"]) == \
         "its coverage ran changed lines of Visit.java 3–4"
     page = S.render(g["ticket"], g["blocks"], g["rows"],
                     S.merge(g["sentences"], g["scripted"], None), root)
     data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
     assert data["tests"]["test/VisitTest.java:3"]["why"].startswith("its coverage ran")
-    assert set(data["ranks"]) == {"0", "1", "2", "3"}
+    assert set(data["ranks"]) == {"0", "1", "2", "3", "4"}
     js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
     assert "rank(a)-rank(b)" in js and "rm-tgroup" in js
     # Copy pass (3 Oct 2026): the coverage lines stay in the data, out of the stamp's hover.
@@ -695,16 +811,22 @@ def test_the_untouched_and_unpaired_groups_start_folded_behind_a_count(tmp_path)
     page = S.render(g["ticket"], g["blocks"], g["rows"],
                     S.merge(g["sentences"], g["scripted"], None), root)
     data = json.loads(page.split('class="rm-data">')[1].split("</script>")[0])
-    assert data["fold"] == {"from": 2, "label": "more tests that only pass through changed code"}
-    assert S.FOLD_FROM_RANK == 2, "rank 0 (paired) and 1 (written by the branch) stay open"
+    assert data["fold"] == {"from": 3, "label": "more tests that only pass through changed code"}
+    assert S.FOLD_FROM_RANK == 3, "rank 0 (paired) and 1 (written by the branch) stay open"
+    # The branch's own tests that ran no measured changed line fold behind a count of their
+    # own, between the two.
+    assert data["foldOwn"] == {"from": 2, "to": 3,
+                               "label": "more written by this branch, no changed line measured"}
     js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
     # Folded only when something stays open above; counted on the button; toggled by it.
-    assert "rank(id)<F.from" in js and "rank(id)>=F.from" in js
-    assert "foldN+' '" in js and "'hide':'show'" in js
-    assert "row.dataset.fold='yes'" in js and "g.dataset.fold='yes'" in js
+    assert "rank(id)<F.from" in js and "r>=F.from&&r<to" in js
+    assert "f.n+' '" in js and "'hide':'show'" in js
+    assert "mkFold(D.foldOwn,'own','unown'),mkFold(D.fold,'fold','unfold')" in js
+    assert "row.dataset[f.mark]='yes'" in js and "g.dataset[f.mark]='yes'" in js
     assert "closest('.rm-fold')" in js
     css = (S.ASSETS / "reqmap.css").read_text(encoding="utf-8")
     assert ".rm-list[data-unfold=no] [data-fold=yes]{display:none}" in css
+    assert ".rm-list[data-unown=no] [data-own=yes]{display:none}" in css
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node is not installed")
@@ -996,19 +1118,65 @@ def test_a_link_that_shares_nothing_specific_with_its_sentence_is_dropped_by_the
     g = S.gather(S._spec(review), review, root)
     book, edit, pirate = _sids(g)
     texts = {s["id"]: s["text"] for s in g["sentences"]}
-    # The pirate sentence "covered" by the edit test: not one word, route or literal shared.
+    # The pirate sentence "covered" by the edit test (not one word, route or literal
+    # shared) and by the booking test, which shares its subject.
     doc = {"schema": "test-mapping/1", "sentences": [
         {"id": pirate, "coverage": "covered",
-         "tests": [{"id": "test/VisitTest.java:8", "strength": "asserted", "why": "w"}]},
+         "tests": [{"id": "test/VisitTest.java:8", "strength": "asserted", "why": "w"},
+                   {"id": "test/VisitTest.java:13", "strength": "asserted", "why": "w"}]},
         {"id": book, "coverage": "covered",
          "tests": [{"id": "test/VisitTest.java:3", "strength": "asserted", "why": "w"}]}]}
     out, dropped = S.sanity(doc, texts, g["docs"])
     assert dropped == 1
     by = {e["id"]: e for e in out["sentences"]}
-    assert by[pirate]["coverage"] == "missing" and by[pirate]["tests"] == []
+    assert [t["id"] for t in by[pirate]["tests"]] == ["test/VisitTest.java:13"]
     assert by[pirate]["downgrades"][0]["by"] == "script"
     assert by[book] == doc["sentences"][1], "a link on the sentence's own words stays"
     assert S.problems(out) == []
+
+
+def test_the_word_filter_alone_never_turns_a_sentence_red(tmp_path):
+    """Eval run 12: the filter took both tests that reverse the whole sort chain off "The
+    selected direction SHALL apply to every field in the chain" — a true pairing sharing
+    no word — and the page showed a false red `missing`. When it would take a sentence's
+    last links it lowers them to `exercised` instead: amber, still a gap, never red."""
+    root, review = _repo(tmp_path)
+    g = S.gather(S._spec(review), review, root)
+    book, edit, pirate = _sids(g)
+    texts = {s["id"]: s["text"] for s in g["sentences"]}
+    doc = {"schema": "test-mapping/1", "sentences": [
+        {"id": pirate, "coverage": "covered",
+         "tests": [{"id": "test/VisitTest.java:8", "strength": "asserted", "why": "w"}]}]}
+    out, lowered = S.sanity(doc, texts, g["docs"])
+    e = out["sentences"][0]
+    assert lowered == 1
+    assert e["coverage"] == "exercised", "lowered, never `missing` on the filter's word alone"
+    assert e["tests"] == [{"id": "test/VisitTest.java:8", "strength": "exercised", "why": "w"}]
+    assert e["downgrades"][0] == {"id": "test/VisitTest.java:8", "by": "script",
+                                  "why": e["downgrades"][0]["why"],
+                                  "from": "asserted", "to": "exercised"}
+    assert S.problems(out) == []
+
+
+def test_an_assertion_the_model_quoted_from_the_body_is_never_taken_by_the_filter(tmp_path):
+    """The model's `asserted` with its assertion line quoted — and that line really in the
+    body — outranks a word filter: it names the line that proves the claim. A quote the
+    body does not hold buys nothing."""
+    root, review = _repo(tmp_path)
+    g = S.gather(S._spec(review), review, root)
+    book, edit, pirate = _sids(g)
+    texts = {s["id"]: s["text"] for s in g["sentences"]}
+    quoted = {"id": "test/VisitTest.java:8", "strength": "asserted", "why": "w",
+              "line": "assertThat(saved().getVet()).isEqualTo(helen);"}
+    invented = {"id": "test/VisitTest.java:3", "strength": "asserted", "why": "w",
+                "line": "assertThat(pirate).greets(visitor);"}
+    doc = {"schema": "test-mapping/1", "sentences": [
+        {"id": pirate, "coverage": "covered", "tests": [quoted, invented]}]}
+    out, lowered = S.sanity(doc, texts, g["docs"])
+    e = out["sentences"][0]
+    assert lowered == 1 and e["coverage"] == "covered"
+    assert e["tests"] == [quoted], "the quoted link stays asserted; the invented quote goes"
+    assert S.problems(out) == [], "`line` is part of the schema's link"
 
 
 def test_a_quote_is_looked_up_in_the_body_whitespace_aside():

@@ -114,6 +114,11 @@ ul.req-tests li { list-style:none; }
 .cov-zero { color:var(--muted); }
 .cov-why { color:var(--muted); }
 .cov-none { margin:6px 12px; font-size:.82rem; color:var(--drift); }
+/* A suite whose coverage is missing or stale (suite_chips): a few words, muted, the reason
+   on hover — every count beside it is short by that suite. */
+.cov-suites { margin:.35rem 0 0; display:flex; flex-wrap:wrap; gap:.3rem; }
+.cov-suite { padding:1px 7px; border:1px solid var(--line, #d0d0d0); border-radius:9px;
+        color:var(--muted); font-size:.8rem; cursor:help; }
 .cov-more { color:var(--muted); cursor:help; border-bottom:1px dotted currentColor; }
 @media (prefers-color-scheme: dark) {
   .cov-gapn, .cov-gaps > summary b { color:#f08a8a; }

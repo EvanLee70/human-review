@@ -455,19 +455,21 @@ def open_diff(rel, base, served_root, line=None):
     show = subprocess.run(["git", "-C", str(ROOT), "show", f"{sha}:{rel}"],
                           capture_output=True)
     short = sha[:8]
-    if show.returncode != 0:
-        return f"{Path(rel).name} does not exist at {short}"
-    if show.stdout == target.read_bytes():
+    # A file added since `sha` did not exist there: its recorded before-state is empty, and
+    # an all-additions diff is a real one (the ref itself resolved, above).
+    added = show.returncode != 0
+    if not added and show.stdout == target.read_bytes():
         return f"{Path(rel).name} is unchanged since {short}"
     stem, ext = Path(rel).stem, Path(rel).suffix
     before = Path(served_root) / ".diffbase" / short / Path(rel).parent / f"{stem}@{short}{ext}"
     before.parent.mkdir(parents=True, exist_ok=True)
-    before.write_bytes(show.stdout)
+    before.write_bytes(b"" if added else show.stdout)
     # The bridge first, and only when there is a line to land on — it is the one route
     # that can place the caret inside a diff. Every other case keeps `code --diff`, which
     # is measured and known to pick the right window; swapping it out for a route with
     # nothing extra to offer would be churn.
-    if line and bridge_diff(target, sha, line):
+    # Not for an added file: the bridge reads the left side out of git, where there is none.
+    if line and not added and bridge_diff(target, sha, line):
         return None
     cli = code_cli()
     if not cli:
