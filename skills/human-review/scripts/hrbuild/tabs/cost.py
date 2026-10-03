@@ -933,11 +933,9 @@ def components_html(comp: dict | None) -> str:
     # Each kind of price is explained only when a row on screen is priced in it: eval run
     # 6 was Claude end to end, and its caption still explained Copilot's AI credits.
     priced = [r for r in rows if r.get("measured")]
-    has_claude = any(r.get("usd") is not None for r in priced)
     has_copilot = any(r.get("aic") is not None for r in priced)
     units = []
-    if has_claude:
-        units.append("Claude at API list price (no subscription is billed this)")
+    # No caption for Claude: the total's own line already says "at API list price".
     if has_copilot:
         units.append("Copilot in AI credits, at what GitHub bills for them")
     caption = "; ".join(units) + ("." if units else "")
@@ -950,7 +948,7 @@ def components_html(comp: dict | None) -> str:
             'real bill is larger by what nothing on this disk recorded (why, on each row '
             'below).</p>' if missing else "")
     return (warn + '<table class="costtab costledger costfour">'
-            f'<caption>{caption}</caption>'
+            + (f'<caption>{caption}</caption>' if caption else '') +
             '<thead><tr><th scope="col">component</th><th scope="col">tokens</th>'
             '<th scope="col">cost</th></tr></thead>'
             f'<tbody>{"".join(out)}</tbody><tfoot>{foot}</tfoot></table>')
