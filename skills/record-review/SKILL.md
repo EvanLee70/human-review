@@ -35,6 +35,12 @@ guesses about choices it never made — and they read on the page exactly like t
 ones. If the conversation that wrote the code is gone, resume it (`claude --resume <id>`,
 or reopen the chat in VS Code) rather than start a new one.
 
+## Headless runs
+
+`claude -p` / `copilot -p` end when the model ends its turn: nothing backgrounded ever
+reports back. The whole flow — prepare, reviewers, `ci`, finish — runs in one turn, every
+command in the foreground. A run that stops "waiting for X" has not recorded its review.
+
 ## Run it
 
 Read `prompt.md` beside this file and follow it, with `$ARGUMENTS` as the base of the

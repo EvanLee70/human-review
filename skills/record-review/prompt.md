@@ -16,10 +16,12 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
    only the content of its brief file. In Claude Code you may run `/code-review high`
    instead. Do NOT pass --fix and never let a reviewer edit: you decide every finding.
    If you can pick the reviewers' model, pick one other than yours.
-   **Run every `RR` command in the foreground and wait for it.** Never background one and
-   end your turn "waiting for it to exit": in a headless run (`claude -p`, `copilot -p`)
-   the session ends with the turn, and `finish` never runs — eval run 7 left its fixes
-   uncommitted that way.
+   **Never end your turn waiting for anything.** Run every command — `RR`, a test suite, a
+   traced run, a build — in the foreground and wait for it (give it a timeout long enough;
+   poll with `sleep` in the same turn if it must run in the background). In a headless run
+   (`claude -p`, `copilot -p`) the session ends with the turn and no notification ever
+   brings you back: eval run 7 ended "waiting for `ci`", eval run 10 "waiting for the
+   traced run", and both left the fixes uncommitted with `finish` never run.
    When the reviewers are done, run `RR ci` — at once: it stamps the reviewers' end,
    which is where the review's cost stops and the fixes' starts. It waits for CI and prints what
    failed — SonarCloud's new issues included — as findings with `source: CI`. A BUG or
