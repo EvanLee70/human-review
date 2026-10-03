@@ -75,9 +75,9 @@
         }
       ],
       "runtime": {
-        "command": "cd ~/workspace/petclinic-pr && ./start-docker.sh up --ref 753f724c",
-        "stop": "cd ~/workspace/petclinic-pr && ./start-docker.sh down petclinic-753f724c",
-        "urlCommand": "cd ~/workspace/petclinic-pr && ./start-docker.sh url petclinic-753f724c",
+        "command": "cd ~/workspace/petclinic-pr && ./start-docker.sh up --ref cbaa17bd",
+        "stop": "cd ~/workspace/petclinic-pr && ./start-docker.sh down petclinic-cbaa17bd",
+        "urlCommand": "cd ~/workspace/petclinic-pr && ./start-docker.sh url petclinic-cbaa17bd",
         "base": "",
         "reset": "/__reset"
       }
@@ -95,9 +95,9 @@
     },
     {
       "id": "conceptual",
-      "title": "The concepts, as the team drew them",
+      "title": "",
       "unchanged": true,
-      "body": "<div class=\"diagram dgm-toggles\"><div class=\"head\"><b>Conceptual Model</b><a class=\"dgm-src\" href=\"vscode://file//Users/victorrentea/workspace/petclinic-pr/petclinic-backend/docs/ConceptualModel.drawio.png:1:1\">petclinic-backend/docs/ConceptualModel.drawio.png</a></div><p>Hand-drawn in draw.io and patched from the generated domain model, so the concepts below are the code's, laid out by a person.</p>{{drawio:conceptual}}</div>"
+      "body": "<div class=\"diagram dgm-toggles\"><div class=\"head\"><b>Conceptual Model</b><a class=\"dgm-src\" href=\"vscode://file//Users/victorrentea/workspace/petclinic-pr/petclinic-backend/docs/ConceptualModel.drawio.png:1:1\">petclinic-backend/docs/ConceptualModel.drawio.png</a></div>{{drawio:conceptual}}</div>"
     },
     {
       "id": "requirements-map",
@@ -120,7 +120,6 @@
     {
       "id": "ds-audit",
       "title": "",
-      "body": "The audit is built around an <b>absence</b>: it reads which <i>roles</i> the design system covers off the components themselves, then looks for native controls filling one of those roles <i>outside</i> any DS host. Labelling what is already right proves nothing — the defect is the bare <code>&lt;select&gt;</code> somebody copied from an older template. Both builds are started by the run itself, this branch against the merge-base, and every screen in the catalogue is shot; only the ones whose DOM differs get a viewer.",
       "includeHtml": "assets/ds-audit.html"
     }
   ],
@@ -207,7 +206,7 @@
           "type": "testpairs",
           "id": "sequences",
           "kind": "sequence",
-          "title": "",
+          "title": "Sequence diagrams of tests",
           "snippets": [
             {
               "ref": "petclinic-test/src/add-visit.spec.ts:34-47,49-64"

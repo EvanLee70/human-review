@@ -1,8 +1,8 @@
 {
- "base": "bddf3e4fc2cac31f73d1f2fbd090c32cc8b563cf",
+ "base": "d4a63eb6606204961ca074ded7f6c90fd11586d6",
  "head": "HEAD",
  "points_file": "review-points.md",
- "commits": 24,
+ "commits": 62,
  "implementation": "a8cd99737ae48aad0fd63422f455383c1ebb78fa",
  "review": "ce56d9124a7ca87b1d8a9fc1045b4109e0f64165",
  "session": "47d2ba31-61ef-4ef6-ac2f-7d969121ce34",
@@ -29,120 +29,535 @@
   "0a3541e5d20b8cb3ee6d807c3facccef3bdcd107",
   "7ea4affd1e4f380dbfa59ad6f00e8649f7e278df",
   "f2b2dae7b15be0393384822ed84f2b2d56b3a960",
-  "226755c3622cebc354e4b3f6696918f010a9512f"
+  "226755c3622cebc354e4b3f6696918f010a9512f",
+  "e9079d6fdda4adb57ca4643b867e651b2369b7d5",
+  "7a160a1d46f62ee943c534098530255f4b8cafcd",
+  "e1766ea29122a2838cd9cce0712da9c73a59e813",
+  "6ef4ae6b1e6669180d4325cb144448032bf3c2de",
+  "92379dcc65309a477dfdee7eaa8f98b6f41e1156",
+  "db6b67ece0336532484b6c96e1d080136e0198a0",
+  "b4b17a9d973f1a909a5ee61473f80f35e39741d4",
+  "f8d1a3f781e0f4ada805845402dbf1cc5e8753aa",
+  "29684b99777b3bd69cbcb0262d63ce5da70d24c4",
+  "a23ccb76dab881618c7e07032a18acabc6ad68c7",
+  "9037413e769b26b9560972f2ec678fdda0c2a53b",
+  "e85612fbc8c5926183eb22ca12d9fcbb7aa05af7",
+  "c0b9503abb960521ed27d89f268529ea65a3bc76",
+  "866e1d6484d5d280b87a43cee006ae4a3a8cd39b",
+  "7f5189e6cc3ea9d8c445eb3708541fa1c6a6628d",
+  "0b13a8029ace380d1f654d4ad56585e884933e6d",
+  "32c943ad607bcaa54a179d604c8a129662a7a5be",
+  "c8ec6a9ae2a01f53d948f4af9e2b0ca2fba22be3",
+  "a2b28a977d2a1c3bad3c336256c4a4d86529f568",
+  "1daa4cbaf420164b052f76819664c289b150ea04",
+  "683fbe863682f2bd4f2401b7458261d445f7c81b",
+  "1b64071bc59b610253d311aa30abae0fc0a0e4cf",
+  "02c1082b2bbc545a263c5eed4f62831c6cc4b06b",
+  "f58ec4e2924443353c318e821546aa759a0f3ee8",
+  "50b2dc9a017e2275a28744dc8a88b524e3fe4441",
+  "725a822af37365614a165f3df6c3ed52ff65d3ff",
+  "1776711db62ef87733de876de5df47a135a6100c",
+  "ad6e538852d250df0cd4cd509cc5a1b2edb9a341",
+  "90d07d4380407e48ad9840c7e1e9df7d2d1ba5fb",
+  "6e55631d7e3342c50a0f4e4d316a0f2963750464",
+  "c00fa572b329f73419f56f87423c47569657513d",
+  "c4e49c9117a83fcfd42ab9fec4647a385c2c1969",
+  "1498af4d1b37e057d02aacf77275b8978992d07f",
+  "28ae03ecc5718acab54543f3cb545edf6e7f376b",
+  "89e013a1387a2f05b75182abde2f128261d95afa",
+  "c57d3334c7a8c69285ac3c4ed098cb869f3bf4f6",
+  "153946bc4ab74054e9587bf346f92f6915615e9b",
+  "cbaa17bdf354be94b36996c6c7efbd02e6b4c057"
  ],
  "after_detail": [
   {
    "sha": "753f724cc814a9d39db6e427270023c0da582086",
    "when": "2026-09-17T21:48:02+03:00",
-   "subject": "Let the review run start the stack its film is recorded against"
+   "subject": "Let the review run start the stack its film is recorded against",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "7cad86b131f69ac8b1dfac270db82e89a8a7476e",
    "when": "2026-09-18T17:16:22+03:00",
-   "subject": "test(visits): click the vet through the browser, not just past the API"
+   "subject": "test(visits): click the vet through the browser, not just past the API",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "31297ed4053343bac33e3f48c41b2a022e60cf33",
    "when": "2026-09-18T17:19:13+03:00",
-   "subject": "chore(codecity): commit the regenerated city the guardrail asks for"
+   "subject": "chore(codecity): commit the regenerated city the guardrail asks for",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "21680c35b58e183bbc1b8ff6334dc96e0a131f41",
    "when": "2026-09-18T22:03:11+03:00",
-   "subject": "Record the sequence diagrams of the vet-linking tests"
+   "subject": "Record the sequence diagrams of the vet-linking tests",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "0bb6f069c297084af2e7c601662d23c9bff74944",
    "when": "2026-09-18T22:03:21+03:00",
-   "subject": "test: Gherkin UI scenario for the vet-linking story"
+   "subject": "test: Gherkin UI scenario for the vet-linking story",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "f96259dcdddd7e222b65adc436021ac9b39b0e32",
    "when": "2026-09-18T22:05:19+03:00",
-   "subject": "Require one Gherkin scenario through the UI per feature"
+   "subject": "Require one Gherkin scenario through the UI per feature",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "9ce98ab960734534c380f647f6089a11320a0bca",
    "when": "2026-09-18T23:29:41+03:00",
-   "subject": "Log the booked visit id and the attending vet"
+   "subject": "Log the booked visit id and the attending vet",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "6aac04b4fd88198e0d1b037b9c67586d7f3f7e31",
    "when": "2026-09-18T23:31:18+03:00",
-   "subject": "Drop the tests that proved clearing the vet persists, to show an unproven requirement"
+   "subject": "Drop the tests that proved clearing the vet persists, to show an unproven requirement",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "619902c3db5841308f1422b8b2e62978ea3176b0",
    "when": "2026-09-18T23:40:37+03:00",
-   "subject": "pre-commit: spotless only on the staged files"
+   "subject": "pre-commit: spotless only on the staged files",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "2f5947ea1c659de3c971a3b3a668048bd3d3eafd",
    "when": "2026-09-18T23:43:32+03:00",
-   "subject": "Revert \"Require one Gherkin scenario through the UI per feature\""
+   "subject": "Revert \"Require one Gherkin scenario through the UI per feature\"",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "4aea32fcac6dc1a6d55e4ee44949e45dd4e83e7f",
    "when": "2026-09-18T23:50:28+03:00",
-   "subject": "Send the fake SMS over HTTP, so the trace crosses a real socket"
+   "subject": "Send the fake SMS over HTTP, so the trace crosses a real socket",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "a58cbdc5eba955347baad664834e99bbc82dcb4c",
    "when": "2026-09-18T23:50:30+03:00",
-   "subject": "Merge main: the fake SMS gateway as an HTTP self-call, already cherry-picked here"
+   "subject": "Merge main: the fake SMS gateway as an HTTP self-call, already cherry-picked here",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "abf1c9517c3a90f9d61e3f63a9dfa8a6abe77612",
    "when": "2026-09-18T23:57:17+03:00",
-   "subject": "Give VisitTest a server to post the fake SMS to"
+   "subject": "Give VisitTest a server to post the fake SMS to",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "e9e23b6a16aa41d1fc45ff8596d8eed04fea50e4",
    "when": "2026-09-18T23:57:31+03:00",
-   "subject": "Record the sequence diagrams with the SMS gateway self-call"
+   "subject": "Record the sequence diagrams with the SMS gateway self-call",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "b020328667c718e119c8c80fac0f34be31a98b90",
    "when": "2026-09-19T00:03:32+03:00",
-   "subject": "human-review: let the design-system audit start its own two builds"
+   "subject": "human-review: let the design-system audit start its own two builds",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "c33e9815ccae9639629403142f9ef9b6a9614a39",
    "when": "2026-09-19T00:04:03+03:00",
-   "subject": "Merge main: the design-system audit starts its own two builds, already cherry-picked here"
+   "subject": "Merge main: the design-system audit starts its own two builds, already cherry-picked here",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "d0d5721963f21b6e3776c914b35878ea71978f16",
    "when": "2026-09-19T00:13:54+03:00",
-   "subject": "Send the fake SMS in-process again: keep the test instrumentation out of production code"
+   "subject": "Send the fake SMS in-process again: keep the test instrumentation out of production code",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "c4b0df3214239a1dcbce2402e8cc4f8f7543e928",
    "when": "2026-09-19T00:13:54+03:00",
-   "subject": "genseq: drop JDBC spans that carry no statement"
+   "subject": "genseq: drop JDBC spans that carry no statement",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "0a3541e5d20b8cb3ee6d807c3facccef3bdcd107",
    "when": "2026-09-19T00:13:59+03:00",
-   "subject": "VisitTest goes back to a plain @SpringBootTest, with no server to post to"
+   "subject": "VisitTest goes back to a plain @SpringBootTest, with no server to post to",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "7ea4affd1e4f380dbfa59ad6f00e8649f7e278df",
    "when": "2026-09-19T00:19:48+03:00",
-   "subject": "Redraw the sequences without the empty JDBC arrows"
+   "subject": "Redraw the sequences without the empty JDBC arrows",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "f2b2dae7b15be0393384822ed84f2b2d56b3a960",
    "when": "2026-09-19T00:51:27+03:00",
-   "subject": "Rate the assumptions: how sure the author was of each reading"
+   "subject": "Rate the assumptions: how sure the author was of each reading",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
   },
   {
    "sha": "226755c3622cebc354e4b3f6696918f010a9512f",
    "when": "2026-09-19T00:59:40+03:00",
-   "subject": "Use a raw <select> for the vet on the edit form, on purpose, so the design-system audit has a gap to show"
+   "subject": "Use a raw <select> for the vet on the edit form, on purpose, so the design-system audit has a gap to show",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
+  },
+  {
+   "sha": "e9079d6fdda4adb57ca4643b867e651b2369b7d5",
+   "when": "2026-09-19T07:53:38+03:00",
+   "subject": "ci: an empty AGENTS.md is not a symlink stub",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
+  },
+  {
+   "sha": "7a160a1d46f62ee943c534098530255f4b8cafcd",
+   "when": "2026-09-19T07:53:38+03:00",
+   "subject": "Merge remote-tracking branch 'origin/main' into test-pr",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
+  },
+  {
+   "sha": "e1766ea29122a2838cd9cce0712da9c73a59e813",
+   "when": "2026-09-21T00:03:46+03:00",
+   "subject": "Merge main: fluent DTO setters",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
+  },
+  {
+   "sha": "6ef4ae6b1e6669180d4325cb144448032bf3c2de",
+   "when": "2026-09-21T00:16:13+03:00",
+   "subject": "Rename the no-vet scenario: a visit need not be set a vet",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": false
+  },
+  {
+   "sha": "92379dcc65309a477dfdee7eaa8f98b6f41e1156",
+   "when": "2026-09-21T07:23:48+03:00",
+   "subject": "review-points: take over the 13 commits since ce56d912 without a new pass",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": true
+  },
+  {
+   "sha": "db6b67ece0336532484b6c96e1d080136e0198a0",
+   "when": "2026-09-21T07:24:26+03:00",
+   "subject": "review-points: say which of the 32 commits are the branch's own",
+   "auto_fix": false,
+   "taken_over": true,
+   "takeover": true
+  },
+  {
+   "sha": "b4b17a9d973f1a909a5ee61473f80f35e39741d4",
+   "when": "2026-09-23T11:29:10+03:00",
+   "subject": "Merge main into test-pr (generated-file header on openapi.yaml)",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "f8d1a3f781e0f4ada805845402dbf1cc5e8753aa",
+   "when": "2026-09-23T19:01:10+03:00",
+   "subject": "Redraw the PR's city with the change DNA colour",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "29684b99777b3bd69cbcb0262d63ce5da70d24c4",
+   "when": "2026-09-23T19:37:04+03:00",
+   "subject": "OpenRewrite: Spring Security 7 csrf().disable() -> lambda DSL recipe",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "a23ccb76dab881618c7e07032a18acabc6ad68c7",
+   "when": "2026-09-23T22:13:27+02:00",
+   "subject": "Redraw the PR's city: change DNA as a near-edge bar, breadcrumb bottom centre",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "9037413e769b26b9560972f2ec678fdda0c2a53b",
+   "when": "2026-09-23T23:08:08+02:00",
+   "subject": "Put the vet line back on the PR's conceptual map",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "e85612fbc8c5926183eb22ca12d9fcbb7aa05af7",
+   "when": "2026-09-23T23:39:56+02:00",
+   "subject": "human-review.json: name the guardrail the conceptual diagram is unit-tested against",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "c0b9503abb960521ed27d89f268529ea65a3bc76",
+   "when": "2026-09-24T00:05:47+02:00",
+   "subject": "Merge origin/main: notification-service split into its own Spring Boot service",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "866e1d6484d5d280b87a43cee006ae4a3a8cd39b",
+   "when": "2026-09-24T00:08:00+02:00",
+   "subject": "skills: jira/confluence CLIs in stdlib Python, so they run on Windows without WSL",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "7f5189e6cc3ea9d8c445eb3708541fa1c6a6628d",
+   "when": "2026-09-24T00:08:00+02:00",
+   "subject": "skills: harden the jira/confluence CLIs after an adversarial review",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "0b13a8029ace380d1f654d4ad56585e884933e6d",
+   "when": "2026-09-24T00:08:00+02:00",
+   "subject": "Merge main: skill CLIs portable to Windows, already cherry-picked here",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "32c943ad607bcaa54a179d604c8a129662a7a5be",
+   "when": "2026-09-24T00:13:51+02:00",
+   "subject": "Re-record every sequence diagram against the notification-service split",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "c8ec6a9ae2a01f53d948f4af9e2b0ca2fba22be3",
+   "when": "2026-09-24T07:13:34+02:00",
+   "subject": "e2e: run the review's suites on HEAD's own containers, not on shared ports",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "a2b28a977d2a1c3bad3c336256c4a4d86529f568",
+   "when": "2026-09-24T07:13:34+02:00",
+   "subject": "Owner search: a late initial load no longer overwrites the result",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "1daa4cbaf420164b052f76819664c289b150ea04",
+   "when": "2026-09-24T07:13:34+02:00",
+   "subject": "add-owner.spec: edit the owner only once the form has loaded them",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "683fbe863682f2bd4f2401b7458261d445f7c81b",
+   "when": "2026-09-24T07:13:34+02:00",
+   "subject": "Merge main: e2e on HEAD's own stack + owner-search race fix, already cherry-picked here",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "1b64071bc59b610253d311aa30abae0fc0a0e4cf",
+   "when": "2026-09-24T07:35:31+02:00",
+   "subject": "Regenerate the PR's city: cohesion colour, its legend lights an axis's classes",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "02c1082b2bbc545a263c5eed4f62831c6cc4b06b",
+   "when": "2026-09-25T01:13:03+02:00",
+   "subject": "Maven module graph: print a groupId only where it tells modules apart",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "f58ec4e2924443353c318e821546aa759a0f3ee8",
+   "when": "2026-09-25T01:16:52+02:00",
+   "subject": "Merge main: the Maven module graph without the shared groupId, already cherry-picked",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "50b2dc9a017e2275a28744dc8a88b524e3fe4441",
+   "when": "2026-09-25T11:47:00+02:00",
+   "subject": "docs(packages): label each box with its package pattern only",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "725a822af37365614a165f3df6c3ed52ff65d3ff",
+   "when": "2026-09-25T18:17:30+02:00",
+   "subject": "Run the backend Cucumber suite in mvn test: name it FunctionalCucumberTest",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "1776711db62ef87733de876de5df47a135a6100c",
+   "when": "2026-09-25T18:19:37+02:00",
+   "subject": "visits.feature: the vet-rename scenario creates the vet it books",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "ad6e538852d250df0cd4cd509cc5a1b2edb9a341",
+   "when": "2026-09-25T18:35:30+02:00",
+   "subject": "Per-test coverage of the browser suites, for /human-review's testcov step",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "90d07d4380407e48ad9840c7e1e9df7d2d1ba5fb",
+   "when": "2026-09-25T18:35:30+02:00",
+   "subject": "human-review.json: the testcov step, and COVERAGE_DIR on the traced runs",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "6e55631d7e3342c50a0f4e4d316a0f2963750464",
+   "when": "2026-09-25T18:51:54+02:00",
+   "subject": "coverage.ts: take Chromium's coverage over a CDP session, not page.coverage",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "c00fa572b329f73419f56f87423c47569657513d",
+   "when": "2026-09-25T18:57:09+02:00",
+   "subject": "world.ts: a Scenario Outline's coverage is keyed by its Examples row",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "c4e49c9117a83fcfd42ab9fec4647a385c2c1969",
+   "when": "2026-09-25T19:27:29+02:00",
+   "subject": "Merge main: seed owners reshuffled (\u0218tefan Mure\u0219an, \u0141ukasz \u015aliwi\u0144ski), Cucumber in mvn test, coverage hooks",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "1498af4d1b37e057d02aacf77275b8978992d07f",
+   "when": "2026-09-25T22:46:11+02:00",
+   "subject": "Merge main: db-cli in Python, Pongo and Perdita move to \u0141ukasz, pom-rule tidy-up",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "28ae03ecc5718acab54543f3cb545edf6e7f376b",
+   "when": "2026-09-29T10:12:43+03:00",
+   "subject": "review-points: drop the assumption about hand-written generated files",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "89e013a1387a2f05b75182abde2f128261d95afa",
+   "when": "2026-09-29T10:32:26+03:00",
+   "subject": "review-points: drop the declined item about the orphaned booking-with-a-vet diagram",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "c57d3334c7a8c69285ac3c4ed098cb869f3bf4f6",
+   "when": "2026-09-29T14:19:33+03:00",
+   "subject": "start-docker.sh --ref builds the pinned commit with its own compose file",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "153946bc4ab74054e9587bf346f92f6915615e9b",
+   "when": "2026-09-29T15:49:21+03:00",
+   "subject": "Maven module graph: no groupId on any box",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
+  },
+  {
+   "sha": "cbaa17bdf354be94b36996c6c7efbd02e6b4c057",
+   "when": "2026-09-29T21:14:04+03:00",
+   "subject": "Reset sidecar: named fixtures on top of the seed, starting with green",
+   "auto_fix": false,
+   "taken_over": false,
+   "takeover": false
   }
  ],
  "review_when": "2026-09-17T21:39:52+03:00",
+ "takeover": {
+  "sha": "db6b67ece0336532484b6c96e1d080136e0198a0",
+  "when": "2026-09-21T07:24:26+03:00",
+  "subject": "review-points: say which of the 32 commits are the branch's own",
+  "heading": "Taken over without a new pass \u2014 21 Sep 2026"
+ },
+ "auto_fixes": [],
  "warnings": []
 }

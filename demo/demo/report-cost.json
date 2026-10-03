@@ -1,0 +1,10 @@
+{
+ "schema": "report-cost/1",
+ "refreshes": [
+  {
+   "at": "2026-10-03T06:02:30+00:00",
+   "seconds": 39.6,
+   "steps": "none"
+  }
+ ]
+}

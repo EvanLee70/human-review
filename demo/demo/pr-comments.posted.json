@@ -1,0 +1,122 @@
+{
+  "repo": "victorrentea/petclinic",
+  "pr": 49,
+  "url": "https://github.com/victorrentea/petclinic/pull/49",
+  "head": "50b2dc9a017e2275a28744dc8a88b524e3fe4441",
+  "pushed_at": "2026-09-25T18:10:10+02:00",
+  "review_url": "https://github.com/victorrentea/petclinic/pull/49#pullrequestreview-5319910293",
+  "comments": {
+    "F:the-vet-picker-could-not-load-on-the-screens": {
+      "pile": "fixed",
+      "title": "The vet picker could not load on the screens that need it",
+      "mode": "line",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388530",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/VetRestController.java",
+      "line": 50
+    },
+    "F:booking-a-visit-read-the-vet-s-whole-specialty": {
+      "pile": "fixed",
+      "title": "Booking a visit read the vet's whole specialty list to set one foreign key",
+      "mode": "line",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388538",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/repository/VetRepository.java",
+      "line": 19
+    },
+    "F:the-cucumber-update-step-dropped-the-vet-out-of": {
+      "pile": "fixed",
+      "title": "The Cucumber update step dropped the vet out of its PUT body",
+      "mode": "line",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388548",
+      "path": "petclinic-backend/src/test/java/victor/training/petclinic/functional/VisitSteps.java",
+      "line": 95
+    },
+    "I:make-put-api-visits-id-keep-the-vet-when-the": {
+      "pile": "ignored",
+      "title": "Make PUT /api/visits/{id} keep the vet when the body omits vetId",
+      "mode": "line",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388561",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/VisitRestController.java",
+      "line": 88
+    },
+    "I:collapse-the-duplicated-attendingvet-helper": {
+      "pile": "ignored",
+      "title": "Collapse the duplicated attendingVet helper",
+      "mode": "line",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388571",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+      "line": 201
+    },
+    "I:a-denied-preauthorize-answers-500-instead-of-403": {
+      "pile": "ignored",
+      "title": "A denied @PreAuthorize answers 500 instead of 403",
+      "mode": "body",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#pullrequestreview-5319910293",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java",
+      "line": null
+    },
+    "I:ownerrestcontroller-s-constructor-is-now-nine": {
+      "pile": "ignored",
+      "title": "OwnerRestController's constructor is now nine parameters",
+      "mode": "file",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388275",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/OwnerRestController.java",
+      "line": 1
+    },
+    "I:the-user-manual-still-describes-the-visit": {
+      "pile": "ignored",
+      "title": "The user manual still describes the visit screens without a vet",
+      "mode": "body",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#pullrequestreview-5319910293",
+      "path": "user-manual/manual.md",
+      "line": null
+    },
+    "A:vet-id-is-on-delete-set-null-so-deleting-a-vet": {
+      "pile": "assumption",
+      "title": "vet_id is ON DELETE SET NULL, so deleting a vet is never blocked",
+      "mode": "line",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388597",
+      "path": "petclinic-backend/src/main/resources/db/migration/V4__visit_vet.sql",
+      "line": 5
+    },
+    "A:an-unknown-vetid-is-a-404-not-a-quietly": {
+      "pile": "assumption",
+      "title": "An unknown vetId is a 404, not a quietly unattended visit",
+      "mode": "line",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388614",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/VisitRestController.java",
+      "line": 93
+    },
+    "A:a-visit-with-no-vet-reads-none-and-the-dropdown": {
+      "pile": "assumption",
+      "title": "A visit with no vet reads \"none\", and the dropdown offers \"-- none --\"",
+      "mode": "line",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388627",
+      "path": "petclinic-frontend/src/app/visits/visit.ts",
+      "line": 14
+    },
+    "A:the-seed-gives-some-visits-a-vet-and": {
+      "pile": "assumption",
+      "title": "The seed gives some visits a vet and deliberately withholds one from others",
+      "mode": "line",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388638",
+      "path": "petclinic-backend/src/main/resources/db/seed/R__seed.sql",
+      "line": 118
+    },
+    "A:the-vet-rides-on-visitdto-as-three-flat-fields": {
+      "pile": "assumption",
+      "title": "The vet rides on VisitDto as three flat fields, not a nested VetDto",
+      "mode": "line",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#discussion_r4106388644",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/rest/dto/VisitDto.java",
+      "line": 46
+    },
+    "A:mcp-s-create-visit-and-the-chatbot-were-left": {
+      "pile": "assumption",
+      "title": "MCP's create_visit and the chatbot were left alone",
+      "mode": "body",
+      "html_url": "https://github.com/victorrentea/petclinic/pull/49#pullrequestreview-5319910293",
+      "path": "petclinic-backend/src/main/java/victor/training/petclinic/mcp/PetClinicMcp.java",
+      "line": null
+    }
+  }
+}

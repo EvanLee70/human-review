@@ -216,7 +216,6 @@
        "text": "Clearing the field must persist as empty.",
        "sep": " ",
        "coverage": "missing",
-       "gap": "Both tests that ever asserted this — VisitTest.update_withoutVet_clearsTheOneOnFile (API, PUT vetId:null) and visit-edit.component.spec.ts's 'should send a null vet when the field was cleared' (unit) — were removed in 6aac04b4, on purpose, to show this requirement unproven. Nothing on the branch now asserts that a cleared vet persists as empty; the code path is unverified, not merely weakly verified.",
        "tests": []
       },
       {

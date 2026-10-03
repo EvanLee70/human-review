@@ -73,6 +73,7 @@
   .dv-chip.off { opacity: .38; }
   .dv-chip .dot { width: 9px; height: 9px; border-radius: 50%; }
   .dv-chip b { font-variant-numeric: tabular-nums; }
+  .dv-unit { opacity: .6; margin-right: 2px; }
   .dot.breaking { background: var(--dv-breaking); }
   .dot.modified { background: var(--dv-modified); }
   .dot.added    { background: var(--dv-added); }
@@ -122,13 +123,58 @@
   .dv-badge.removed  { background: var(--dv-removed); }
 
   /* ---------- the trail down to a changed field ----------
-     Opening the tree is only half of it: once four levels are showing, the reader still
-     has to find which of the fields on screen is the new one. The trail is deliberately
-     quieter than the leaf — a hairline on every ancestor says "this is the way down",
-     the leaf says "here". Levels reuse the note list's l1/l2/l3 vocabulary rather than
-     inventing a third scale, and every colour comes from the theme vars so dark mode
-     needs no second set of rules. */
-  .swagger-ui .dv-hit-path { box-shadow: inset 2px 0 0 var(--dv-muted); }
+     Opening the tree is only half of it: once six levels are showing, the reader still
+     has to find which of the fields on screen is the new one — and a grey hairline on
+     every ancestor turned out to be as quiet as Swagger UI's own indent guides, so the
+     way down was there and nobody saw it. The road is now drawn for real: one glowing
+     line per changed field (`.dv-roads`, an SVG laid over the page by the script), from
+     the schema root down and in, step by step, to the field itself, with a spark running
+     along it so the eye is pulled down to the end. The leaf breathes and its chip
+     blinks. Levels reuse the note list's l1/l2/l3 vocabulary rather than inventing a
+     third scale, and every colour comes from the theme vars so dark mode needs no second
+     set of rules. */
+  .l1 { --dv-lvl: var(--dv-added); }
+  .l2 { --dv-lvl: var(--dv-modified); }
+  .l3 { --dv-lvl: var(--dv-breaking); }
+  /* An ancestor on the road says so by its name, in the colour of the worst change it
+     leads to — the line alone would leave the reader matching x-positions to names. */
+  .swagger-ui .dv-hit-path.l1, .swagger-ui .dv-hit-path.l2, .swagger-ui .dv-hit-path.l3 {
+    --dv-road-name: var(--dv-lvl);
+  }
+  .swagger-ui .dv-hit-path > .json-schema-2020-12-head .json-schema-2020-12__title,
+  .swagger-ui tr.property-row.dv-hit-path > td:first-child {
+    color: var(--dv-road-name, var(--dv-fg)); font-weight: 700;
+  }
+  /* Under the sticky toolbar (z-index 50), over the schema boxes, and never in the way
+     of a click: it is paint, not a control. */
+  svg.dv-roads {
+    position: absolute; left: 0; top: 0; pointer-events: none; z-index: 40;
+    overflow: visible;
+  }
+  .dv-roads path { fill: none; stroke: var(--dv-lvl); stroke-linecap: round;
+                   stroke-linejoin: round; }
+  .dv-roads .dv-road-bed {
+    stroke-width: 3; opacity: .75;
+    filter: drop-shadow(0 0 3px var(--dv-lvl)) drop-shadow(0 0 7px var(--dv-lvl));
+  }
+  .dv-roads .dv-road-spark {
+    stroke-width: 5; stroke: #fff;
+    filter: drop-shadow(0 0 3px var(--dv-lvl)) drop-shadow(0 0 8px var(--dv-lvl))
+            drop-shadow(0 0 14px var(--dv-lvl));
+  }
+  @keyframes dv-breathe {
+    from { box-shadow: 0 0 0 1px color-mix(in srgb, var(--dv-lvl) 35%, transparent),
+                       0 0 6px color-mix(in srgb, var(--dv-lvl) 20%, transparent);
+           background-color: color-mix(in srgb, var(--dv-lvl) 10%, transparent); }
+    to   { box-shadow: 0 0 0 1px color-mix(in srgb, var(--dv-lvl) 80%, transparent),
+                       0 0 22px color-mix(in srgb, var(--dv-lvl) 55%, transparent);
+           background-color: color-mix(in srgb, var(--dv-lvl) 24%, transparent); }
+  }
+  @keyframes dv-blink {
+    0%, 55% { opacity: 1; box-shadow: 0 0 10px var(--dv-lvl); }
+    75%     { opacity: .2; box-shadow: none; }
+    100%    { opacity: 1; box-shadow: 0 0 10px var(--dv-lvl); }
+  }
   /* The spine is drawn OUTSIDE the box, by a pseudo-element, rather than as an inset
      shadow: the leaf article starts exactly at its property name, so an inset spine lands
      on the first letter — "vetId" reads as "etId" with a green bar over the v. Nudging
@@ -151,19 +197,34 @@
     box-shadow: inset 3px 0 0 currentColor; padding-left: 9px;
     color: var(--dv-fg); font-weight: 700;
   }
-  .swagger-ui .dv-hit.l1 { background: rgba(46,158,91,.10); color: var(--dv-added); }
-  .swagger-ui .dv-hit.l2 { background: rgba(217,130,24,.12); color: var(--dv-modified); }
-  .swagger-ui .dv-hit.l3 { background: rgba(215,38,61,.10); color: var(--dv-breaking); }
-  .swagger-ui tr.dv-hit.l1 > td { background: rgba(46,158,91,.10); }
-  .swagger-ui tr.dv-hit.l2 > td { background: rgba(217,130,24,.12); }
-  .swagger-ui tr.dv-hit.l3 > td { background: rgba(215,38,61,.10); }
-  .dv-fieldmark {
-    font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
-    padding: 1px 6px; border-radius: 4px; margin-left: 8px; align-self: center;
+  /* The leaf breathes — a halo that swells and settles in the level's colour — so it
+     is found from anywhere on the screen, not only by someone already reading that row. */
+  .swagger-ui .dv-hit.l1, .swagger-ui .dv-hit.l2, .swagger-ui .dv-hit.l3 {
+    color: var(--dv-lvl);
+    background-color: color-mix(in srgb, var(--dv-lvl) 14%, transparent);
+    animation: dv-breathe 1.3s ease-in-out infinite alternate;
   }
-  .dv-fieldmark.l1 { background: rgba(46,158,91,.14); color: var(--dv-added); }
-  .dv-fieldmark.l2 { background: rgba(217,130,24,.16); color: var(--dv-modified); }
-  .dv-fieldmark.l3 { background: rgba(215,38,61,.14); color: var(--dv-breaking); }
+  .swagger-ui article.dv-hit::before {
+    width: 4px; box-shadow: 0 0 6px currentColor, 0 0 12px currentColor;
+  }
+  .swagger-ui .dv-hit > .json-schema-2020-12-head .json-schema-2020-12__title {
+    text-shadow: 0 0 10px color-mix(in srgb, var(--dv-lvl) 70%, transparent);
+  }
+  .swagger-ui tr.dv-hit > td {
+    background: color-mix(in srgb, var(--dv-lvl) 16%, transparent);
+  }
+  /* A solid chip that blinks: the one word on the page that must not be read past. */
+  .dv-fieldmark {
+    font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 4px; margin-left: 8px; align-self: center;
+    background: var(--dv-lvl); color: var(--dv-bg);
+    animation: dv-blink 1.1s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .swagger-ui .dv-hit.l1, .swagger-ui .dv-hit.l2, .swagger-ui .dv-hit.l3,
+    .dv-fieldmark { animation: none; }
+    .dv-roads .dv-road-spark { display: none; }
+  }
   /* Fields the auto-expand deliberately did not open. Saying nothing here would teach
      the reader that what is open is everything — the exact failure this feature fixes. */
   .dv-deepmore {
@@ -318,6 +379,23 @@
       > .json-schema-2020-12-head .json-schema-2020-12__title:after {
     color: var(--dv-breaking);
   }
+  /* A field's description is Swagger UI's first row of its body, so every expanded node
+     grew an extra line of prose between its name and its children and the tree lost its
+     steady one-field-per-row pace. `layoutDescriptions()` lifts it onto the head row
+     instead, into the empty room right of the type chips: one line, cut with an ellipsis,
+     the whole text in a tooltip when it was cut. The script sets `left` (just past the
+     head's last chip) and the row height; a head too wide to leave room keeps the old row.
+     The schema box is an inline-block that shrink-wraps its widest row, which would cut
+     every description at the end of the longest type chip, so it takes the full column. */
+  .swagger-ui .model-box:has(> article.json-schema-2020-12) { display: block; }
+  .swagger-ui article.json-schema-2020-12 { position: relative; }
+  .swagger-ui .json-schema-2020-12-body > .json-schema-2020-12-keyword--description.dv-desc-inline {
+    position: absolute; top: 0; right: 8px; margin: 0; padding: 0;
+    left: var(--dv-desc-left); height: var(--dv-desc-h); line-height: var(--dv-desc-h);
+    text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .swagger-ui .dv-desc-inline * { display: inline; margin: 0; padding: 0; }
+  .swagger-ui .dv-desc-inline p + p::before { content: " "; }
   .swagger-ui .opblock.opblock-deprecated { opacity: .7; }
   .dv-count-hidden { font-size: 12px; opacity: .6; }
 </style>
@@ -331,16 +409,151 @@
        only cost the chips their room. Standalone it is not lost: it is the tab title. -->
   <span id="dv-chips"></span>
   <span class="dv-spacer"></span>
-  <!-- No tooltip here on purpose. The report's one tooltip component (TIP_JS, driven by
-       data-tip) lives in the host page and cannot reach into this frame, and a native
-       title= is the thing the house rule exists to keep out. The checkbox demonstrates
-       itself the moment it is ticked. -->
-  <label class="dv-toggle"><input type="checkbox" id="dv-expand"> expand impacted</label>
+  <!-- No tooltip here on purpose: the checkbox demonstrates itself the moment it is
+       ticked. The count is the verdict line's count: that line
+       says "25 changes" right above this frame, and a toggle that opened 11 endpoints
+       with no number on it read as a second, contradicting tally. -->
+  <label class="dv-toggle"><input type="checkbox" id="dv-expand"> expand 25 impacted</label>
 </div>
 <div id="dv-global"></div>
 <div id="swagger-ui"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui-bundle.min.js"></script>
+<script>
+// The report's one tooltip component (hrbuild/assets/tip.js, driven by data-tip), inlined:
+// the host page's copy cannot reach into this frame, and a native title= is the thing the
+// house rule exists to keep out.
+// One tooltip for the whole page. The native `title` is unstyleable, unresizable and
+// waits ~500ms — long enough that a reviewer reads the icon, gives up, and moves on.
+// Listeners are delegated on `document` so markup written later by any of the other
+// scripts picks the behaviour up with no registration step.
+(function () {
+  var css = document.createElement('style');
+  css.textContent =
+    // 15px, the page's own body size, at normal weight. It was 1.05rem/600 -- a hint
+    // set LARGER and heavier than the sentence it explains, which reads as the page
+    // shouting an aside.
+    '.tip{position:fixed;z-index:9999;pointer-events:none;background:rgba(20,20,22,.96);' +
+    'color:#fff;font:400 15px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;' +
+    'padding:.6rem .9rem;border-radius:.6rem;max-width:22rem;box-shadow:0 10px 30px rgba(0,0,0,.35);' +
+    // A repo-relative path is one long token as far as line breaking is concerned: no
+    // spaces, and a slash is not a break opportunity. So the longest tip on the page --
+    // the one naming a Java file five packages deep -- overflowed the bubble and was
+    // clipped at its edge, which reads as the page running off the screen. `anywhere`
+    // gives the browser leave to break inside the token; the max-width then holds, and
+    // `place()` can keep a box it has correctly measured on screen.
+    'overflow-wrap:anywhere;' +
+    'opacity:0;transform:translateY(4px);transition:opacity 120ms ease,transform 120ms ease}' +
+    '.tip.visible{opacity:1;transform:translateY(0)}' +
+    // `.oneline` is the first thing tried for a plain-text tip: the whole label on one
+    // row, as wide as it needs to be, up to the viewport. The 22rem wrap above had been
+    // folding "Open in VS Code: petclinic-test/src/add-visit.spec.ts" in the middle of
+    // the file name -- and a path broken across rows is a path the reader cannot read
+    // at a glance, which is the one job that tip has. `show()` drops the class again
+    // when the row would not fit, so a paragraph-sized hint still wraps.
+    '.tip.oneline{white-space:nowrap;max-width:calc(100vw - 16px)}' +
+    // A tip that lists identifiers lists them: one per line, in code type, with a marker
+    // -- not welded into a comma-separated sentence the reader has to parse to find out
+    // whether their own library is in it. `.tipfoot` is for the sentence that genuinely
+    // is one, set apart and quieter so the list stays the thing being read.
+    '.tip ul.tiplist{margin:0;padding-left:1.1rem;list-style:disc;' +
+    'font:400 13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}' +
+    '.tip ul.tiplist li{margin:0}' +
+    '.tip p.tipfoot{margin:.5rem 0 0;font-size:13px;opacity:.72}' +
+    '.tip p.tipfoot:first-child{margin:0;opacity:1}' +
+    // One convention for the pointer: a mark that only explains itself gets the question
+    // mark, so hovering tells you there is something to read AND that clicking does
+    // nothing. Anything you can act on -- a link, a button, a row that opens -- keeps
+    // the hand it already had.
+    //
+    // The last clause is about marks that live *inside* something actionable, which the
+    // element-level list above cannot see. The tab strip's badges are the case that found
+    // it: `Tests 1` is a <span role=img> with its own tooltip sitting inside the tab
+    // <button>, so the cursor turned into a question mark over the badge and back into a
+    // hand a pixel to its left -- while a click anywhere in there, badge included, opens
+    // the tab. Excluding them is the whole fix: `cursor` inherits, so a badge that gets no
+    // rule of its own simply keeps the pointer its button already set.
+    '[data-tip]:not(a):not(button):not([role=button]):not(summary):not(label)' +
+    ':not(:is(a,button,[role=button],summary,label) *)' +
+    '{cursor:help}';
+  document.head.appendChild(css);
+
+  var bubble = document.createElement('div');
+  bubble.className = 'tip';
+  bubble.setAttribute('role', 'tooltip');
+  document.body.appendChild(bubble);
+  var timer = null, current = null;
+
+  function hide() {
+    clearTimeout(timer);
+    current = null;
+    bubble.classList.remove('visible');
+  }
+
+  function place(el) {
+    var r = el.getBoundingClientRect(), b = bubble.getBoundingClientRect(), left, top;
+    // `data-tip-side="right"` is for a tip tall enough to be a panel rather than a
+    // label: a stack of bullets floated above the phrase covers the sentence the reader
+    // is in the middle of, and pushes the page's own content out of view. Beside it, the
+    // sentence stays readable. Flips to the left margin when the right one is too narrow.
+    if (el.getAttribute('data-tip-side') === 'right') {
+      left = r.right + 12;
+      if (left + b.width > window.innerWidth - 8) left = r.left - b.width - 12;
+      top = r.top + r.height / 2 - b.height / 2;
+    } else {
+      left = r.left + r.width / 2 - b.width / 2;
+      // Above by default; below when the top of the viewport is in the way.
+      top = r.top - b.height - 10;
+      if (top < 8) top = r.bottom + 10;
+    }
+    left = Math.max(8, Math.min(left, window.innerWidth - b.width - 8));
+    top = Math.max(8, Math.min(top, window.innerHeight - b.height - 8));
+    bubble.style.left = left + 'px';
+    bubble.style.top = top + 'px';
+  }
+
+  function show(el) {
+    // `data-tip-html` is for a tip that has to SHOW a component rather than name it -- a
+    // coverage badge, say, where "UI x2" in prose makes the reader translate back to the
+    // badge they are looking at. The markup is the page's own; nothing user-supplied
+    // reaches here. Plain `data-tip` stays the default and stays escaped.
+    var html = el.getAttribute('data-tip-html'), text = el.getAttribute('data-tip');
+    if (!html && !text) return;              // data-tip="" shows nothing, by design
+    current = el;
+    if (html) bubble.innerHTML = html; else bubble.textContent = text;
+    bubble.classList.remove('visible');
+    // One row when the row fits the screen; otherwise back to the wrapping box. Measured,
+    // not guessed from the character count: a path and a sentence of the same length are
+    // very different widths. Markup tips (lists) always wrap.
+    bubble.classList.toggle('oneline', !html);
+    if (!html && bubble.scrollWidth > window.innerWidth - 16) bubble.classList.remove('oneline');
+    place(el);
+    timer = setTimeout(function () {
+      if (current !== el) return;
+      place(el);
+      bubble.classList.add('visible');
+    }, 150);
+  }
+
+  function trigger(ev) {
+    var el = ev.target.closest && ev.target.closest('[data-tip],[data-tip-html]');
+    if (!el || el === current) return;
+    hide();
+    show(el);
+  }
+
+  document.addEventListener('pointerover', trigger);
+  document.addEventListener('focusin', trigger);   // focus/blur do not bubble
+  document.addEventListener('pointerout', function (ev) {
+    if (current && !current.contains(ev.relatedTarget)) hide();
+  });
+  document.addEventListener('focusout', hide);
+  document.addEventListener('touchstart', hide, {passive: true});
+  window.addEventListener('scroll', hide, true);   // a fixed bubble would float away
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') hide(); });
+})();
+
+</script>
 <script>
 // ?theme=dark|light pins the theme; with no parameter the system decides.
 const THEME = new URLSearchParams(location.search).get('theme');
@@ -366,6 +579,12 @@ function md(s) {
 // ---- toolbar chips double as filters ----
 const hidden = new Set();
 const chips = document.getElementById('dv-chips');
+// The chips count endpoints, one per operation; the verdict line under the tab counts
+// the individual changes inside them. Without the unit "4 breaking" up here and
+// "14 breaking" down there read as two answers to the same question.
+if (ORDER.some(state => DATA.counts[state])) {
+  chips.insertAdjacentHTML('beforeend', '<span class="dv-unit">endpoints:</span>');
+}
 ORDER.forEach(state => {
   const n = DATA.counts[state] || 0;
   if (!n) return;
@@ -400,6 +619,38 @@ function keyOf(op) {
   return m.textContent.trim().toUpperCase() + ' ' + path;
 }
 
+// Lift each field's description onto its head row, right of the type chips (see the CSS).
+// Measured, not guessed: the head's last chip ends wherever its name, flags and
+// constraints happen to end, and the field-change chip lands there too. Re-run with
+// decorate(), so a node opened by hand or by the walk is laid out once it renders.
+function layoutDescriptions() {
+  document.querySelectorAll(
+    '.swagger-ui .json-schema-2020-12-body > .json-schema-2020-12-keyword--description'
+  ).forEach(d => {
+    const art = d.parentElement.parentElement;
+    const head = art.querySelector(':scope > .json-schema-2020-12-head');
+    const last = head?.lastElementChild;
+    if (!last) return;
+    const a = art.getBoundingClientRect();
+    const left = Math.ceil(last.getBoundingClientRect().right - a.left + 24);
+    const fits = a.width - 8 - left >= 80;
+    d.classList.toggle('dv-desc-inline', fits);
+    if (!fits) { d.removeAttribute('data-tip'); return; }
+    const h = Math.round(head.getBoundingClientRect().height);
+    if (d.style.getPropertyValue('--dv-desc-left') !== left + 'px') {
+      d.style.setProperty('--dv-desc-left', left + 'px');
+    }
+    if (d.style.getPropertyValue('--dv-desc-h') !== h + 'px') {
+      d.style.setProperty('--dv-desc-h', h + 'px');
+    }
+    const cut = d.scrollWidth > d.clientWidth + 1;
+    const text = d.textContent.trim();
+    if (!cut) d.removeAttribute('data-tip');
+    else if (d.getAttribute('data-tip') !== text) d.setAttribute('data-tip', text);
+  });
+}
+window.addEventListener('resize', layoutDescriptions);
+
 // Swagger UI re-renders on expand/collapse, so decorating is idempotent and re-run.
 function decorate() {
   document.querySelectorAll('.swagger-ui .opblock').forEach(op => {
@@ -430,6 +681,7 @@ function decorate() {
   });
   apply();
   autoCollapse();
+  layoutDescriptions();
 }
 
 // A controller nobody touched is folded away on arrival — once, so that
@@ -618,17 +870,122 @@ async function revealTarget(op, c, run) {
   if (!found) return false;
   const { kit } = found;
   let cur = found.root;
+  const chain = [];
   for (const step of c.target.steps) {
     if (run !== revealRun) return false;        // the reader changed their mind
     if (!await openNode(kit, cur)) return false;
     const next = await waitFor(() => kit.child(cur, step), STEP_WAIT);
     if (!next) return false;
-    (kit.mark(cur)).classList.add('dv-hit-path');
+    markPath(kit.mark(cur), c.level);
+    chain.push(kit.mark(cur));
     cur = next;
   }
   markLeaf(kit, cur, c);
+  ROADS.push({ chain, leaf: kit.mark(cur), level: c.level });
+  drawRoads();
   return true;
 }
+
+// An ancestor shared by several changed fields wears the colour of the worst of them.
+function markPath(el, level) {
+  el.classList.add('dv-hit-path');
+  const had = [1, 2, 3].find(l => el.classList.contains('l' + l)) || 0;
+  if (level > had) {
+    el.classList.remove('l' + had);
+    el.classList.add('l' + level);
+  }
+}
+
+// ---- the road: one glowing line per changed field, root to leaf ----
+// Drawn as an SVG over the page rather than as borders on the boxes, because the road
+// is not the boxes' edges: it runs down an ancestor only as far as the child it leads
+// into, then steps in to that child, and a box's border cannot stop half-way down.
+// Positions are read off the live layout, so anything that moves the tree — another
+// operation opening, the window narrowing — re-draws it on the next frame.
+const ROADS = [];
+const SVG_NS = 'http://www.w3.org/2000/svg';
+let roadLayer = null, roadFrame = 0;
+
+function headOf(el) {
+  return el.querySelector(':scope > .json-schema-2020-12-head')
+      || el.querySelector(':scope > td:first-child')
+      || el.querySelector(':scope > span > button.model-box-control')
+      || el;
+}
+
+// Where the road turns at this node: just left of its name — a 2020-12 box starts at
+// its first letter, so its own edge would put the road through the "p" of "pets" — and
+// level with the middle of the name. The leaf's spine sits exactly there, 7px out.
+function roadPoint(el) {
+  const box = el.getBoundingClientRect(), head = headOf(el).getBoundingClientRect();
+  if (!box.height) return null;                 // filtered out, collapsed, detached
+  return {
+    x: box.left + scrollX - 5.5,
+    y: head.top + scrollY + Math.min(head.height / 2, 14),
+  };
+}
+
+function roadPath(road) {
+  if (!road.leaf.isConnected || road.chain.some(el => !el.isConnected)) return null;
+  const pts = [...road.chain, road.leaf].map(roadPoint);
+  if (pts.some(p => !p)) return null;
+  // Down the ancestor's rail to the level of the next name, then in to it.
+  let d = `M${pts[0].x} ${pts[0].y}`;
+  for (const p of pts.slice(1)) d += ` V${p.y} H${p.x}`;
+  return d;
+}
+
+function drawRoads() {
+  cancelAnimationFrame(roadFrame);
+  roadFrame = requestAnimationFrame(() => {
+    if (!roadLayer) {
+      roadLayer = document.createElementNS(SVG_NS, 'svg');
+      roadLayer.setAttribute('class', 'dv-roads');
+      roadLayer.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(roadLayer);
+    }
+    roadLayer.setAttribute('width', document.documentElement.scrollWidth);
+    roadLayer.setAttribute('height', document.documentElement.scrollHeight);
+    for (const road of ROADS) {
+      const d = roadPath(road);
+      if (!road.g) {
+        road.g = document.createElementNS(SVG_NS, 'g');
+        road.g.setAttribute('class', 'l' + road.level);
+        for (const cls of ['dv-road-bed', 'dv-road-spark']) {
+          const path = document.createElementNS(SVG_NS, 'path');
+          path.setAttribute('class', cls);
+          road.g.appendChild(path);
+        }
+        roadLayer.appendChild(road.g);
+      }
+      road.g.style.display = d ? '' : 'none';
+      if (!d || d === road.d) continue;
+      road.d = d;
+      const [bed, spark] = road.g.children;
+      bed.setAttribute('d', d);
+      spark.setAttribute('d', d);
+      // A short bright dash with a gap longer than the whole road is a spark: sliding
+      // its offset from "not yet started" to "past the end" runs it down the road and
+      // into the field. Speed is per pixel, so a deep field is not reached in a blur.
+      const len = spark.getTotalLength(), dash = 26;
+      spark.style.strokeDasharray = `${dash} ${len + dash}`;
+      road.spark?.cancel();
+      road.spark = spark.animate(
+        [{ strokeDashoffset: dash }, { strokeDashoffset: -len }],
+        { duration: 900 + len * 2.2, iterations: Infinity,
+          easing: 'cubic-bezier(.45,0,.2,1)' });
+    }
+  });
+}
+
+function clearRoads() {
+  for (const road of ROADS) { road.spark?.cancel(); road.g?.remove(); }
+  ROADS.length = 0;
+}
+
+new ResizeObserver(drawRoads).observe(document.body);
+new MutationObserver(() => { if (ROADS.length) drawRoads(); })
+  .observe(document.getElementById('swagger-ui'), { childList: true, subtree: true });
 
 // One run at a time. A second click supersedes the first rather than racing it.
 let revealRun = 0;
@@ -676,6 +1033,7 @@ function reportMissed(op, missed) {
 // the fields four levels down inside a collapsed schema, which is where this started.
 document.getElementById('dv-expand').onchange = e => {
   revealRun++;                                   // cancel anything still walking
+  clearRoads();
   document.querySelectorAll('.swagger-ui .opblock').forEach(op => {
     const s = op.dataset.dvState;
     if (!s || s === 'untouched') return;
@@ -705,9 +1063,17 @@ new MutationObserver(() => {
 // that scrolls internally traps the wheel and hides how much is left. Report our real
 // height instead and let the host size the frame — the outer page keeps the only
 // scrollbar. Cross-origin over file://, so it goes by postMessage, not by reading us.
+//
+// The height of the *content*, never of the viewport. `documentElement.scrollHeight` is
+// at least the viewport, and the viewport of a frame is whatever the host last set it
+// to from the number we posted, plus the few pixels it adds for the border: post that
+// and the host grows the frame, `resize` fires, we measure the taller viewport, post
+// again, and the frame creeps down the page four pixels at a time for as long as the
+// tab is open. The body's own box (margin 0, height auto) is the content and nothing
+// else, and does not move when the frame around it does.
 function postHeight() {
   if (window.parent === window) return;
-  const h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+  const h = Math.ceil(document.body.getBoundingClientRect().height);
   if (h !== window.__dvH) {
     window.__dvH = h;
     window.parent.postMessage({ type: 'dv-height', height: h }, '*');

@@ -1,8 +1,8 @@
 @startuml
-caption <color:#2E7D32>added</color> or <color:#C62828><s>removed</s></color> — shaded by distance from the change: <color:#F2CF8E>███</color> touched · <color:#F4DCB4>███</color> 1 hop · <color:#F2EBDB>███</color> 2 hops
+caption <color:#2E7D32>added</color> or <color:#C62828><s>removed</s></color> — <back:#F2CF8E><color:#000000>impacted</color></back> + <back:#F4DCB4><color:#000000>neighbours</color></back> + <back:#F2EBDB><color:#000000>neighbours</color></back>, shaded by distance from the change
 
 title Domain Model - Diff
-footer domain/*.java -> petclinic-backend/docs/generated/DomainModel.puml
+footer domain/*.java -> DomainModel.puml — Diagram generated from code using Java reflection
 hide empty members
 skinparam classAttributeIconSize 0
 skinparam hyperlinkUnderline false
@@ -55,6 +55,6 @@ Pet "~*" --> "type" PetType
 Pet "pet" <--> "~* visits" Visit
 User "user" <--> "~* roles" Role
 Vet --> "~* specialties" Specialty
-Visit "~*" -[#2E7D32]-> "vet" Vet
+Visit "~*" -[#2E7D32,thickness=2]-> "vet" Vet
 
 @enduml

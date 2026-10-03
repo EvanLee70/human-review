@@ -1,0 +1,20 @@
+@startuml
+caption <color:#2E7D32>added</color> or <color:#C62828><s>removed</s></color>
+
+title Maven Module Graph - Diff
+footer */pom.xml -> gen-maven-modules.sh -> MavenModules.puml — Diagram generated from `mvn dependency:tree -Dincludes=<this repo's own groupId:artifactId>`
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam nodesep 20
+skinparam ranksep 30
+component "notification-service" as notification_service
+component "petclinic-backend" as petclinic_backend
+component "petclinic-chatbot" as petclinic_chatbot
+component "petclinic-commons" as petclinic_commons
+component "petclinic-database" as petclinic_database
+component "refactoring-legacy" as refactoring_legacy
+
+notification_service --> petclinic_commons
+petclinic_backend --> petclinic_commons
+
+@enduml

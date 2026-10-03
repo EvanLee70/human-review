@@ -1,8 +1,8 @@
 @startuml
-caption <color:#2E7D32>added</color> or <color:#C62828><s>removed</s></color> — shaded by distance from the change: <color:#F2CF8E>███</color> touched · <color:#F4DCB4>███</color> 1 hop · <color:#F2EBDB>███</color> 2 hops
+caption <color:#2E7D32>added</color> or <color:#C62828><s>removed</s></color> — <back:#F2CF8E><color:#000000>impacted</color></back> + <back:#F4DCB4><color:#000000>neighbours</color></back> + <back:#F2EBDB><color:#000000>neighbours</color></back>, shaded by distance from the change
 
 title Database Schema (ERD) - Diff
-footer db/migration/*.sql -> DB -> dump to DB.sql -> converted to DB.puml
+footer db/migration/*.sql -> DB -> dump to DB.sql -> converted to DB.puml — Diagram generated from DB incremental scripts
 hide circle
 hide empty members
 skinparam linetype ortho
@@ -64,6 +64,6 @@ specialties ||--o{ vet_specialties : specialty_id
 types ||--o{ pets : type_id
 users ||--o{ roles : username
 vets ||--o{ vet_specialties : vet_id
-vets ||-[#2E7D32]-o{ visits : <color:#2E7D32>vet_id</color>
+vets ||-[#2E7D32,thickness=2]-o{ visits : <color:#2E7D32>vet_id</color>
 
 @enduml

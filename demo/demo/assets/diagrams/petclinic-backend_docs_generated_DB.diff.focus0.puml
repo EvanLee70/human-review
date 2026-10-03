@@ -2,7 +2,7 @@
 caption <color:#2E7D32>added</color> or <color:#C62828><s>removed</s></color> — the impacted elements only (2 of 9 shown)
 
 title Database Schema (ERD) - Diff
-footer db/migration/*.sql -> DB -> dump to DB.sql -> converted to DB.puml
+footer db/migration/*.sql -> DB -> dump to DB.sql -> converted to DB.puml — Diagram generated from DB incremental scripts
 hide circle
 hide empty members
 skinparam linetype ortho
@@ -20,6 +20,6 @@ entity "visits" as visits #back:F2CF8E {
   <color:#2E7D32>{field} vet_id : int <<FK>></color>
 }
 
-vets ||-[#2E7D32]-o{ visits : <color:#2E7D32>vet_id</color>
+vets ||-[#2E7D32,thickness=2]-o{ visits : <color:#2E7D32>vet_id</color>
 
 @enduml
