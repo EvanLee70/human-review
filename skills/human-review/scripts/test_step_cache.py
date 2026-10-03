@@ -334,3 +334,13 @@ def test_the_ledger_is_untouched_when_a_refresh_skips(repo):
     rows = _main(repo, "--only", "tests")
     assert rows[0].get("cached") is True
     assert ledger.read_bytes() == before, "a skipped step still moved the ledger"
+
+
+def test_a_renamed_checkout_misses(repo, monkeypatch):
+    """Fragments bake absolute vscode:// links; after `mv petclinic-pr petclinic-pr-visit-
+    has-vet` the cache hit and the page kept 56 links to a folder that no longer existed."""
+    before = _key(repo, "complexity")
+    moved = repo.parent / "renamed"
+    repo.rename(moved)
+    monkeypatch.chdir(moved)
+    assert _key(moved, "complexity") != before

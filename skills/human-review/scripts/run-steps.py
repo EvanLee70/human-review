@@ -2147,6 +2147,10 @@ def _step_key(name: str, ctx: Ctx, mb: str, head: str, dirty: list[str]) -> str 
         return None
     h = hashlib.blake2b(digest_size=16)
     h.update(f"v{CACHE_VERSION}\0{name}\0{ctx.base}\0{mb}\0{head}\0".encode())
+    # The checkout's own path: fragments bake absolute `vscode://file/...` links into the
+    # page, so a renamed folder (petclinic-pr -> petclinic-pr-visit-has-vet, 3 Oct 2026)
+    # must re-run them, or the page keeps 56 links to a path that no longer exists.
+    h.update(f"{Path.cwd().resolve()}\0".encode())
     h.update(json.dumps(ctx.step_cfg(name), sort_keys=True).encode())
     # The project's own `generated` globs steer `aftermath`'s split and nothing else reads
     # them, but they are config the step consults, so a change to them has to be a miss.
