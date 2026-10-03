@@ -1954,7 +1954,14 @@ new MutationObserver(() => {
 // else, and does not move when the frame around it does.
 function postHeight() {
   if (window.parent === window) return;
-  const h = Math.ceil(document.body.getBoundingClientRect().height);
+  // Never a scrollbar of our own, in either direction: with classic (always-shown)
+  // scrollbars a vertical one ate 15px of width and drew a horizontal one under the
+  // frame (Victor, 4 Oct 2026). The host sizes us to the content, so nothing is lost.
+  document.documentElement.style.overflow = 'hidden';
+  // The body's box, or what overflows it (a child's margin or border poking past the
+  // bottom) -- `body.scrollHeight` does not grow with the viewport the way the root's does.
+  const h = Math.ceil(Math.max(document.body.getBoundingClientRect().height,
+                               document.body.scrollHeight));
   if (h !== window.__dvH) {
     window.__dvH = h;
     window.parent.postMessage({ type: 'dv-height', height: h }, '*');

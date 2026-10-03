@@ -32,6 +32,9 @@ h2.lg-head { border-bottom:0; padding-bottom:0; margin-bottom:.15rem; }
 .lg-change { font-size:.86rem; color:var(--muted); }
 .lg-change.lg-new { color:var(--fg); font-weight:600; }
 .lg-change code { font-size:.92em; }
+/* On the file's row, left of it, not on a line of its own above it (Victor, 4 Oct 2026):
+   the bar is a flex row aligned right, so a caption floated left shares its line. */
+.snippet > .snippet-note:has(> .lg-change) { float:left; margin:0 1rem 0 0; line-height:24px; }
 /* A rewritten statement's lines: a neutral `~` and a grey rule, not the green `+` that
    says "new line" — the caption above it says it is not new. */
 pre.code .ln-row.added.rewritten .dm { border-left-color:var(--muted); color:var(--muted); }

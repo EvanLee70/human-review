@@ -85,7 +85,7 @@ ISSUES_URL = f"{HOME_URL}/issues/new/choose"
 TAKEAWAY = (
     '<span class="takeaway">'
     f'Built by <a href="{HOME_URL}" target="_blank" rel="noopener">{HOME_URL}</a>. '
-    f'Browse it <a href="{DEMO_PAGES_URL}" target="_blank" rel="noopener">here</a> online. '
+    f'Browse it <a href="{DEMO_PAGES_URL}" target="_blank" rel="noopener">online</a>. '
     'Adopt what you like in your project. Bug or idea → '
     f'<a href="{ISSUES_URL}" target="_blank" rel="noopener">Open an issue</a>.'
     '</span>'
