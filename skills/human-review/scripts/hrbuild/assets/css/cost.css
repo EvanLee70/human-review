@@ -49,3 +49,16 @@ table.costtab tfoot tr.costtotal td { border-top:1px solid var(--line);
    its footer says it adds up to that row — never a second bill. */
 details.costdetail { margin-top:1.4rem; max-width:64rem; }
 details.costdetail > summary { cursor:pointer; color:var(--muted); font-size:.85rem; }
+/* One number column: the price, the model under it (`_cost_cell`); its tokens on hover. */
+table.costtab .costmoney { cursor:help; }
+table.costtab td:last-child > .costsub { font-weight:400; text-align:right; }
+/* The fold's cell spans both columns: it is not the money column, and must not make the
+   nested table bold or right-align its sub-lines. */
+table.costtab tr.costfold > td { font-weight:400; text-align:left; }
+/* "This guide" opens its tab-by-tab breakdown from its own name. */
+table.costtab .costexp { all:unset; cursor:pointer; color:var(--fg); }
+table.costtab .costexp::after { content:" \25B8"; color:var(--muted); }
+table.costtab .costexp[aria-expanded="true"]::after { content:" \25BE"; }
+table.costtab .costexp:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+table.costtab tr.costfold > td { padding:.2rem 0 .8rem 1.2rem; }
+table.costtab tr.costfold table.costtab { font-size:.9em; }

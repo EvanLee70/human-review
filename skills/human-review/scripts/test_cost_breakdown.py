@@ -518,8 +518,8 @@ def test_the_built_page_shows_the_real_per_tab_numbers(built_page):
 
 def test_the_built_page_shows_a_script_made_tab_as_a_measured_zero(built_page):
     panel = _panel(built_page)
-    assert "1 tab with no model spend — Structure" in panel
-    assert "$0.00" in panel
+    assert '<tr class="costquiet"><td>Structure</td><td>–</td></tr>' in panel, \
+        "a script-made tab by name, with a dash (Victor, 4 Oct 2026)"
 
 
 def test_the_built_page_distinguishes_an_uninstrumented_tab(built_page):
@@ -545,7 +545,7 @@ def test_the_built_page_says_it_could_not_find_who_wrote_the_code(built_page):
     impl = re.search(r'<tr class="costquiet" data-component="implementation">(.*?)</tr>',
                      panel, re.S)
     assert impl, "the implementation row is on the tab, quiet, with no number"
-    assert "unmeasured —" in impl.group(1) and "<td>—</td><td>—</td>" in impl.group(1)
+    assert "unmeasured —" in impl.group(1) and impl.group(1).endswith("<td>—</td>")
 
 
 def test_the_cost_is_no_longer_a_chip_in_the_scope_bar(built_page):
@@ -1028,24 +1028,26 @@ def test_the_fold_under_the_four_rows_is_the_guide_row_split_by_tab_and_sums_to_
     whose "conversation" row matched none of the three rows it stood in for."""
     out = build.cost_ledger_html(_run6_ledger(), [_tab("review", "Review"),
                                                   _tab("requirements", "Tests")])
-    fold = out.split('<details class="costdetail">')[1]
-    assert "&ldquo;this guide&rdquo;, tab by tab" in fold
+    fold = out.split('<tr class="costfold" hidden>')[1]
+    # Victor, 4 Oct 2026: opened from the "This guide" row's own name, one cost column.
+    assert 'class="costexp" aria-expanded="false"' in out.split('<tr class="costfold"')[0]
     assert "writing the code" not in fold and "conversation <code>" not in fold, \
         "the writing conversation is the first three rows already, not a second cut"
     assert "$31.39" not in out and "47.9M" not in out
     assert "the same as the &ldquo;this guide&rdquo; row above" in fold
-    assert '<td>4.2M</td><td>$3.31</td></tr></tfoot>' in fold, \
+    assert 'data-tip="4.2M tokens">$3.31</span></td></tr></tfoot>' in fold, \
         "printed as the row above prints it, not re-rounded from the parts"
     # The Tests tab carries the mapping, and is not also listed as spending nothing.
     assert "Tests<span class=\"costsub\">requirements↔tests mapping, claude -p" in fold
-    assert "tokens not recorded" in fold and "<td>—</td><td>$0.16</td>" in fold
-    assert "1 tab with no model spend — Review" in fold
+    assert "tokens not recorded" in fold and ">$0.16</span></td>" in fold
+    assert '<tr class="costquiet"><td>Review</td><td>–</td></tr>' in fold, \
+        "a tab with no spend by name, with a dash"
     assert "Step 9" not in out and "step&rsquo;s window" not in out, "no skill jargon"
 
 
 def test_a_fold_that_does_not_reach_the_guide_row_says_by_how_much_and_why():
     out = build.cost_ledger_html(_run6_ledger(residual_cost=3.955), [_tab("review", "Review")])
-    fold = out.split('<details class="costdetail">')[1]
+    fold = out.split('<tr class="costfold" hidden>')[1]
     assert "row above says $3.31" in fold and "$0.80 more" in fold
 
 
@@ -1056,7 +1058,7 @@ def test_a_fold_that_disagrees_names_both_windows_and_never_claims_the_wider_one
     led = _run6_ledger(residual_cost=2.675)
     led["tabs"]["window"] = ["2026-10-02T23:50:59+00:00", "2026-10-03T00:03:59+00:00"]
     fold = build.cost_ledger_html(led, [_tab("review", "Review")]).split(
-        '<details class="costdetail">')[1]
+        '<tr class="costfold" hidden>')[1]
     assert "from its start to this build" not in fold
     assert "$0.48 less here" in fold
     # Apart by seconds: at minute precision both would print 23:50 → 00:03, and the
@@ -1066,7 +1068,7 @@ def test_a_fold_that_disagrees_names_both_windows_and_never_claims_the_wider_one
     led["tabs"]["window"] = list(led["components"]["rows"][1]["entries"][0].get("window")
                                  or led["components"]["rows"][1]["window"])
     fold = build.cost_ledger_html(led, [_tab("review", "Review")]).split(
-        '<details class="costdetail">')[1]
+        '<tr class="costfold" hidden>')[1]
     assert "over the same stretch" in fold and "$0.48 less here" in fold
 
 
@@ -1080,7 +1082,7 @@ def test_no_fold_when_the_tab_split_found_none_of_the_guide_row():
                                            "tokens": 0, "runs": []}
     led["tabs"].pop("modelRuns", None)
     out = build.cost_ledger_html(led, [_tab("review", "Review")])
-    assert "costdetail" not in out and "less here" not in out
+    assert "costfold" not in out and "less here" not in out
 
 
 def test_a_mixed_model_share_says_it_is_a_share_of_tokens():

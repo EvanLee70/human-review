@@ -341,6 +341,36 @@ def _when(raw: str | None) -> str:
     return f"{t.day} {t.strftime('%b')} {t:%H:%M}"
 
 
+def _span(a: str | None, b: str | None) -> str:
+    """`3 Oct 23:19 → 23:36`: the second end drops the day when it is the same day
+    (Victor, 4 Oct 2026)."""
+    x, y = _when(a), _when(b)
+    if not x:
+        return ""
+    if y and y.rsplit(" ", 1)[0] == x.rsplit(" ", 1)[0]:
+        y = y.rsplit(" ", 1)[1]
+    return f"{x} &rarr; {y}" if y else x
+
+
+def _cost_cell(money: str, tokens: float, models=None) -> str:
+    """The one number column: the price, its tokens on the hover, the model under it.
+
+    Tokens were a column of their own beside the price; Victor (4 Oct 2026) wanted one
+    column, the tokens on the price's hover and the model name under the price."""
+    names = [(str(k), float(v)) for k, v in (models or {}).items()
+             if isinstance(v, (int, float)) and v > 0] if isinstance(models, dict) else []
+    total = sum(v for _k, v in names)
+    names.sort(key=lambda kv: -kv[1])
+    big = [(k, v) for k, v in names if total and v / total >= 0.005] or names[:1]
+    tip = f"{_cost_tokens(tokens)} tokens"
+    if len(big) > 1:
+        tip += " · " + " / ".join(f"{k} {v / total * 100:.0f}%" for k, v in big)
+    model = (f'<span class="costsub">{" · ".join(html.escape(k) for k, _ in big)}</span>'
+             if big else "")
+    return (f'<span class="costmoney" data-tip="{html.escape(tip, quote=True)}">{money}</span>'
+            + model)
+
+
 def _instants(win) -> list:
     """A window's two ends as instants, so two spellings of one moment compare equal."""
     out = []
@@ -480,11 +510,10 @@ def cost_ledger_html(led: dict | None, tabs: list[dict]) -> str:
         # its "conversation" row matched none of the three rows it was standing in for.
         # The first three components need no fold: each already names its session and
         # window on its own row.
+        # Opened from the "This guide" row's own name (Victor, 4 Oct 2026), not from a
+        # fold under the table.
         rest = guide_breakdown_html(led, tabs)
-        if not rest:
-            return four
-        return (four + '<details class="costdetail"><summary>&ldquo;this guide&rdquo;, tab '
-                'by tab</summary>' + rest + '</details>')
+        return components_html(led.get("components"), fold=rest) if rest else four
     return _legacy_ledger_html(led, tabs)
 
 
@@ -503,7 +532,7 @@ def guide_breakdown_html(led: dict, tabs: list[dict]) -> str:
                   if isinstance(r, dict) and r.get("key") == "guide"), None)
     if not ((led.get("run") or {}).get("measured") or report.get("modelRuns")):
         return ""
-    body = _cost_tab_rows(report, tabs)
+    body = _cost_tab_rows(report, tabs, one_col=True)
     rows = report.get("tabs") or {}
     total = sum((r.get("cost") or 0.0) for r in rows.values() if r.get("measured"))
     tokens = sum((r.get("tokens") or 0) for r in rows.values() if r.get("measured"))
@@ -559,13 +588,11 @@ def guide_breakdown_html(led: dict, tabs: list[dict]) -> str:
                 why = "the two were measured over stretches this build cannot name"
             sub = (f"the &ldquo;this guide&rdquo; row above says {_cost_money(g)}: {why}; "
                    f"{_cost_money(abs(total - g))} {'more' if total > g else 'less'} here")
-    foot = (f'<tr class="costtotal"><td>total'
+    foot = (f'<tr class="costtotal"><td>Total'
             + (f'<span class="costsub">{sub}</span>' if sub else "")
-            + f'</td><td>{_cost_tokens(tokens)}</td><td>{_cost_money(total)}</td></tr>')
-    return ('<table class="costtab costledger">'
-
-            '<thead><tr><th scope="col">tab</th><th scope="col">tokens</th>'
-            '<th scope="col">cost</th></tr></thead>'
+            + f'</td><td>{_cost_cell(_cost_money(total), tokens)}</td></tr>')
+    return ('<table class="costtab costledger costbytab">'
+            '<thead><tr><th scope="col">tab</th><th scope="col">cost</th></tr></thead>'
             f'<tbody>{body}</tbody><tfoot>{foot}</tfoot></table>')
 
 
@@ -696,7 +723,7 @@ def _legacy_ledger_html(led: dict, tabs: list[dict]) -> str:
     )
 
 
-def _cost_tab_rows(costs: dict, tabs: list[dict]) -> str:
+def _cost_tab_rows(costs: dict, tabs: list[dict], one_col: bool = False) -> str:
     """The per-tab half of the ledger.
 
     Three shapes of row, because there are three honest answers: a tab with measured spend
@@ -709,10 +736,17 @@ def _cost_tab_rows(costs: dict, tabs: list[dict]) -> str:
     rows = costs.get("tabs") or {}
     entries = [(t.get("label") or t.get("id"), rows[t.get("id")])
                for t in tabs if rows.get(t.get("id"))]
+    # `one_col`: the "This guide" fold — one cost column, tokens on its hover.
+    dash = "<td>—</td>" if one_col else "<td>—</td><td>—</td>"
+
+    def nums(tokens, cost, tok_face=None) -> str:
+        if one_col:
+            return f"<td>{_cost_cell(_cost_money(cost), tokens)}</td>"
+        return f"<td>{tok_face or _cost_tokens(tokens)}</td><td>{_cost_money(cost)}</td>"
     if not entries:
         why = costs.get("reason") or "no step ledger, so no turn could be placed in a tab"
         return ('<tr class="costquiet"><td><span class="costnote">'
-                f'{html.escape(str(why))}</span></td><td>—</td><td>—</td></tr>')
+                f'{html.escape(str(why))}</span></td>{dash}</tr>')
 
     def spend(r):
         return r.get("cost") or 0.0
@@ -740,19 +774,22 @@ def _cost_tab_rows(costs: dict, tabs: list[dict]) -> str:
                       + ("" if x.get("tokens") else " &middot; tokens not recorded")
                       + "</span>" for x in runs)
         tok = "—" if r.get("tokensUnknown") and not toks(r) else _cost_tokens(toks(r))
-        return (f'<tr><td>{html.escape(str(label))}{sub}</td><td>{tok}</td>'
-                f'<td>{_cost_money(spend(r))}</td></tr>')
+        return (f'<tr><td>{html.escape(str(label))}{sub}</td>'
+                + nums(toks(r), spend(r), tok) + '</tr>')
 
     out = "".join(paid_row(l, r) for l, r in paid)
-    if free:
+    if free and one_col:
+        # Each tab by name with a dash: plainly nothing spent there (Victor, 4 Oct 2026).
+        out += "".join(f'<tr class="costquiet"><td>{html.escape(str(l))}</td><td>–</td></tr>'
+                       for l, _ in free)
+    elif free:
         out += (f'<tr class="costquiet"><td>{len(free)} tab{"s" if len(free) != 1 else ""} '
                 f'with no model spend — {names(free)}</td><td>0</td><td>$0.00</td></tr>')
     if unknown:
         why = costs.get("reason") or "no step in the ledger named them"
         out += (f'<tr class="costquiet"><td>{len(unknown)} tab'
                 f'{"s" if len(unknown) != 1 else ""} not measured — '
-                f'{html.escape(str(why))} ({names(unknown)})</td>'
-                '<td>—</td><td>—</td></tr>')
+                f'{html.escape(str(why))} ({names(unknown)})</td>{dash}</tr>')
     resid = costs.get("residual") or {}
     if resid.get("measured"):
         parts = costs.get("residual_parts") or {}
@@ -761,13 +798,11 @@ def _cost_tab_rows(costs: dict, tabs: list[dict]) -> str:
         if shown:
             out += "".join(
                 f'<tr class="costquiet"><td>{label}</td>'
-                f'<td>{_cost_tokens(part.get("tokens") or 0)}</td>'
-                f'<td>{_cost_money(part.get("cost") or 0.0)}</td></tr>'
+                + nums(part.get("tokens") or 0, part.get("cost") or 0.0) + '</tr>'
                 for label, part in shown)
         else:
             out += ("<tr class=\"costquiet\"><td>not one tab's</td>"
-                    f'<td>{_cost_tokens(resid.get("tokens") or 0)}</td>'
-                    f'<td>{_cost_money(resid.get("cost") or 0.0)}</td></tr>')
+                    + nums(resid.get("tokens") or 0, resid.get("cost") or 0.0) + '</tr>')
     return out
 
 
@@ -806,7 +841,7 @@ def _minutes(secs) -> str:
     return f"{m:.0f} min" if m >= 1 else f"{secs:.0f} s"
 
 
-def _entry_line(e: dict) -> str:
+def _entry_line(e: dict, alone: bool = False) -> str:
     who = _HARNESS.get(e.get("harness"), e.get("harness") or "?")
     sid = str(e.get("session") or "")
     if sid.startswith("claude -p"):
@@ -817,29 +852,21 @@ def _entry_line(e: dict) -> str:
     else:
         head = html.escape(who) + (f' <code>{html.escape(sid[:8])}</code>' if sid else "")
     win = e.get("window") or [None, None]
-    when = (f"{_when(win[0])} &rarr; {_when(win[1])}" if len(win) == 2 and _when(win[0])
-            else "")
+    when = _span(win[0], win[1]) if len(win) == 2 else ""
     bits = [head, html.escape(str(e.get("what") or "")), when]
     money = (_aic(e["aic"]) if e.get("aic") is not None
              else (_cost_money(e["usd"]) if e.get("usd") is not None else ""))
     if e.get("note"):
         bits.append(html.escape(str(e["note"])))
     line = " &middot; ".join(b for b in bits if b)
-    if money and e.get("what"):
+    # The row's only entry: its price is the row's, already in the cost column.
+    if money and e.get("what") and not alone:
         # Glued to the word before it: eval run 6 wrapped `$0.16` onto a line of its own,
         # a price with nothing beside it to say what it was the price of.
         line += f'<span class="costnum">&nbsp;&middot;&nbsp;{money}</span>'
     return line
 
 
-COMPONENT_HINTS = {
-    "implementation": "writing the code",
-    "review": "the review",
-    "autofix": "applying the fixes, CI rounds",
-    # The parts are the entry lines under it, each named for what it was: listing "the film
-    # script" here printed it on a run that wrote none (eval run 6).
-    "guide": "building this page",
-}
 
 
 def _extension_line(r: dict, rate: float) -> str:
@@ -868,23 +895,28 @@ def _extension_line(r: dict, rate: float) -> str:
             f"{_cost_money(then_c)} / {_cost_tokens(was.get('tokens') or 0)}")
 
 
-def components_html(comp: dict | None) -> str:
-    """The four rows the cost tab leads with, or "" when nothing at all was measured."""
+def components_html(comp: dict | None, fold: str = "") -> str:
+    """The four rows the cost tab leads with, or "" when nothing at all was measured.
+
+    `fold` is the "This guide" row's tab-by-tab breakdown, opened from that row's name.
+    One number column (Victor, 4 Oct 2026): the price, its tokens on the hover, the model
+    under it; no hint line under each name, no unit caption under the total."""
     rows = [r for r in (comp or {}).get("rows") or [] if isinstance(r, dict)]
     if not rows or not any(r.get("measured") for r in rows):
         return ""
     rate = float((comp or {}).get("aicUsd") or 0.01)
     out = []
     for r in rows:
-        label = html.escape(str(r.get("label") or r.get("key")))
-        hint = COMPONENT_HINTS.get(r.get("key"), "")
+        raw = str(r.get("label") or r.get("key"))
+        label = html.escape(raw[:1].upper() + raw[1:])
         if not r.get("measured"):
             why = html.escape(str(r.get("reason") or "not measured"))
             out.append(f'<tr class="costquiet" data-component="{html.escape(r["key"])}">'
                        f'<td>{label}<span class="costsub">unmeasured — {why}</span></td>'
-                       '<td>—</td><td>—</td></tr>')
+                       '<td>—</td></tr>')
             continue
-        lines = [_entry_line(e) for e in r.get("entries") or []]
+        entries = r.get("entries") or []
+        lines = [_entry_line(e, alone=len(entries) == 1) for e in entries]
         if r.get("key") == "guide":
             wall = (comp or {}).get("wallclock") or {}
             took = _minutes(wall.get("seconds"))
@@ -902,43 +934,41 @@ def components_html(comp: dict | None) -> str:
             # Copy pass (3 Oct 2026): which record file was missing is the pipeline's
             # business; the reader needs to know the number is an estimate.
             lines.append("estimated from session logs")
-        sub = "".join(f'<span class="costsub">{l}</span>' for l in [html.escape(hint)] + lines
-                      if l)
+        sub = "".join(f'<span class="costsub">{l}</span>' for l in lines if l)
         models: dict = {}
-        for e in r.get("entries") or []:
+        for e in entries:
             for k, v in (e.get("models") or {}).items():
                 models[k] = models.get(k, 0) + v
         if ext:
             label = f'<span data-tip="{html.escape(ext, quote=True)}">{label}</span>'
+        folds = r.get("key") == "guide" and fold
+        if folds:
+            label = (f'<button type="button" class="costexp" aria-expanded="false" '
+                     'onclick="var t=this.closest(\'tr\').nextElementSibling;'
+                     't.hidden=!t.hidden;this.setAttribute(\'aria-expanded\',!t.hidden)">'
+                     f'{label}</button>')
         out.append(f'<tr data-component="{html.escape(r["key"])}"><td>{label}{sub}</td>'
-                   f'<td>{_cost_tokens(r.get("tokens") or 0, models)}</td>'
-                   f'<td>{_component_money(r, rate)}</td></tr>')
+                   f'<td>{_cost_cell(_component_money(r, rate), r.get("tokens") or 0, models)}'
+                   '</td></tr>')
+        if folds:
+            out.append(f'<tr class="costfold" hidden><td colspan="2">{fold}</td></tr>')
     usd, aic = comp.get("usd") or 0.0, comp.get("aic") or 0.0
     total = usd + aic * rate
-    parts = []
-    if usd:
-        parts.append(f"Claude {_cost_money(usd)} at API list price")
+    # Under the total, only what the column cannot say by itself: two kinds of price.
+    sub = ""
     if aic:
-        parts.append(f"Copilot {_aic(aic)} = {_cost_money(aic * rate)} at GitHub's "
-                     f"${rate:.2f} per AI credit")
-    sub = " + ".join(parts)
-    if usd and aic:
-        sub += " — two kinds of price, added"
+        sub = (f"Copilot {_aic(aic)} = {_cost_money(aic * rate)} at GitHub's "
+               f"${rate:.2f} per AI credit" + (f" + Claude {_cost_money(usd)} at API list "
+                                               "price" if usd else ""))
     if comp.get("unmeasured"):
-        sub += (" · not counted: " + ", ".join(comp["unmeasured"])
-                if sub else "not counted: " + ", ".join(comp["unmeasured"]))
-    foot = (f'<tr class="costtotal"><td>total<span class="costsub">{html.escape(sub)}'
-            f'</span></td><td>{_cost_tokens(sum(r.get("tokens") or 0 for r in rows if r.get("measured")))}</td>'
-            f'<td>{_cost_money(total)}</td></tr>')
-    # Each kind of price is explained only when a row on screen is priced in it: eval run
-    # 6 was Claude end to end, and its caption still explained Copilot's AI credits.
+        sub += ((" · " if sub else "") + "not counted: " + ", ".join(comp["unmeasured"]))
+    tokens = sum(r.get("tokens") or 0 for r in rows if r.get("measured"))
+    foot = (f'<tr class="costtotal"><td>Total'
+            + (f'<span class="costsub">{html.escape(sub)}</span>' if sub else "")
+            + f'</td><td>{_cost_cell(_cost_money(total), tokens)}</td></tr>')
     priced = [r for r in rows if r.get("measured")]
     has_copilot = any(r.get("aic") is not None for r in priced)
-    units = []
-    # No caption for Claude: the total's own line already says "at API list price".
-    if has_copilot:
-        units.append("Copilot in AI credits, at what GitHub bills for them")
-    caption = "; ".join(units) + ("." if units else "")
+    caption = "Copilot in AI credits, at what GitHub bills for them." if has_copilot else ""
     # A partial bill says so before its first row, in the words the pill's name uses:
     # which parts are missing and that the total is only the rest.
     missing = [r for r in rows if not r.get("measured")]
@@ -949,8 +979,7 @@ def components_html(comp: dict | None) -> str:
             'below).</p>' if missing else "")
     return (warn + '<table class="costtab costledger costfour">'
             + (f'<caption>{caption}</caption>' if caption else '') +
-            '<thead><tr><th scope="col">component</th><th scope="col">tokens</th>'
-            '<th scope="col">cost</th></tr></thead>'
+            '<thead><tr><th scope="col">component</th><th scope="col">cost</th></tr></thead>'
             f'<tbody>{"".join(out)}</tbody><tfoot>{foot}</tfoot></table>')
 
 

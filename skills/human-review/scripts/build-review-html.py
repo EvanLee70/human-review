@@ -195,7 +195,7 @@ from hrbuild.tabs.sequence import (
 from hrbuild.tabs.tests import (
     LEDGER_TAB, render_requirements, render_test_ledger, render_tests, render_traces,
     REQMAP_CSS, REQMAP_CUT, REQMAP_SEMCOV_JS, REQMAP_TIP_JS, reqmap_layout, resolve_tests,
-    REQMAP_CATS_JS, cats_filter,
+    REQMAP_CATS_JS, REQMAP_LEDGER_JS, cats_filter,
     SEMCOV_LABEL, semcov_switch, SILENCED_LABEL, VIA_HELPER_LABEL, via_helper_tip,
     test_index, TEST_STATES,
     TICKET_CACHE, ticket_head, ticket_ref, tests_chip, _append_inside, _element, _find,
@@ -234,7 +234,7 @@ from hrbuild.tabs.cost import (
     _cost_env, _cost_inputs, _cost_money, cost_session,
     _cost_tab_rows, _cost_tokens, _when, components_html, cost_pill_label, cost_pill_title,
     _legacy_ledger_html, _HARNESS, _aic, _component_money, _minutes, _entry_line,
-    COMPONENT_HINTS, guide_breakdown_html, _extension_line, _instants, _stamp_s
+    guide_breakdown_html, _extension_line, _instants, _stamp_s, _span, _cost_cell
 )
 
 
