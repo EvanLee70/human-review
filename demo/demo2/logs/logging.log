@@ -1,6 +1,6 @@
   * logging -> logging
     $ git merge-base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec HEAD
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/bf039454f092/skills/human-review/scripts/logextract.py petclinic-backend --repo . --since 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --json .human-review/assets/logging.json
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/logextract.py petclinic-backend --repo . --since 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --json .human-review/assets/logging.json
 4 logging statement(s) on added/modified lines
   petclinic-backend/src/main/java/victor/training/petclinic/rest/error/ExceptionControllerAdvice.java:56:9  [WARN ] log.warn  (SLF4J, declared)  modified (same text logged)
         was: log.warn("Validation failed: {}", errors)

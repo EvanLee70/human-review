@@ -448,6 +448,11 @@
  "note": null,
  "items": 25,
  "dropped": 0,
- "warnings": [],
+ "warnings": [
+  "Ignored: 'Owner deleted between page query and graph fetch answers 500' (line 66) \u2014 `why:` rests on 'design.md' without the file:line it cites. Give it (`openspec/changes/<change>/design.md:50`, `Q&A.md:28`) so the page can link the line and quote it.",
+  "Ignored: 'Page, count and graph fetch share no snapshot' (line 73) \u2014 `why:` rests on 'design.md' without the file:line it cites. Give it (`openspec/changes/<change>/design.md:50`, `Q&A.md:28`) so the page can link the line and quote it.",
+  "Ignored: 'Name column shows \"First Last\" but sorts by last name' (line 101) \u2014 `why:` rests on 'Q3' without the file:line it cites. Give it (`openspec/changes/<change>/design.md:50`, `Q&A.md:28`) so the page can link the line and quote it.",
+  "Ignored: 'V4 indexes nobody asked for' (line 143) \u2014 `why:` rests on 'design.md' without the file:line it cites. Give it (`openspec/changes/<change>/design.md:50`, `Q&A.md:28`) so the page can link the line and quote it."
+ ],
  "empty": false
 }

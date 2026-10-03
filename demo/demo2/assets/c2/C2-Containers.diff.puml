@@ -4,7 +4,7 @@
 HIDE_STEREOTYPE()
 skinparam hyperlinkUnderline false
 skinparam hyperlinkColor #1A4FA0
-title [[https://c4model.com/diagrams/container{What a container diagram is, on Simon Brown's own site} C2 Containers]]
+title [[https://c4model.com/diagrams/container{What is a C2 diagram?} C2 Containers]]
 System_Boundary(c2_system, "PetClinic") {
   Container(Backend, "Backend", "Java 21 / Spring Boot 3.5", "")
   Container(Browser, "Browser", "Angular 16", "")

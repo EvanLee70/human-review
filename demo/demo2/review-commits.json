@@ -28,7 +28,12 @@
    "subject": "[auto-fix] Re-anchor the type-mismatch assumption on its handler"
   }
  ],
+ "review_commits": [
+  "6b14c32b00e923ad6aadd1aed872f787104420bf",
+  "1338ed9e7f3dc95c2b51f25898d8c36ff64f4ede",
+  "e7b807e83fd3973993c980e3d5b88c62f947e8db"
+ ],
  "warnings": [
-  "3 commits carry a Review-Points trailer (6b14c32b, 1338ed9e, e7b807e8); taking the last one. Two rounds of review on one branch is legitimate, but the page reports one."
+  "3 commits carry a Review-Points trailer (6b14c32b, 1338ed9e, e7b807e8); taking the last one as the review commit. The fixes are read from the implementation to it, so every one of them counts as a fix commit \u2014 one round recorded in 3 commits, or several rounds; record-review's finish now amends its own unpushed commit instead."
  ]
 }

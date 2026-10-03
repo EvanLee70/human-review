@@ -1,5 +1,5 @@
   * reviewpoints -> review
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/bf039454f092/skills/human-review/scripts/review-points.py --root . --out .human-review/review-points.json
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/review-points.py --root . --out .human-review/review-points.json
 review-points.md: 25 item(s) in 6 fixed, 13 ignored, 6 assumptions
   Fixed        (Fixed)
       · A failed page hid the paginator, so only a new search could retry   [3 ref, 3 snippet, low, from correctness, tests and ticket-fit reviewers]
@@ -32,5 +32,9 @@ review-points.md: 25 item(s) in 6 fixed, 13 ignored, 6 assumptions
   fixed in     HEAD
   base: 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec · implementation: 91905dff4690930507b443b5655573f6802ef608 · reviewers: 4 read-only reviewer subagents (correctness, security, tests, ticket-fit) on Sonnet + SonarCloud via CI · session: 3c9a707b-94ad-4b3f-8775-28518fc03842
   wrote  .human-review/review-points.json
+[review-points] WARNING: Ignored: 'Owner deleted between page query and graph fetch answers 500' (line 66) — `why:` rests on 'design.md' without the file:line it cites. Give it (`openspec/changes/<change>/design.md:50`, `Q&A.md:28`) so the page can link the line and quote it.
+[review-points] WARNING: Ignored: 'Page, count and graph fetch share no snapshot' (line 73) — `why:` rests on 'design.md' without the file:line it cites. Give it (`openspec/changes/<change>/design.md:50`, `Q&A.md:28`) so the page can link the line and quote it.
+[review-points] WARNING: Ignored: 'Name column shows "First Last" but sorts by last name' (line 101) — `why:` rests on 'Q3' without the file:line it cites. Give it (`openspec/changes/<change>/design.md:50`, `Q&A.md:28`) so the page can link the line and quote it.
+[review-points] WARNING: Ignored: 'V4 indexes nobody asked for' (line 143) — `why:` rests on 'design.md' without the file:line it cites. Give it (`openspec/changes/<change>/design.md:50`, `Q&A.md:28`) so the page can link the line and quote it.
     $ git merge-base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec HEAD
-    $ /Users/victorrentea/.claude/plugins/cache/human-review/human-review/bf039454f092/skills/human-review/scripts/review-commits.py --base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --json
+    $ /Users/victorrentea/workspace/human-review/skills/human-review/scripts/review-commits.py --base 98cb82a7249fe9341595b3a5beb4b7a71a7f22ec --json

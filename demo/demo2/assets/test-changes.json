@@ -2,9 +2,9 @@
   "base": "98cb82a7249fe9341595b3a5beb4b7a71a7f22ec",
   "totals": {
     "added": 54,
-    "modified": 7,
+    "modified": 10,
     "deleted": 9,
-    "unchanged": 45,
+    "unchanged": 42,
     "commented": 0,
     "disabled": 0,
     "reenabled": 0,
@@ -12,7 +12,8 @@
     "runningAfter": 106,
     "gained": 54,
     "lost": 9,
-    "renamed": 0
+    "renamed": 0,
+    "viaHelper": 3
   },
   "tests": [
     {
@@ -150,8 +151,16 @@
     {
       "name": "addsAVisitToAnExistingPet",
       "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/AddVisitApiTest.java",
-      "status": "unchanged",
-      "line": 76
+      "status": "modified",
+      "line": 76,
+      "viaHelper": [
+        {
+          "name": "anOwnerWithAPet",
+          "line": 105,
+          "added": 13,
+          "removed": 6
+        }
+      ]
     },
     {
       "name": "addOwner_created",
@@ -330,14 +339,30 @@
     {
       "name": "getAllWithAddressFilter",
       "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java",
-      "status": "unchanged",
-      "line": 139
+      "status": "modified",
+      "line": 139,
+      "viaHelper": [
+        {
+          "name": "search",
+          "line": 151,
+          "added": 1,
+          "removed": 2
+        }
+      ]
     },
     {
       "name": "getAllWithNameFilter_notFound",
       "path": "petclinic-backend/src/test/java/victor/training/petclinic/rest/OwnerTest.java",
-      "status": "unchanged",
-      "line": 163
+      "status": "modified",
+      "line": 163,
+      "viaHelper": [
+        {
+          "name": "search",
+          "line": 151,
+          "added": 1,
+          "removed": 2
+        }
+      ]
     },
     {
       "name": "update_ok",
