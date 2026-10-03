@@ -2,17 +2,16 @@
   "base": "origin/main",
   "totals": {
     "added": 17,
-    "modified": 1,
-    "deleted": 5,
-    "unchanged": 29,
+    "modified": 0,
+    "deleted": 7,
+    "unchanged": 94,
     "commented": 0,
     "disabled": 0,
     "reenabled": 0,
-    "runningBefore": 35,
-    "runningAfter": 47,
+    "runningBefore": 101,
+    "runningAfter": 111,
     "gained": 17,
-    "lost": 5,
-    "renamed": 0,
+    "lost": 7,
     "viaHelper": 0
   },
   "tests": [
@@ -23,8 +22,8 @@
       "line": null,
       "baseLine": 11,
       "gone": true,
-      "baseSha": "dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6",
-      "baseUrl": "https://github.com/victorrentea/petclinic/blob/dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6/petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtensionTest.java#L11"
+      "baseSha": "7dfa13d8f034235a2e5629549988375a81542ae2",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/7dfa13d8f034235a2e5629549988375a81542ae2/petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtensionTest.java#L11"
     },
     {
       "name": "aClassWithoutAMethodSelectsAllOfIt_andANestedTestBelongsToItsOuterClass",
@@ -33,8 +32,8 @@
       "line": null,
       "baseLine": 22,
       "gone": true,
-      "baseSha": "dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6",
-      "baseUrl": "https://github.com/victorrentea/petclinic/blob/dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6/petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtensionTest.java#L22"
+      "baseSha": "7dfa13d8f034235a2e5629549988375a81542ae2",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/7dfa13d8f034235a2e5629549988375a81542ae2/petclinic-backend/src/test/java/victor/training/petclinic/genseq/SequenceTraceExtensionTest.java#L22"
     },
     {
       "name": "readAUnidirectionalManyToManyAsManyAtBothEnds",
@@ -43,8 +42,8 @@
       "line": null,
       "baseLine": 13,
       "gone": true,
-      "baseSha": "dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6",
-      "baseUrl": "https://github.com/victorrentea/petclinic/blob/dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6/petclinic-backend/src/test/java/victor/training/petclinic/guardrail/DomainModelExtractorShould.java#L13"
+      "baseSha": "7dfa13d8f034235a2e5629549988375a81542ae2",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/7dfa13d8f034235a2e5629549988375a81542ae2/petclinic-backend/src/test/java/victor/training/petclinic/guardrail/DomainModelExtractorShould.java#L13"
     },
     {
       "name": "getByIdOk",
@@ -305,6 +304,147 @@
       "line": 23
     },
     {
+      "name": "GENSEQ_SUITE=java makes a run own the .java sources",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 16
+    },
+    {
+      "name": "an unset or unknown GENSEQ_SUITE owns nothing, which is the replay path",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 22
+    },
+    {
+      "name": "GENSEQ_SUITE is read case- and space-insensitively",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 27
+    },
+    {
+      "name": "slugify makes filesystem-safe names",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 31
+    },
+    {
+      "name": "the diagram is filed under generated/, named after the test and the scenario",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 35
+    },
+    {
+      "name": "scenarios whose titles collide get numbered, in declaration order",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 48
+    },
+    {
+      "name": "what the markers reveal is filed beside the diagram, and is not itself a diagram",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 56
+    },
+    {
+      "name": "the static path writes the picture alone, and drops a sidecar left by an earlier level",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 78
+    },
+    {
+      "name": "a diagram no scenario draws any more is swept",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 95
+    },
+    {
+      "name": "generateFromWindows writes one puml per scenario",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 121
+    },
+    {
+      "name": "each section header links to the test that drew it",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 157
+    },
+    {
+      "name": "a header stays plain when the test source cannot be read",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 175
+    },
+    {
+      "name": "generateFromWindows skips (no throw) when a test has zero traces",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 186
+    },
+    {
+      "name": "generateFromWindows retries a window until Tempo has ingested it",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 203
+    },
+    {
+      "name": "generateFromWindows gives up after the configured number of attempts",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 222
+    },
+    {
+      "name": "traces are ordered by the server clock, not by the browser root span",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 250
+    },
+    {
+      "name": "generateFromWindows caches the spans it fetched",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 282
+    },
+    {
+      "name": "renderScenarios redraws from the cache at another detail level, touching no Tempo",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 300
+    },
+    {
+      "name": "a run replaces its own sources in the span cache and keeps the rest",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 318
+    },
+    {
+      "name": "an empty cache merges to just what was fetched",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 332
+    },
+    {
+      "name": "a source outside petclinic-test is titled from the repo root, not with ../",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 342
+    },
+    {
+      "name": "a petclinic-test source keeps its module-relative title",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "unchanged",
+      "line": 365
+    },
+    {
+      "name": "a selected window's scenario stays selected in the cache and in its footer",
+      "path": "petclinic-test/src/genseq/generate.spec.ts",
+      "status": "deleted",
+      "line": 299,
+      "baseLine": 302,
+      "baseSha": "7dfa13d8f034235a2e5629549988375a81542ae2",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/7dfa13d8f034235a2e5629549988375a81542ae2/petclinic-test/src/genseq/generate.spec.ts#L302"
+    },
+    {
       "name": "opts in only when the @generate_sequence tag is present",
       "path": "petclinic-test/src/genseq/sequence-tag.spec.ts",
       "status": "unchanged",
@@ -319,7 +459,7 @@
     {
       "name": "accepts Playwright-style string tags",
       "path": "petclinic-test/src/genseq/sequence-tag.spec.ts",
-      "status": "modified",
+      "status": "unchanged",
       "line": 17
     },
     {
@@ -328,8 +468,8 @@
       "status": "deleted",
       "line": 21,
       "baseLine": 24,
-      "baseSha": "dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6",
-      "baseUrl": "https://github.com/victorrentea/petclinic/blob/dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6/petclinic-test/src/genseq/sequence-tag.spec.ts#L24"
+      "baseSha": "7dfa13d8f034235a2e5629549988375a81542ae2",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/7dfa13d8f034235a2e5629549988375a81542ae2/petclinic-test/src/genseq/sequence-tag.spec.ts#L24"
     },
     {
       "name": "the Playwright grep keeps the tag and adds only spec titles, escaped",
@@ -337,8 +477,269 @@
       "status": "deleted",
       "line": 21,
       "baseLine": 38,
-      "baseSha": "dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6",
-      "baseUrl": "https://github.com/victorrentea/petclinic/blob/dbc88a93e514f44fcd5eda6dfc3a43b6be78c3f6/petclinic-test/src/genseq/sequence-tag.spec.ts#L38"
+      "baseSha": "7dfa13d8f034235a2e5629549988375a81542ae2",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/7dfa13d8f034235a2e5629549988375a81542ae2/petclinic-test/src/genseq/sequence-tag.spec.ts#L38"
+    },
+    {
+      "name": "parseTempoTrace normalizes spans with service name and kind",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 26
+    },
+    {
+      "name": "spansToPuml renders browser\u2192backend\u2192DB with the custom span",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 37
+    },
+    {
+      "name": "spansToPuml nests a self-span's DB call inside the self-span activation",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 54
+    },
+    {
+      "name": "a call that reaches nothing draws a bare arrow, no activation bar",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 70
+    },
+    {
+      "name": "spansToPuml footers the diagram with its provenance",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 79
+    },
+    {
+      "name": "a DB arrow carries the statement, not the generic span name",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 91
+    },
+    {
+      "name": "the origin comment labels the arrow and stays out of the folded SQL",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 99
+    },
+    {
+      "name": "a DB span with no statement attribute keeps its span name",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 117
+    },
+    {
+      "name": "SEQ_SQL=off falls back to the generic span name",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 124
+    },
+    {
+      "name": "SEQ_SQL=values puts the bound parameters back into the statement",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 130
+    },
+    {
+      "name": "SEQ_HTTP_BODIES draws the request and response payloads as notes",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 138
+    },
+    {
+      "name": "payloads stay off unless asked for",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 146
+    },
+    {
+      "name": "the generated-file warning rides the footer, not a legend box",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 155
+    },
+    {
+      "name": "no npm command or env var is drawn into the picture",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 165
+    },
+    {
+      "name": "renderPuml titles by source file and sections by scenario",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 181
+    },
+    {
+      "name": "renderPuml drops traces that would draw nothing",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 197
+    },
+    {
+      "name": "two scenarios that both draw keep their dividers, and the file stays the title",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 212
+    },
+    {
+      "name": "a Java scenario is headed by its class, a Playwright one by itself",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 227
+    },
+    {
+      "name": "an interactive DB arrow is labelled with Hibernate's account, SQL behind the link",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 262
+    },
+    {
+      "name": "a statement with no bound parameters offers only the statement",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 290
+    },
+    {
+      "name": "the payloads become markers on the request and the response, not notes",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 302
+    },
+    {
+      "name": "a body recorded on a SERVER span reveals on its arrow, not on the calls it makes",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 321
+    },
+    {
+      "name": "payloads are revealable by default, and nothing is when there is nothing to reveal",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 347
+    },
+    {
+      "name": "a marker id follows the arrow content, not its position in the file",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 363
+    },
+    {
+      "name": "an interactive diagram tones its link markup down",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 373
+    },
+    {
+      "name": "a session span under a repository is dropped, its query kept",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 406
+    },
+    {
+      "name": "a session span with no repository above it is kept",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 413
+    },
+    {
+      "name": "a Hibernate Query span under a repository is dropped too",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 422
+    },
+    {
+      "name": "collapsing a session span leaves activate/deactivate balanced",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 431
+    },
+    {
+      "name": "a transaction is drawn as a frame around what ran inside it",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 457
+    },
+    {
+      "name": "the commit is the frame, not another arrow inside it",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 468
+    },
+    {
+      "name": "a query inside a frame does not repeat the frame's label",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 474
+    },
+    {
+      "name": "a span that opened no transaction is not framed",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 482
+    },
+    {
+      "name": "a handler-level transaction frames its body, not the request",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 507
+    },
+    {
+      "name": "a service-level transaction is a frame inside the call that opened it",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 536
+    },
+    {
+      "name": "the frame is called tx, wherever it was opened",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 549
+    },
+    {
+      "name": "a span may declare its own participant, and Test sorts leftmost",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 561
+    },
+    {
+      "name": "a Java diagram names the annotation a @SpringBootTest actually carries",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 596
+    },
+    {
+      "name": "a call into notification-service is drawn as an arrow from Backend to NotificationService",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 611
+    },
+    {
+      "name": "a multi-word participant is quoted on its declaration and on every arrow",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 643
+    },
+    {
+      "name": "a crossing arrow with nothing to reveal links to the method it was opened on",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 680
+    },
+    {
+      "name": "a DB span with an empty statement draws nothing at all",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "unchanged",
+      "line": 709
+    },
+    {
+      "name": "a test traced because GENSEQ_SELECT named it does not claim the tag in its footer",
+      "path": "petclinic-test/src/genseq/trace-to-puml.spec.ts",
+      "status": "deleted",
+      "line": 606,
+      "baseLine": 610,
+      "baseSha": "7dfa13d8f034235a2e5629549988375a81542ae2",
+      "baseUrl": "https://github.com/victorrentea/petclinic/blob/7dfa13d8f034235a2e5629549988375a81542ae2/petclinic-test/src/genseq/trace-to-puml.spec.ts#L610"
     },
     {
       "name": "csrfDisableBecomesALambda",
