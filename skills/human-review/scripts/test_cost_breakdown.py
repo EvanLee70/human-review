@@ -1087,5 +1087,9 @@ def test_a_mixed_model_share_says_it_is_a_share_of_tokens():
     """Eval run 10: `Opus 5.5 96% / Sonnet 5.5 4%` beside a cost the Sonnet step was 27% of.
     A bare percentage in a table of dollars reads as a share of the dollars."""
     out = build._cost_tokens(1_878_326, {"Opus 5.5": 1_796_332, "Sonnet 5.5": 81_994})
-    assert out == '1.9M<span class="costsub">Opus 5.5 96% / Sonnet 5.5 4% of tokens</span>'
+    # Eval run 11: the split on the face widened the column and wrapped the table. The
+    # face is the dominant model; the share, still said to be of tokens, is the hover.
+    assert out == ('1.9M<span class="costsub" data-tip="Opus 5.5 96% / Sonnet 5.5 4% of '
+                   'tokens">Opus 5.5</span>')
     assert "of tokens" not in build._cost_tokens(10, {"Opus 5.5": 10}), "one model is a name"
+    assert "data-tip" not in build._cost_tokens(10, {"Opus 5.5": 10})

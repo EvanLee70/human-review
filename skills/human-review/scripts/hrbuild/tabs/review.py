@@ -498,6 +498,39 @@ def _finding_source(f) -> str:
     return chip + (f' <span class="f-src-detail">({html.escape(detail)})</span>' if detail else "")
 
 
+#: Who said the observation, by the words of its `source:` — the label before it. Eval
+#: run 11 printed `Reviewer:` over a line-length refusal whose source chip read
+#: `pre-push hook`.
+_OBS_LABELS = ((re.compile(r"\bhook\b", re.I), "Hook"),
+               (re.compile(r"\blint(?:er)?\b", re.I), "Linter"),
+               (re.compile(r"^\s*CI\b|\bSonar", re.I), "CI"))
+
+
+def _obs_label(f) -> str:
+    src = str(f.get("source") or "")
+    return next((label for rx, label in _OBS_LABELS if rx.search(src)), "Reviewer")
+
+
+_STOPWORDS = frozenset("a an the and or of to in on at by for with from is are was were be "
+                       "it its this that each every now no not so as into".split())
+
+
+def _words(text: str) -> set[str]:
+    """Content words, cut to five letters so `wrapped` and `wraps` are one word."""
+    return {w[:5] for w in re.findall(r"[a-z0-9]+", _plain_text(text).lower())
+            if w not in _STOPWORDS}
+
+
+def restates_title(fix: str, title: str) -> bool:
+    """Does a `fix:` line say nothing its card's title has not? Then the card drops it.
+
+    Three quarters of its content words in the title: `Fix: retry on a failed page` under
+    *Retry on a failed owners page* is the title again (eval run 11's judges counted a
+    `Fix:` line on every Fixed card among the prose the reference never had)."""
+    said = _words(fix)
+    return bool(said) and len(said & _words(title)) >= 0.75 * len(said)
+
+
 def _raised_by(items, total: int) -> str:
     """`12 raised — 9 by /code-review, 3 by /simplify`: the review chip's hover.
 
@@ -865,6 +898,13 @@ SEQUENCE_VERDICT_JSON = "assets/sequence.verdict.json"
 FILM_VERDICT_JSON = "assets/feature.verdict.json"
 #: How many lines of its own the content file's `verdict` may add under the computed ones.
 MODEL_GRADE_LINES = 2
+#: The most lines the grade panel shows, computed and the model's together. Eval run 11
+#: printed nine against the reference's five, and the grade box stretched to match.
+GRADE_LINES_MAX = 6
+#: Computed lines that inform rather than grade — no cap, nothing to act on in the panel
+#: itself — dropped from the panel, last first, when it would run past `GRADE_LINES_MAX`.
+#: The spec commit is still on the branch chip's `+N` list.
+SPARE_SIGNALS = ("narrowed", "spec-commit")
 
 #: The highest grade each signal allows. A grade is the model's number, lowered to the
 #: lowest ceiling any signal on the page sets — never raised. One table, so the reader can
@@ -1057,7 +1097,8 @@ def _out_of_range_signal(spec, root: Path | None, base_ref: str | None,
 def _before_range_commits(spec, root: Path | None, base_ref: str | None) -> list[dict]:
     """The branch's commits between its fork point and the audited base, newest first:
     `{sha, subject, spec}` — `spec` names `openspec/changes/<change>/` when the commit
-    wrote the change this branch implements.
+    wrote the change this branch implements. A commit the base already carries under
+    another sha (`git cherry`) is left out.
 
     Eval run 10 listed b12c9bdb — the OpenSpec proposal, design and spec of this very
     change — among tooling commits as "never reviewed". It is the spec the change was
@@ -1071,10 +1112,14 @@ def _before_range_commits(spec, root: Path | None, base_ref: str | None) -> list
         return []
     listed = _git_out(root, "log", "--no-merges", "--format=%H%x1f%s", f"{mb}..{audited}")
     change = _spec_change_dir(root, spec)
+    # Eval run 11: 5 of "7 commits never reviewed" were already on origin/main, cherry-
+    # picked under other shas. A merge brings none of them, so none of them is counted.
+    from ..shared.chips import patch_equivalent
+    picked = patch_equivalent(root, base_ref, audited, mb)
     out = []
     for line in (listed or "").splitlines():
         sha, _, subject = line.partition("\x1f")
-        if not sha.strip():
+        if not sha.strip() or sha in picked:
             continue
         touched = _git_out(root, "diff-tree", "--no-commit-id", "--name-only", "-r",
                            "--root", sha, "--", f"{change}/") if change else ""
@@ -1318,6 +1363,12 @@ def _grade_rows(spec) -> list[tuple[str, str, tuple[str, str] | None]]:
     measured = [s for s in spec.get("_gradeSignals") or [] if s["key"] not in PILE_SIGNALS]
     signals = ([s for s in measured if s["key"].startswith("ci-")] + _pile_signals(spec)
                + [s for s in measured if not s["key"].startswith("ci-")])
+    if len(signals) > GRADE_LINES_MAX:
+        spare = [s for s in signals if s["key"] in SPARE_SIGNALS]
+        room = max(0, GRADE_LINES_MAX - (len(signals) - len(spare)))
+        spare.sort(key=lambda s: SPARE_SIGNALS.index(s["key"]))
+        cut = spare[room:]
+        signals = [s for s in signals if not any(s is c for c in cut)]
     model_score = v.get("modelScore")
     out = []
     for s in signals:
@@ -1326,17 +1377,19 @@ def _grade_rows(spec) -> list[tuple[str, str, tuple[str, str] | None]]:
             short += f" (caps the grade at {s['cap']})"
         link = (s["href"], s.get("linkText") or "source") if s.get("href") else None
         out.append((short, s.get("full") or short, link))
-    own = [b for b in (v.get("why") or v.get("bullets") or [])
-           if not _drop_model_line(b, spec)]
-    if len(own) > MODEL_GRADE_LINES:
-        print(f"[review] verdict carries {len(own)} lines of its own; the grade panel shows "
-              f"the first {MODEL_GRADE_LINES} — the rest of its reasons are computed",
-              file=sys.stderr)
-    for b in own[:MODEL_GRADE_LINES]:
+    def head(b: str) -> str:
         # A `why` line is written to be short and kept whole unless it runs long; a
         # `bullet` is a paragraph, and its first clause is the claim.
-        short = (_first_clause(b) if not v.get("why") or len(_plain_text(b)) > 80
-                 else _plain_text(b))
+        return (_first_clause(b) if not v.get("why") or len(_plain_text(b)) > 80
+                else _plain_text(b))
+    own = [b for b in (v.get("why") or v.get("bullets") or [])
+           if not _drop_model_line(b, spec, head(b))]
+    room = max(0, min(MODEL_GRADE_LINES, GRADE_LINES_MAX - len(out)))
+    if len(own) > room:
+        print(f"[review] verdict carries {len(own)} lines of its own; the grade panel shows "
+              f"the first {room} — the rest of its reasons are computed", file=sys.stderr)
+    for b in own[:room]:
+        short = head(b)
         if short:
             out.append((short, _plain_text(b), None))
     return out
@@ -1351,7 +1404,58 @@ _PILE_COUNT = re.compile(
 _Q_REF = re.compile(r"\bQ(\d+)(?:\s*[–-]\s*Q?(\d+))?\b")
 
 
-def model_line_conflict(text: str, spec) -> str | None:
+#: A model line that says again what a computed line on the panel already says, by the
+#: signal it repeats: run 11's `GET /api/owners now answers {content…}` under
+#: `2 breaking API changes`. Read off the line's visible head.
+_REPEATS = {
+    "api-breaking": re.compile(r"\b(?:GET|POST|PUT|PATCH|DELETE)\s+/|\bbreak(?:s|ing)\b"
+                               r"|\bAPI\b|\bcontract\b"),
+    "ci-": re.compile(r"\bCI\b|\bbuild (?:is |was )?(?:green|red|passed|failed)", re.I),
+    "no-evidence": re.compile(r"\bre-?traced\b|\bnot filmed\b|\bno evidence\b", re.I),
+    "after-review": re.compile(r"\b(?:landed|committed|pushed) after the review", re.I),
+    "out-of-range": re.compile(r"\bbefore the review(?:ed)? range\b|\bnever reviewed\b",
+                               re.I),
+    "narrowed": re.compile(r"\bnarrow", re.I),
+    "spec-commit": re.compile(r"\bbuilt against the spec\b", re.I),
+}
+#: A word that puts items in a pile, and the pile it puts them in: `None` for the words
+#: the page never uses — a declined item is shown as OPEN, so calling it declined plays it
+#: down (run 11: "Two declined items are product calls" over two open WORTH A LOOK cards).
+_PILE_WORD = re.compile(r"\b(?:(not|never|un)[\s-]*)?(declined|ignored|dismissed|rejected|"
+                        r"auto-fixed|fixed|refuted)\b", re.I)
+_PILE_OF_WORD = {"declined": None, "ignored": None, "dismissed": None, "rejected": None,
+                 "fixed": "fixed", "auto-fixed": "fixed", "refuted": "refuted"}
+_PILE_SAID = {"open": "open", "refuted": "refuted", "fixed": "fixed",
+              "assumptions": "an assumption"}
+
+
+def _plain_words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", _plain_text(text).lower())
+
+
+def named_items(text: str, spec) -> list[tuple[str, str]]:
+    """`[(pile, title), …]` — the items a line names: four words of a title in a row (the
+    whole title when it is shorter). `pile` is where the page shows the item: `open`,
+    `refuted`, `fixed`, `assumptions`."""
+    said = " " + " ".join(_plain_words(text)) + " "
+    out = []
+    for kind in ("findings", "autofixes", "assumptions"):
+        for item in spec.get(kind) or []:
+            if not isinstance(item, dict):
+                continue
+            words = _plain_words(str(item.get("title") or ""))
+            if not words:
+                continue
+            grams = ([words] if len(words) < 4 else
+                     [words[i:i + 4] for i in range(len(words) - 3)])
+            if any(f" {' '.join(g)} " in said for g in grams):
+                pile = {"autofixes": "fixed", "assumptions": "assumptions"}.get(kind) or (
+                    "refuted" if is_refuted(item) else "open")
+                out.append((pile, _plain_text(str(item.get("title")))))
+    return out
+
+
+def model_line_conflict(text: str, spec, short: str | None = None) -> str | None:
     """Why a content file's verdict line contradicts the record the page renders, or None.
 
     The rule: a model line may say what only the model knows, but it may not restate a
@@ -1399,12 +1503,38 @@ def model_line_conflict(text: str, spec) -> str | None:
             names = ", ".join(f"Q{q}" for q in sorted(qs)[:3]) + ("…" if len(qs) > 3 else "")
             return (f"it ties {names} to the assumptions, and no assumption on the page "
                     "cites any of those questions")
+    # Eval run 11: three more ways a model line spends a busy reader's attention.
+    head = _plain_text(short if short is not None else _first_clause(text))
+    # (a) It says again what a computed line on the panel says.
+    keys = [s["key"] for s in spec.get("_gradeSignals") or []]
+    for key, rx in _REPEATS.items():
+        if any(k == key or (key.endswith("-") and k.startswith(key)) for k in keys) \
+                and rx.search(head):
+            return f"it repeats the computed {key.rstrip('-')} line"
+    for m in _PILE_COUNT.finditer(head):
+        what = m[3].lower()
+        if what.startswith("assumption") or (m[2] and what.startswith(("issue", "finding"))):
+            return f"it repeats the computed count {m[0]!r}"
+    # (b) It names nothing a reader could go and look at: no number, no code, no link, no
+    # path, no item of the piles.
+    named = named_items(text, spec)
+    if not (named or re.search(r"\d|<code\b|<a\b|`|/\w", text)):
+        return "it names no item, number, file or link"
+    # (c) A pile word that is not where the items it names are.
+    for m in _PILE_WORD.finditer(plain):
+        word = m[2].lower()
+        pile = None if m[1] else _PILE_OF_WORD[word]
+        wrong = [(p, t) for p, t in named if p != pile]
+        if wrong:
+            p, t = wrong[0]
+            return (f"it calls {t[:50]!r} {m[0].lower()}, and the page shows it "
+                    f"{_PILE_SAID[p]}")
     return None
 
 
-def _drop_model_line(text: str, spec) -> bool:
+def _drop_model_line(text: str, spec, short: str | None = None) -> bool:
     """`model_line_conflict`, said once per build on stderr when it drops a line."""
-    why = model_line_conflict(text, spec)
+    why = model_line_conflict(text, spec, short)
     if not why:
         return False
     said = spec.setdefault("_droppedModelLines", set())
@@ -1597,14 +1727,16 @@ def opening_lede(spec) -> str:
     # above the counts line it qualifies — every number on that line was counted at the
     # reviewed commit, not at the branch's head.
     return (grade_reasons_html(spec) + _flush_top_bands()
-            + '<p class="sub counts pilelede">' + " &middot; ".join(parts)
-            + push_pr_button(spec) + "</p>" + push_pr_dialog(spec) + no_pr_line(spec)
+            + f'<p class="sub counts pilelede"{no_pr_line(spec)}>' + " &middot; ".join(parts)
+            + push_pr_button(spec) + "</p>" + push_pr_dialog(spec)
             + PILELEDE_SPY_JS)
 
 
 #: The id of the refuted pile's own heading, under the open one — what the counts line's
 #: `N refuted` jumps to.
 REFUTED_ID = "refuted"
+#: The refuted pile's hover — what its heading means, which the page used to print.
+REFUTED_TIP = "Shown never true, with the evidence. Not counted as open."
 
 
 def render_findings(findings) -> str:
@@ -1625,10 +1757,10 @@ def render_findings(findings) -> str:
         'refuted.</p>')
     if refuted:
         n = len(refuted)
-        out += (f'<h3 class="refuted-h" id="{REFUTED_ID}">Refuted \u2014 {n}</h3>'
-                f'<p class="sub refuted-intro">Claim{"s" if n != 1 else ""} the agent showed '
-                f'{"were" if n != 1 else "was"} never true, each with the evidence it names. '
-                'Not open and not counted above; listed so you can check the evidence.</p>'
+        # The lede is the heading's hover (eval run 11: a visible paragraph saying what
+        # the REFUTED badge on every card under it already says).
+        out += (f'<h3 class="refuted-h" id="{REFUTED_ID}" data-tip="{REFUTED_TIP}">'
+                f'Refuted \u2014 {n}</h3>'
                 + _render_finding_items(refuted, ordered=False))
     return out
 
@@ -1652,7 +1784,7 @@ def _render_finding_items(findings, ordered: bool) -> str:
             + _finding_source(f)
             + f' <span class="f-title">{f["title"]}</span>'
             + gh_comment_link(f)
-            + (f'<p class="f-obs"><b>Reviewer:</b> {f["observation"]}</p>'
+            + (f'<p class="f-obs"><b>{_obs_label(f)}:</b> {f["observation"]}</p>'
                if f.get("observation") else "")
             + (f'<p>{f["body"]}</p>' if f.get("body") else "")
             + (f'<p class="f-why">{f["why"]}</p>' if f.get("why") else "")
@@ -1814,14 +1946,16 @@ def render_autofixes(fixes, badge: str = "auto-fixed") -> str:
             + _finding_source(f)
             + f' <span class="f-title">{f["title"]}</span>'
             + gh_comment_link(f)
-            + (f'<p class="f-obs"><b>Reviewer:</b> {f["observation"]}</p>'
+            + (f'<p class="f-obs"><b>{_obs_label(f)}:</b> {f["observation"]}</p>'
                if f.get("observation") else "")
             + (f'<p class="f-why">{f["why"]}</p>' if f.get("why") else "")
             + (f'<p>{f["body"]}</p>' if f.get("body") else "")
             + (f"<p>{refs}</p>" if refs else "")
             + _anchor_note(f)
             + (f.get("_fixDiffs") or f.get("_diffs", "") or "")
-            + (f'<p class="f-fix"><b>Fix:</b> {f["fix"]}</p>' if f.get("fix") else "")
+            + (f'<p class="f-fix"><b>Fix:</b> {f["fix"]}</p>'
+               if f.get("fix") and not f.get("_formatOnly")
+               and not restates_title(f["fix"], f.get("title", "")) else "")
             + (f.get("_snippets", "") or "")
             + "</li>"
         )
@@ -1983,6 +2117,47 @@ def fix_hunks(rel: str, base: str, head: str | None, root: Path) -> list[tuple[i
     return out
 
 
+def hunk_bodies(rel: str, base: str, head: str | None,
+                root: Path) -> list[tuple[list[str], list[str]]]:
+    """`[(removed, added), …]` — each hunk's `-` and `+` lines, in `fix_hunks` order."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "diff", f"-U{DIFF_CONTEXT}", "--no-color", base]
+        + ([head] if head else []) + ["--", rel], capture_output=True, text=True)
+    if proc.returncode != 0:
+        return []
+    out = []
+    for part in re.split(r"(?m)^(?=@@ )", proc.stdout)[1:]:
+        lines = part.split("\n")[1:]
+        out.append(([ln[1:] for ln in lines if ln.startswith("-")],
+                    [ln[1:] for ln in lines if ln.startswith("+")]))
+    return out
+
+
+def _layout_free(lines: list[str]) -> str:
+    """The text with its layout gone: no whitespace, no `* ` opening a doc-comment line,
+    no `" + "` joining a string split across lines."""
+    kept = []
+    for ln in lines:
+        ln = ln.strip()
+        if ln.startswith("*") and not ln.startswith("*/"):
+            ln = ln[1:]
+        kept.append(ln)
+    text = re.sub(r"\s+", "", "".join(kept))
+    return re.sub(r'"\+"', "", text)
+
+
+def format_only_hunk(removed: list[str], added: list[str]) -> tuple[int, bool] | None:
+    """`(lines, rewrapped)` when a hunk changes only layout — the same code re-wrapped,
+    re-indented, a string split with `+`, a doc comment opened onto several lines — else
+    None. `lines` is how many lines it re-laid (the old side); `rewrapped` whether the line
+    count changed. A hunk that adds or removes nothing is not one."""
+    if not removed or not added:
+        return None
+    if _layout_free(removed) != _layout_free(added):
+        return None
+    return len(removed), len(removed) != len(added)
+
+
 def _ref_spans(ref: str) -> tuple[str, list[tuple[int, int]] | None]:
     """`path:12-30,40` → `("path", [(12, 30), (40, 40)])`; a bare path → `(path, None)`."""
     m = re.match(r"^(.*?):(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$", ref)
@@ -2099,6 +2274,12 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
                  if p and p not in skip and Path(p).name not in FIX_BOOKKEEPING
                  and p not in generated]
         owned: list[dict[str, list[int]]] = [{} for _ in items]
+        cache: dict[str, list[tuple[list[str], list[str]]]] = {}
+
+        def bodies(rel: str, base=base, head=head, cache=cache):
+            if rel not in cache:
+                cache[rel] = hunk_bodies(rel, base, head, root)
+            return cache[rel]
         # A hunk two cards' lines both sit on is drawn ONCE, under the first of them, with
         # every title it serves; the others say where it is (eval run 8 drew one +25 spec
         # hunk in full under two cards in a row).
@@ -2143,11 +2324,28 @@ def attribute_fix_hunks(spec: dict, out_dir: Path, root: Path | None = None) -> 
             order += [p for p in mine if p not in order]
             body = "".join(diff_html(p, base, root, None, head, hunks=mine[p])
                            for p in order)
+            # Drawn once, under the first card it serves, with no caption: the other
+            # card's pointer below says where it is (eval run 11 cut the caption here).
             for rel, idx, takers in shared[i]:
-                titles = " and ".join(f'<b>{items[t]["title"]}</b>' for t in takers)
-                body += (f'<p class="fixshared">One hunk serves {len(takers)} fixes — '
-                         f'{titles} — and is shown once, here.</p>'
-                         + diff_html(rel, base, root, None, head, hunks=[idx]))
+                body += diff_html(rel, base, root, None, head, hunks=[idx])
+            # A card whose every hunk only re-wraps or re-indents lines (a pre-push hook's
+            # line-length refusal) is one line, `6 lines re-wrapped in 5 files`, its diffs
+            # folded and its `fix:` the fold's hover (eval run 11: ~1,100px of line wraps).
+            hunks = [(p, k) for p in order for k in mine[p]] \
+                + [(rel, idx) for rel, idx, _ in shared[i]]
+            fmt = [format_only_hunk(*bodies(rel)[k]) if k < len(bodies(rel)) else None
+                   for rel, k in hunks]
+            if body and fmt and all(fmt):
+                lines = sum(n for n, _ in fmt)
+                files = len({rel for rel, _ in hunks})
+                verb = "re-wrapped" if any(w for _, w in fmt) else "re-indented"
+                tip = (f' data-tip="{html.escape(_plain_text(f["fix"]), quote=True)}"'
+                       if f.get("fix") else "")
+                body = (f'<details class="fmtonly"><summary{tip}>{lines} line'
+                        f'{"" if lines == 1 else "s"} {verb}'
+                        + (f" in {files} files" if files > 1 else "")
+                        + f'</summary>{body}</details>')
+                f["_formatOnly"] = True
             for rel, owner in pointers[i]:
                 body += (f'<p class="fixshared"><code>{html.escape(Path(rel).name)}</code>: '
                          f'diff shown under <b>{items[owner]["title"]}</b>.</p>')
@@ -2296,7 +2494,8 @@ CITING_FIELDS = ("why", "observation", "body", "alternative", "fix")
 CITE_QUOTE = 220
 
 _CITE = re.compile(
-    r"(?P<doc>(?:[\w.-]+/)*(?:design|proposal|tasks)\.md)(?::(?P<line>\d+))?"
+    r"(?P<doc>(?:[\w.-]+/)*(?:design|proposal|tasks)\.md|(?:[\w.-]+/)*specs/[\w.-]+/spec\.md)"
+    r"(?::(?P<line>\d+))?"
     r"(?:\s+(?P<sec>Decision\s+\d+|Risks(?:\s*/\s*Trade-offs)?|Goals(?:\s*/\s*Non-Goals)?"
     r"|Non-Goals|Context|Migration Plan))?"
     r"|(?P<qa>Q&(?:amp;)?A\.md)(?::(?P<qaline>\d+))?"
@@ -2363,8 +2562,11 @@ def _resolve_citation(m: re.Match, root: Path, change: str | None,
     repository has nothing it could mean."""
     if m["doc"]:
         name = Path(m["doc"]).name
+        # A capability's spec is cited by its path inside the change (`specs/owner-list/
+        # spec.md:123`, eval run 11's CONTEXT card, left plain beside linked siblings).
+        inside = m["doc"] if m["doc"].startswith("specs/") else name
         rel = m["doc"] if "/" in m["doc"] and (Path(root) / m["doc"]).is_file() else (
-            f"{change}/{name}" if change else None)
+            f"{change}/{inside}" if change else None)
         if not rel or not (Path(root) / rel).is_file():
             return None
         lines = _doc_lines(root, rel)
@@ -2937,6 +3139,120 @@ def resolve_refs(items, root: Path):
     return out
 
 
+# --------------------------------------------------------------------------- #
+# A card's quoted code: the whole statement, never a whole class
+# --------------------------------------------------------------------------- #
+
+#: The most lines a card's quote shows open; the rest of the window is folded under it.
+#: Eval run 11 embedded a 41-line class (OwnerPageRequest.java:20-60) in one assumption.
+SNIPPET_LINES = 12
+#: The most lines a one-line anchor is widened to when it sits inside a longer statement.
+STATEMENT_LINES = 6
+#: The languages whose statements continue on lines that open with `.foo()` or `)`.
+_STATEMENT_SUFFIXES = frozenset((".java", ".kt", ".kts", ".ts", ".tsx", ".js", ".jsx",
+                                 ".mjs", ".cs", ".scala", ".groovy", ".swift", ".go", ".dart"))
+#: A line that continues the one above it: `.toList();`, `?.x`, `)`, `&& b`, `+ "x"`.
+_CONT_START = re.compile(r"^(?:\.\w|\?\.|\)|\]|\}\s*\)|&&|\|\||\?\s|:\s|->|=>|\+\s)")
+#: A line the statement goes on after: it ends in `(`, `,`, `.`, `=`, an operator.
+_OPEN_END = re.compile(r"(?:\(|\[|,|\.|=|\+|&&|\|\||\?|->|=>)$")
+
+
+def widen_anchor(ref: str, root: Path | None) -> str:
+    """`path:142` → `path:139-142` when line 142 is the tail of a longer statement.
+
+    Eval run 11 pinned two findings to OwnerRestController.java:142, which reads
+    `.toList();` — the throwing `.orElseThrow(…)` was line 141, off the card. A one-line
+    anchor in a code file is widened to the statement it sits in: back over lines that
+    continue the one above (`.foo()`, `)`, `&&`) or follow one left open (`(`, `,`, `=`),
+    forward while the line itself is left open, never past `STATEMENT_LINES`. A line that
+    is a whole statement already, a range, or a file the page cannot read stays as is."""
+    m = re.match(r"^(.*):(\d+)$", ref)
+    if not m or root is None or Path(m[1]).suffix not in _STATEMENT_SUFFIXES:
+        return ref
+    rel, n = m[1], int(m[2])
+    try:
+        lines = (Path(root) / rel).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return ref
+    if not 1 <= n <= len(lines):
+        return ref
+
+    def code(i: int) -> str:
+        return re.sub(r"\s//.*$", "", lines[i - 1]).strip()
+
+    def comment(s: str) -> bool:
+        return not s or s.startswith(("//", "/*", "*"))
+    lo = hi = n
+    while hi - lo + 1 < STATEMENT_LINES and lo > 1 and not comment(code(lo - 1)):
+        if not (_CONT_START.match(code(lo)) or _OPEN_END.search(code(lo - 1))):
+            break
+        lo -= 1
+    while hi - lo + 1 < STATEMENT_LINES and hi < len(lines) and not comment(code(hi + 1)):
+        if not (_OPEN_END.search(code(hi)) or _CONT_START.match(code(hi + 1))):
+            break
+        hi += 1
+    return ref if lo == hi else f"{rel}:{lo}-{hi}"
+
+
+def _snapped_spans(ref: str, root: Path) -> tuple[str, list, list] | None:
+    """`(path, asked, drawn)`: the spans the ref names (past a leading comment) and the
+    spans `extract-snippet.py` will draw — a single span closed down to its brace — or None
+    when the file cannot be read."""
+    from ..shared.snippets import _extract_module
+    mod = _extract_module()
+    try:
+        rel, spans = mod.parse_ref(ref)
+        lines = (Path(root) / rel).read_text(encoding="utf-8").splitlines()
+    except (SystemExit, OSError, UnicodeDecodeError):
+        return None
+    spans = [(s, min(e, len(lines))) for s, e in spans if s <= len(lines)]
+    if len(spans) != 1:
+        return rel, spans, spans
+    start, end = spans[0]
+    start = mod._first_code_line(lines, start, end)
+    return rel, [(start, end)], [(start, mod._closing_line(lines, start, end))]
+
+
+def _spans_ref(rel: str, spans: list[tuple[int, int]]) -> str:
+    return rel + ":" + ",".join(f"{s}-{e}" if e != s else f"{s}" for s, e in spans)
+
+
+def _first_lines(spans: list[tuple[int, int]], n: int) -> list[tuple[int, int]]:
+    """The first `n` lines of `spans`."""
+    out = []
+    for s, e in spans:
+        if n <= 0:
+            break
+        out.append((s, min(e, s + n - 1)))
+        n -= out[-1][1] - s + 1
+    return out
+
+
+def snippet_card(ref: str, caption: str | None, root: Path) -> str:
+    """One card's quote: the anchor widened to its statement (`widen_anchor`), and at most
+    `SNIPPET_LINES` lines open. A window that would draw more — a long range, or a one-line
+    anchor on a class opener that the snippet closes 40 lines down (eval run 11:
+    OwnerPageRequest.java:20 drew the whole class) — opens on the lines the ref names, up
+    to the cap, and folds the rest under a `N more lines` toggle."""
+    from ..shared.snippets import snippet_html
+    ref = widen_anchor(ref, root)
+    got = _snapped_spans(ref, root)
+    total = sum(e - s + 1 for s, e in got[2]) if got else 0
+    if total <= SNIPPET_LINES:
+        return snippet_html(ref, caption, root)
+    rel, asked, drawn = got
+    head = _first_lines(asked, SNIPPET_LINES)
+    last = head[-1][1]
+    rest = [(max(s, last + 1), e) for s, e in drawn if e > last]
+    more = sum(e - s + 1 for s, e in rest)
+    out = snippet_html(_spans_ref(rel, head), caption, root, exact=True)
+    if more:
+        out += (f'<details class="snipmore"><summary>{more} more line'
+                f'{"" if more == 1 else "s"}</summary>'
+                + snippet_html(_spans_ref(rel, rest), None, root, exact=True) + "</details>")
+    return out
+
+
 # There is no `verdict_band_html` any more, and that is the point of this note: the band
 # it built — full-bleed amber, the score at 3.4rem, a ten-pip dial, the bullets beside it —
 # said the masthead's pill again a screenful lower and spent the first screenful of a review
@@ -3153,16 +3469,20 @@ def push_pr_button(spec) -> str:
             f'data-tip="{html.escape(tip, quote=True)}">{html.escape(face)}</button>')
 
 
-#: Said once, muted, where the publish button would be, when the branch has no pull
+#: Said on hover of the counts line, where the publish button would be, when there is no pull
 #: request: run 6 simply had no button and no `on GitHub ↗` links, and a reader comparing
 #: it with a page that had them saw controls missing with no reason given.
 NO_PR_LINE = "No pull request yet — no GitHub links or publishing."
 
 
 def no_pr_line(spec) -> str:
+    """` data-tip="No pull request yet…"` for the counts line, or nothing.
+
+    A hover on the line the publish button would end, not a line of its own: eval run 11
+    counted it among the visible one-liners a busy reviewer reads past."""
     if not spec.get("_noPr") or spec.get("_prPush"):
         return ""
-    return f'<p class="sub nopr">{html.escape(NO_PR_LINE)}</p>'
+    return f' data-tip="{html.escape(NO_PR_LINE, quote=True)}"'
 
 
 def push_pr_dialog(spec) -> str:

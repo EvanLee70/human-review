@@ -19,8 +19,10 @@ So the measurement moves here, and pays for being self-contained by being approx
     local has a declared type this project also declares, and `Type.foo(…)` — and the same
     four shapes written as method references (`field::foo`, `Type::foo`, `this::foo`,
     `Type::new` for a declared constructor), which is how a stream calls them. A call whose
-    receiver has no known type resolves only when exactly one class in the project declares
-    a method by that name; otherwise it is dropped rather than guessed at.
+    receiver is a capitalised name the project does not declare (`Integer.parseInt`) is a
+    library's and is dropped. A call whose receiver has no known type resolves only when
+    exactly one class in the project declares a method by that name; otherwise it is
+    dropped rather than guessed at.
   * **`flowCc`** is the plain sum over the DISTINCT methods reached (cycles counted once).
     Summing needs no McCabe bookkeeping: straight-line code already scores 0.
 
@@ -82,6 +84,11 @@ PACKAGE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.M)
 # purpose: one map per file is enough to type the receiver of nearly every call, and a name
 # reused for two types in one file is rarer than the calls this resolves.
 VAR = re.compile(r"\b([A-Z]\w*)(?:\s*<[^<>;{}]*>)?(?:\s*\[\s*\])?\s+([a-z_$]\w*)\s*(?=[;=,):])")
+# A constant is capitalised like a type (`INSTANCE.run()`, `UUID.randomUUID()`), and a
+# capitalised receiver nobody declared is read as a type from outside the project. So the
+# constants are typed too — only where they are initialised, which is where `Type NAME =`
+# cannot be anything else.
+CONST = re.compile(r"\b([A-Z]\w*)(?:\s*<[^<>;{}]*>)?\s+([A-Z][A-Z0-9_]*)\s*(?==)")
 CALL = re.compile(r"(?:(\w+)\s*\.\s*)?\b([A-Za-z_$]\w*)\s*\(")
 # A method reference is a call the stream will make: `.map(ownerMapper::toOwnerDto)` runs
 # the whole mapper chain exactly as `ownerMapper.toOwnerDto(o)` inside a lambda would. Read
@@ -286,7 +293,7 @@ class Index:
         simple = decl.group(1)
         fqcn = f"{pkg}.{simple}" if pkg else simple
         self.classes[simple] = fqcn
-        types = {name: t for t, name in VAR.findall(code)}
+        types = {name: t for t, name in VAR.findall(code) + CONST.findall(code)}
         class_path = self._paths(text, code, decl.start()).get("path", "")
         for m in DECL.finditer(code, decl.end()):
             ret, name, params = m.group(1), m.group(2), m.group(3)
@@ -301,12 +308,11 @@ class Index:
                       "cc": 0, "cyc": 0, "hits": [], "calls": set(), "types": types})
             hits = [_hit(path, code, lines, at + off, inc, why)
                     for off, inc, why in increments(body)]
-            if any(c == name for _, c in calls):
+            back = _calls_back(body, name, simple)
+            if back is not None:
                 # Self-recursion is charged once, at the first call that closes the loop —
                 # the line a reader has to see to believe the +1.
-                back = next((c for c in CALL.finditer(body) if c.group(2) == name), None)
-                hits.append(_hit(path, code, lines, at + (back.start(2) if back else 0),
-                                 1, "recursion"))
+                hits.append(_hit(path, code, lines, at + back, 1, "recursion"))
             method["cc"] += sum(h["inc"] for h in hits)
             method["cyc"] += cyclomatic(body)
             method["hits"] += hits
@@ -376,6 +382,13 @@ class Index:
             # the same over-count the bytecode extractor admitted to.
             return [k for k in self.by_name.get(called, []) if k.rsplit("#", 1)[0] != fq] \
                 if fq in self.classes.values() else []
+        if recv[:1].isupper():
+            # A capitalised receiver that is neither a typed variable nor a class of this
+            # project is a type from somewhere else — `Integer`, `String`, `List`. Its
+            # methods are not ours, however unique the name: `Integer.parseInt` bound to the
+            # branch's new private `OwnerPageRequest#parseInt` in eval run 11 and put +2 on
+            # four MCP tools nobody touched.
+            return []
         return self._unique(called)
 
     def _unique(self, called: str) -> list[str]:
@@ -408,6 +421,26 @@ class Index:
                     seen.add(target)
                     queue.append(target)
         return order
+
+
+def _calls_back(body: str, name: str, simple: str) -> int | None:
+    """Offset of the first call in `body` that is the method calling itself, or None.
+
+    Only a call that can only mean this class is one: bare `name(…)`, `this.name(…)`, or
+    `Own.name(…)` (and the same as a method reference). A name match alone is not —
+    `return Integer.parseInt(value);` inside a helper called `parseInt` is the JDK, and
+    charging it as recursion put a phantom +1 on `GET /api/owners` in eval run 11.
+    `super.name(…)` is the parent's body, not a loop back, and `a().name(…)` is a call
+    on whatever `a()` returns."""
+    own = {"", "this", simple}
+    for c in CALL.finditer(body):
+        if c.group(2) == name and (c.group(1) or "") in own \
+                and not (c.group(1) is None and body[:c.start(2)].rstrip().endswith(".")):
+            return c.start(2)
+    for r in METHOD_REF.finditer(body):
+        if r.group(2) == name and r.group(1) in own:
+            return r.start(2)
+    return None
 
 
 MAX_LINE = 160

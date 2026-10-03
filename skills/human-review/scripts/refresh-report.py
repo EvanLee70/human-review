@@ -45,6 +45,7 @@ step and the Demo tab already name, not a page with its argument deleted.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import subprocess
@@ -274,6 +275,15 @@ def session_id(review: Path) -> str | None:
         return None
 
 
+def run_started(review: Path) -> float | None:
+    """`.started` as epoch seconds, or None when the run never wrote one."""
+    try:
+        raw = (review / ".started").read_text(encoding="utf-8").strip()
+        return dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except (OSError, ValueError):
+        return None
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -331,6 +341,17 @@ def main(argv=None) -> int:
         print(f"[refresh] no {FILM_SCRIPT} — the film's script is model-written and this "
               "program does not write it; rerun-film.py does (the Demo tab's 🤖). The video "
               "step will film nothing.", file=sys.stderr)
+
+    if not args.dry_run:
+        # The logs an earlier build left beside the page (eval run 11: a `refresh.out` from
+        # another folder, a `run-steps-2.out` from an old base) — whatever was last written
+        # before this run's `.started`. This run's own, and this refresh's, are newer.
+        started = run_started(review)
+        if started is not None:
+            sys.path.insert(0, str(HERE))
+            from preflight import sweep_old_logs
+            for name in sweep_old_logs(review, started):
+                print(f"[refresh] removed {name}, a log from before this run", flush=True)
 
     commands = plan(review, args.steps, args.base, args.serve,
                     args.allow_model, session_id(review), args.timing, args.force)

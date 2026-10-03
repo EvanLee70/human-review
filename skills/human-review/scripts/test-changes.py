@@ -42,7 +42,9 @@ carries `baseLine` (its declaration at the base) and, with a GitHub `origin`, `b
 the blob at the base commit — and that is what the page opens.
 
 A test renamed in place (same spot, same tags, mostly the same body, a new title) is one
-`modified` row with `renamedFrom`, not one deleted and one added; see `pair_renames`.
+`modified` row with `renamedFrom`, not one deleted and one added; see `pair_renames`. One
+rewritten — moved, or retitled over a body of the same shape — is one `modified` row with
+`rewrittenFrom`; see `_rewrites`.
 
 Usage:
     test-changes.py --base origin/main [path ...] [--out assets/test-changes.json]
@@ -446,6 +448,35 @@ def pair_renames(rel: str, before: str, after: str, rows: list[dict],
                       and min(len(b_body), len(a_body)) >= RENAME_MIN_BODY))
             if ok:
                 scored.append((name + body, g["name"], n["name"]))
+    pairs = _one_to_one(scored)
+    # What the rename pass left over gets the looser, position-free look of `_rewrites`.
+    rewrites = _one_to_one(_rewrites(
+        rel, [g for g in gone if g["name"] not in pairs.values()],
+        [n for n in new if n["name"] not in pairs], b_lines, a_lines, b_cases, a_cases))
+    if not pairs and not rewrites:
+        return rows
+    was = {r["name"]: r for r in gone}
+    taken_old = set(pairs.values()) | set(rewrites.values())
+    out = []
+    for r in rows:
+        if r["status"] == "deleted" and r["name"] in taken_old:
+            continue
+        if r["status"] == "added" and (r["name"] in pairs or r["name"] in rewrites):
+            renamed = r["name"] in pairs
+            old = was[pairs[r["name"]] if renamed else rewrites[r["name"]]]
+            r = dict(r, status="modified",
+                     **{"renamedFrom" if renamed else "rewrittenFrom": old["name"]})
+            if not renamed and old.get("baseLine"):
+                r["rewrittenFromLine"] = old["baseLine"]
+            if old.get("wasSilenced"):
+                r["wasSilenced"] = old["wasSilenced"]
+        out.append(r)
+    return out
+
+
+def _one_to_one(scored: list[tuple]) -> dict[str, str]:
+    """`{new name: old name}` from `(score, old, new)` candidates, best first, each name
+    used once."""
     taken_old, taken_new, pairs = set(), set(), {}
     for _, old, nw in sorted(scored, reverse=True):
         if old in taken_old or nw in taken_new:
@@ -453,19 +484,108 @@ def pair_renames(rel: str, before: str, after: str, rows: list[dict],
         taken_old.add(old)
         taken_new.add(nw)
         pairs[nw] = old
-    if not pairs:
-        return rows
-    was = {r["name"]: r for r in gone}
+    return pairs
+
+
+# --------------------------------------------------------------------------- #
+# a test that was rewritten, not replaced
+# --------------------------------------------------------------------------- #
+# Eval run 11: a rename that also moved — `a search is not overwritten by the initial load
+# answering late` became `so a late initial load does not overwrite a search`, sixty lines
+# up, inside a new describe — and a test rewritten under a new name in place — `should
+# return expected owners (called once)` → `lists the first page by name by default, as one
+# typed page`, the same skeleton against the new API — came out as two tests the run lost
+# and two nobody had written, on the −8 and on the +56.
+#
+# So what neither name nor position paired is compared on content alone, still within one
+# file and under the same tags, and a pair has to show it one of two ways:
+#
+#   * the same test said again   — the titles share most of their words (REWRITE_NAME_SIM,
+#                                  at least REWRITE_NAME_MIN of them) and the bodies still
+#                                  share something (REWRITE_BODY_WITH_NAME);
+#   * the same test, renamed     — the bodies share most of their tokens (REWRITE_BODY_SIM)
+#                                  *and* their statement-by-statement shape
+#                                  (REWRITE_SHAPE_SIM), each RENAME_MIN_BODY lines or more.
+#
+# Tokens are the body's identifiers split on case, its numbers and its string literals,
+# without the words every test in every language is made of (`expect`, `const`, `Given`).
+# Shape is each statement with every name and literal blanked out: `x.x().x((x) => x(x).x(x), x)`.
+# Shared vocabulary alone never pairs — two specs of one component share every word.
+REWRITE_NAME_SIM = 0.6
+REWRITE_NAME_MIN = 3
+REWRITE_BODY_WITH_NAME = 0.2
+REWRITE_BODY_SIM = 0.6
+REWRITE_SHAPE_SIM = 0.6
+_REWRITE_STOP = frozenset("""
+a an the and or but not no to of in on at by for with as is are be it its this that so
+do does did should must will can when then given i we
+const let var new return void public private protected final static async await function
+expect assert assertthat to tobe toequal fixture detectchanges it test describe
+""".split())
+
+
+def _body_tokens(body: list[str]) -> list[str]:
     out = []
-    for r in rows:
-        if r["status"] == "deleted" and r["name"] in taken_old:
-            continue
-        if r["status"] == "added" and r["name"] in pairs:
-            old = was[pairs[r["name"]]]
-            r = dict(r, status="modified", renamedFrom=old["name"])
-            if old.get("wasSilenced"):
-                r["wasSilenced"] = old["wasSilenced"]
-        out.append(r)
+    for line in body:
+        for m in re.finditer(r"'[^']*'|\"[^\"]*\"|`[^`]*`|[A-Za-z_$][\w$]*|\d+", line):
+            w = m.group(0)
+            if w[0] in "'\"`":
+                out.append(w.lower())
+                continue
+            for p in re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", w):
+                if p.lower() not in _REWRITE_STOP:
+                    out.append(p.lower())
+    return out
+
+
+def _shape(line: str) -> str:
+    line = re.sub(r"'[^']*'|\"[^\"]*\"|`[^`]*`", "s", line)
+    return re.sub(r"\s+", "", re.sub(r"[A-Za-z_$][\w$]*|\d+", "x", line))
+
+
+def _title_words(name: str) -> set[str]:
+    """A title's words, a crude stem each (its first five letters): `overwritten` and
+    `overwrite` are one word, `search` and `searching` too."""
+    words = re.findall(r"[A-Za-z]+", re.sub(r"([a-z])([A-Z])", r"\1 \2", name))
+    return {w.lower()[:5] for w in words if w.lower() not in _REWRITE_STOP}
+
+
+def _rewrites(rel: str, gone: list[dict], new: list[dict], b_lines: list[str],
+              a_lines: list[str], b_cases: dict, a_cases: dict) -> list[tuple]:
+    """`(score, old name, new name)` for every pair that reads as one test rewritten."""
+    if not gone or not new:
+        return []
+    b_spans = _spans(rel, "\n".join(b_lines), b_cases)
+    a_spans = _spans(rel, "\n".join(a_lines), a_cases)
+
+    def body(lines, spans, cases, name):
+        _, last = spans[name]
+        return [" ".join(x.split()) for x in lines[cases[name][0]:last]
+                if re.search(r"\w", x) and not _TRAILING.match(x)]
+
+    out = []
+    for g in gone:
+        b_body = body(b_lines, b_spans, b_cases, g["name"])
+        b_tags = _tags_above(b_lines, b_cases[g["name"]][0])
+        b_words = _title_words(g["name"])
+        for n in new:
+            if _tags_above(a_lines, n["line"]) != b_tags:
+                continue
+            a_body = body(a_lines, a_spans, a_cases, n["name"])
+            if not b_body or not a_body:
+                continue
+            tokens = _similar(_body_tokens(b_body), _body_tokens(a_body))
+            a_words = _title_words(n["name"])
+            both = len(b_words & a_words)
+            name = both / max(1, len(b_words | a_words))
+            said_again = (name >= REWRITE_NAME_SIM and both >= REWRITE_NAME_MIN
+                          and tokens >= REWRITE_BODY_WITH_NAME)
+            renamed = (tokens >= REWRITE_BODY_SIM
+                       and min(len(b_body), len(a_body)) >= RENAME_MIN_BODY
+                       and _similar([_shape(x) for x in b_body],
+                                    [_shape(x) for x in a_body]) >= REWRITE_SHAPE_SIM)
+            if said_again or renamed:
+                out.append((name + tokens, g["name"], n["name"]))
     return out
 
 
@@ -482,6 +602,8 @@ _BRACED = (".java", ".kt", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".go")
 _STRINGS = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`")
 _GHERKIN_STOP = re.compile(r"^\s*(?:Scenario|Scenario Outline|Scenario Template|Example|"
                            r"Rule|Feature|Background)\s*:|^\s*@")
+#: A line that is nobody's code: blank, or a comment and nothing else.
+_TRAILING = re.compile(r"^\s*(?:$|//|/\*|\*|#)")
 
 
 def case_span(rel: str, lines: list[str], line: int, next_start: int | None) -> tuple[int, int]:
@@ -523,7 +645,13 @@ def case_span(rel: str, lines: list[str], line: int, next_start: int | None) -> 
                 break
             if lines[n - 1].strip():
                 last = n
-    return first, max(last, line)
+    # Eval run 11: a span that ran on to the line before the next declaration took in the
+    # blank line between two tests, so deleting the second charged an edit to the first.
+    # A test's own lines end at its last line of code — never on a blank or a comment.
+    last = max(last, line)
+    while last > line and _TRAILING.match(lines[last - 1]):
+        last -= 1
+    return first, last
 
 
 def _spans(rel: str, text: str, cases: dict) -> dict[str, tuple[int, int]]:
@@ -531,6 +659,16 @@ def _spans(rel: str, text: str, cases: dict) -> dict[str, tuple[int, int]]:
     starts = sorted(ln for ln, _ in cases.values())
     return {name: case_span(rel, lines, ln, next((s for s in starts if s > ln), None))
             for name, (ln, _) in cases.items()}
+
+
+def _removed_within(span: tuple[int, int] | None, removed: dict[int, int]) -> bool:
+    """Did the diff take out a line of `span` — the test's own lines *at the base*?
+
+    A removal is read where it was, not where it landed. With `--unified=0` a pure deletion
+    lands on the line *before* the gap, so eval run 11's 'delete Owner' — the test right
+    above a deleted one, its body byte-identical — had that deletion's landing on its own
+    closing brace and was reported edited."""
+    return bool(span) and any(span[0] <= old <= span[1] for old in removed)
 
 
 # --------------------------------------------------------------------------- #
@@ -596,15 +734,13 @@ def _helper_span(rel: str, lines: list[str], line: int) -> tuple[int, int]:
     return case_span(rel, lines, line, None)
 
 
-def changed_helpers(rel: str, after: str, test_spans: dict, added: set[int],
-                    removed: dict[int, int]) -> dict[str, list[dict]]:
-    """`{name: [{"name", "line", "added", "removed"}]}` — every function declared in this
-    test file, outside the tests' own lines, whose body the diff touched. A list per name,
-    because an overload is a second body under the same call."""
-    lines = after.splitlines()
+def _helper_spans(rel: str, text: str, test_spans: dict) -> list[tuple[str, int, int, int]]:
+    """`[(name, declaration line, first, last)]` — every function declared in this test
+    file outside the tests' own lines, in file order."""
+    lines = text.splitlines()
     spans = list(test_spans.values())
     tests = set(test_spans)
-    out: dict[str, list[dict]] = {}
+    out = []
     skip_to = 0
     for i, line in enumerate(lines, start=1):
         if i <= skip_to or any(a <= i <= b for a, b in spans):
@@ -615,8 +751,34 @@ def changed_helpers(rel: str, after: str, test_spans: dict, added: set[int],
         first, last = _helper_span(rel, lines, i)
         # Whatever is declared inside this body is part of it, not a helper of its own.
         skip_to = last
+        out.append((name, i, first, last))
+    return out
+
+
+def changed_helpers(rel: str, after: str, test_spans: dict, added: set[int],
+                    removed: dict[int, int], before: str | None = None,
+                    before_spans: dict | None = None) -> dict[str, list[dict]]:
+    """`{name: [{"name", "line", "added", "removed"}]}` — every function declared in this
+    test file, outside the tests' own lines, whose body the diff touched. A list per name,
+    because an overload is a second body under the same call.
+
+    Removals are counted inside the helper as it stood at the base (`before`), the n-th
+    declaration of a name against the n-th — for the reason `_removed_within` gives. A
+    helper the base did not have falls back to where the removals landed."""
+    at_base: dict[str, list[tuple[int, int]]] = {}
+    if before is not None:
+        for name, _, first, last in _helper_spans(rel, before, before_spans or {}):
+            at_base.setdefault(name, []).append((first, last))
+    out: dict[str, list[dict]] = {}
+    seen: dict[str, int] = {}
+    for name, i, first, last in _helper_spans(rel, after, test_spans):
+        k = seen[name] = seen.get(name, -1) + 1
         plus = sum(1 for n in added if first <= n <= last)
-        minus = sum(1 for n in removed.values() if first <= n <= last)
+        old = at_base.get(name) or []
+        if k < len(old):
+            minus = sum(1 for o in removed if old[k][0] <= o <= old[k][1])
+        else:
+            minus = sum(1 for n in removed.values() if first <= n <= last)
         if plus or minus:
             out.setdefault(name, []).append({"name": name, "line": i,
                                              "added": plus, "removed": minus})
@@ -646,11 +808,11 @@ def classify_file(rel: str, status: str, before: str | None, after: str | None,
     before_cases = scan_cases(rel, before) if before is not None else {}
     after_cases = scan_cases(rel, after) if after is not None else {}
     commented = commented_cases(rel, after) if after is not None else {}
-    touched = added | set(removed.values())
     rows: list[dict] = []
 
     after_spans = _spans(rel, after, after_cases) if after is not None else {}
-    helpers = (changed_helpers(rel, after, after_spans, added, removed)
+    before_spans = _spans(rel, before, before_cases) if before is not None else {}
+    helpers = (changed_helpers(rel, after, after_spans, added, removed, before, before_spans)
                if before is not None and after is not None else {})
     after_lines = after.splitlines() if after is not None else []
     for name, (line, silenced) in sorted(after_cases.items(), key=lambda kv: kv[1][0]):
@@ -659,7 +821,8 @@ def classify_file(rel: str, status: str, before: str | None, after: str | None,
         via = []
         if was is None:
             state = "added"
-        elif any(first <= t <= last for t in touched):
+        elif (any(first <= t <= last for t in added)
+              or _removed_within(before_spans.get(name), removed)):
             state = "modified"
         else:
             via = helpers_called(after_lines, first, last, helpers)
@@ -669,7 +832,6 @@ def classify_file(rel: str, status: str, before: str | None, after: str | None,
             row["viaHelper"] = via
         rows.append(row)
 
-    before_spans = _spans(rel, before, before_cases) if before is not None else {}
     for name, (line, was_silenced) in sorted(before_cases.items(), key=lambda kv: kv[1][0]):
         if name in after_cases:
             continue
@@ -713,11 +875,13 @@ def totals(rows: list[dict]) -> dict:
     are worse than no chip."""
     t = dict.fromkeys(("added", "modified", "deleted", "unchanged", "commented",
                        "disabled", "reenabled", "runningBefore", "runningAfter",
-                       "gained", "lost", "renamed", "viaHelper"), 0)
+                       "gained", "lost", "renamed", "rewritten", "viaHelper"), 0)
     for r in rows:
         t[r["status"]] += 1
         # A rename is one of the `modified`: the run kept the test under a new title.
         t["renamed"] += bool(r.get("renamedFrom"))
+        # …and so is a test rewritten under a new title, or moved (`_rewrites`).
+        t["rewritten"] += bool(r.get("rewrittenFrom"))
         # So is a test edited only through a same-file helper it calls (`helpers_called`).
         t["viaHelper"] += bool(r.get("viaHelper"))
         ran_before = r["status"] != "added" and not r.get("wasSilenced")
@@ -815,7 +979,8 @@ def main(argv=None) -> int:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(text, encoding="utf-8")
         detail = ", ".join(f"{t[k]} {k}" for k in
-                           ("added", "modified", "renamed", "viaHelper", "deleted", "commented",
+                           ("added", "modified", "renamed", "rewritten", "viaHelper", "deleted",
+                            "commented",
                             "disabled", "reenabled")
                            if t[k])
         print(f"[test-changes] {len(rows)} test cases in changed test files -> {args.out}"

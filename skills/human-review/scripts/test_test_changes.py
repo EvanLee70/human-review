@@ -732,3 +732,174 @@ def test_without_a_github_remote_a_deleted_test_gets_no_guessed_url(tmp_path):
 ])
 def test_only_a_github_remote_becomes_a_blob_url(remote, repo):
     assert tc.github_repo(remote) == repo
+
+
+# --------------------------------------------------------------------------- #
+# a test is edited by a change to its own lines, never by its neighbour's
+# --------------------------------------------------------------------------- #
+# Eval run 11: owner.service.spec.ts lost its last test, 'search owners by last name prefix',
+# and the blank line above it. `--unified=0` lands a pure deletion on the line *before* the
+# gap — the closing `});` of 'delete Owner', whose body was byte-identical — and the ledger
+# filed 'delete Owner' under edited.
+SERVICE_BEFORE = """describe('OwnerService', () => {
+  function ownerUrl(id) {
+    return '/api/owners/' + id;
+  }
+
+  it('delete Owner', () => {
+    ownerService.deleteOwner('1').subscribe();
+    const req = http.expectOne(ownerUrl(1));
+    expect(req.request.method).toEqual('DELETE');
+  });
+
+  it('search owners by last name prefix', () => {
+    ownerService.searchOwners('Fr').subscribe();
+    const req = http.expectOne('/api/owners?lastName=Fr');
+    expect(req.request.method).toEqual('GET');
+  });
+});
+"""
+
+
+def test_deleting_the_next_test_does_not_edit_the_one_above_it(tmp_path):
+    after = SERVICE_BEFORE.replace(SERVICE_BEFORE[SERVICE_BEFORE.index(
+        "\n  it('search owners"):SERVICE_BEFORE.index("});\n", SERVICE_BEFORE.index(
+            "it('search owners")) + 4], "")
+    assert "search owners" not in after and after.endswith("  });\n});\n")
+    rel = "src/app/owner.service.spec.ts"
+    repo, base = _git_repo(tmp_path, rel, SERVICE_BEFORE, after)
+    rows = {r["name"]: r for r in tc.collect(repo, base, [])}
+    assert rows["delete Owner"]["status"] == "unchanged"
+    assert rows["search owners by last name prefix"]["status"] == "deleted"
+
+
+def test_a_helper_right_above_a_deletion_was_not_rewritten_by_it():
+    """The same landing, one level down: a helper whose closing brace sits right above a
+    deleted test is not a helper this change set rewrote, and the test calling it is not
+    edited through it."""
+    before = ("async function addVisit(page) {\n  await page.click('#add');\n}\n\n"
+              "test('books a visit', async ({ page }) => {\n  await addVisit(page);\n});\n\n"
+              "async function gone(page) {\n  await page.goto('/x');\n}\n")
+    after = before[:before.index("\nasync function gone")]
+    added, removed = tc.hunk_lines(_unified0(before, after))
+    rows = {r["name"]: r for r in
+            tc.classify_file("v.spec.ts", "M", before, after, added, removed)}
+    assert rows["books a visit"]["status"] == "unchanged"
+    assert "viaHelper" not in rows["books a visit"]
+
+
+@pytest.mark.parametrize("rel, text, line, span", [
+    ("a.spec.ts", "it('a', () => expect(1).toBe(1));\n\n// the next one\n", 1, (1, 1)),
+    ("a.feature", "  Scenario: one\n    Given x\n    # parked: Then y\n\n", 1, (1, 2)),
+])
+def test_a_case_s_own_lines_never_end_on_a_blank_or_a_comment(rel, text, line, span):
+    assert tc.case_span(rel, text.splitlines(), line, None) == span
+
+
+# --------------------------------------------------------------------------- #
+# a test rewritten is one test, edited — wherever it moved
+# --------------------------------------------------------------------------- #
+# Eval run 11: two rewrites read as two losses and two new tests. One kept its subject and
+# moved sixty lines into a new describe, its title reworded; the other kept its place and
+# its skeleton, and took a new title over the new API.
+LIST_BEFORE = """describe('OwnerListComponent', () => {
+  it('should create OwnerListComponent', () => {
+    expect(component).toBeTruthy();
+  });
+
+  it('a search is not overwritten by the initial load answering late', () => {
+    const initialLoad = new Subject<Owner[]>();
+    getOwnersSpy.and.returnValue(initialLoad);
+    fixture.detectChanges();
+    component.searchByLastName('Franklin');
+    initialLoad.next([testOwner, davis]);
+    expect(component.owners).toEqual([testOwner]);
+  });
+
+  it('should return expected owners (called once)', () => {
+    ownerService.getOwners().subscribe((owners) => expect(owners).toEqual(expectedOwners), fail);
+    const req = httpTestingController.expectOne(ownerService.entityUrl);
+    expect(req.request.method).toEqual('GET');
+    req.flush(expectedOwners);
+  });
+
+  it('search owners by last name prefix', () => {
+    ownerService.searchOwners('Fr').subscribe((owners) => {
+      expect(owners).toEqual(expectedOwners);
+    });
+    const req = httpTestingController.expectOne(ownerService.entityUrl + '?lastName=Fr');
+    expect(req.request.method).toEqual('GET');
+    req.flush(expectedOwners);
+  });
+});
+"""
+
+LIST_AFTER = """describe('OwnerListComponent', () => {
+  it('lists the first page by name by default, as one typed page', () => {
+    ownerService.listOwners().subscribe((page) => expect(page).toEqual(expectedPage), fail);
+    const req = httpTestingController.expectOne((r) => r.url === ownerService.entityUrl);
+    expect(req.request.method).toEqual('GET');
+    expect(req.request.urlWithParams).toEqual(ownerService.entityUrl + '?page=0');
+    req.flush(expectedPage);
+  });
+
+  it('sends the filter, page, size and sort it is given', () => {
+    ownerService.listOwners({ lastName: 'Fr', page: 2 }).subscribe((page) => expect(page).toEqual(expectedPage), fail);
+    const req = httpTestingController.expectOne((r) => r.url === ownerService.entityUrl);
+    expect(req.request.urlWithParams).toEqual(ownerService.entityUrl + '?lastName=Fr&page=2');
+    req.flush(expectedPage);
+  });
+
+  describe('only the latest request answers', () => {
+    it('so a late initial load does not overwrite a search', async () => {
+      await typeAndSubmit('Franklin');
+      initialLoad.next(pageOf([george, betty], 26));
+      fixture.detectChanges();
+      expect(component.page).toEqual(pageOf([george], 1));
+    });
+
+    it('so a late failure does not show an error', async () => {
+      await typeAndSubmit('Franklin');
+      initialLoad.error('boom');
+      expect(exists('#ownersError')).toBeFalse();
+    });
+  });
+});
+"""
+
+
+def _rewritten_rows(tmp_path):
+    rel = "src/app/owner-list.component.spec.ts"
+    repo, base = _git_repo(tmp_path, rel, LIST_BEFORE, LIST_AFTER)
+    return {r["name"]: r for r in tc.collect(repo, base, [])}
+
+
+def test_a_test_reworded_and_moved_is_one_test_rewritten(tmp_path):
+    """Most of the title's words, and something of the body: the same test said again."""
+    row = _rewritten_rows(tmp_path)["so a late initial load does not overwrite a search"]
+    assert row["status"] == "modified"
+    assert row["rewrittenFrom"] == "a search is not overwritten by the initial load answering late"
+    assert row["rewrittenFromLine"] == 6 and "renamedFrom" not in row
+
+
+def test_a_test_retitled_over_the_same_skeleton_is_one_test_rewritten(tmp_path):
+    """No word of the title in common — the body's tokens and its statement-by-statement
+    shape carry it."""
+    row = _rewritten_rows(tmp_path)["lists the first page by name by default, as one typed page"]
+    assert row["status"] == "modified"
+    assert row["rewrittenFrom"] == "should return expected owners (called once)"
+
+
+def test_shared_vocabulary_alone_is_not_a_rewrite(tmp_path):
+    """'search owners by last name prefix' shares most of its words with the new
+    'sends the filter…' — the same service, the same HTTP mock — but neither its title
+    nor its shape: conservative leaves it gone, and the new one new."""
+    rows = _rewritten_rows(tmp_path)
+    assert rows["search owners by last name prefix"]["status"] == "deleted"
+    assert rows["should create OwnerListComponent"]["status"] == "deleted"
+    assert rows["sends the filter, page, size and sort it is given"]["status"] == "added"
+    assert rows["so a late failure does not show an error"]["status"] == "added"
+    t = tc.totals(list(rows.values()))
+    assert (t["added"], t["modified"], t["deleted"], t["rewritten"]) == (2, 2, 2, 2)
+    assert (t["gained"], t["lost"]) == (2, 2), "a rewrite moves neither half of the chip"
+    assert t["runningAfter"] - t["runningBefore"] == t["gained"] - t["lost"]

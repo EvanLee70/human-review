@@ -4,6 +4,7 @@ from __future__ import annotations
 import functools
 import html
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -211,11 +212,19 @@ SEQ_ALSO = {"added": ("new test", "This branch wrote this test."),
             "modified": ("edited test", "This branch edited this test.")}
 
 
-def _why_chip(kind: str | None, also: str | None = None) -> str:
+#: A tagged test the branch neither wrote nor edited, whose file or a module it imports
+#: directly the branch did change. Eval run 11: 'Add a visit to an existing pet…' had its
+#: add-visit.dsl.ts edited and its picture moved +20/−20, and its row said only `tagged`.
+SEQ_TOUCHED = ("touched", "This branch changed: ")
+
+
+def _why_chip(kind: str | None, also: str | None = None, via: tuple[str, ...] = ()) -> str:
     if kind not in SEQ_WHY:
         return ""
     face, tip = SEQ_WHY[kind]
     extra = SEQ_ALSO.get(also) if kind == "tagged" else None
+    if kind == "tagged" and also == "touched" and via:
+        extra = (SEQ_TOUCHED[0], SEQ_TOUCHED[1] + ", ".join(Path(v).name for v in via))
     status = ""
     if extra:
         face, tip = f"{face} \u00b7 {extra[0]}", f"{tip}. {extra[1]}"
@@ -241,6 +250,69 @@ def ledger_status(test_rel: str, scenarios, tests) -> str | None:
                     return "added"
                 found = "modified"
     return found
+
+
+@functools.lru_cache(maxsize=None)
+def _branch_changed(root: str, base: str) -> frozenset[str]:
+    """Every path the branch changed since its merge-base with `base`, work tree included —
+    the same comparison `_moved_since_base` makes. Empty when git cannot say."""
+    def git(*args):
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True)
+    mb = git("merge-base", base, "HEAD").stdout.strip()
+    if not mb:
+        return frozenset()
+    r = git("diff", "--name-only", "--no-renames", mb)
+    return frozenset(r.stdout.split()) if r.returncode == 0 else frozenset()
+
+
+_TS_IMPORT = re.compile(r"""(?:\bfrom\s+|\bimport\s+|\brequire\()['"](\.{1,2}/[^'"]+)['"]""")
+_JAVA_IMPORT = re.compile(r"^\s*import\s+(static\s+)?([\w.]+)\s*;", re.M)
+
+
+def _direct_imports(test_rel: str, root: Path) -> list[str]:
+    """The repo files `test_rel` imports itself — one level, never what those import.
+
+    TypeScript/JavaScript: the relative module specifiers, resolved the way Node does.
+    Java: each imported class looked up under the test module's `src/test/java` and
+    `src/main/java`. A Gherkin file imports nothing."""
+    try:
+        text = (root / test_rel).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    found: list[str] = []
+    if test_rel.endswith(".java"):
+        module = test_rel.split("/src/", 1)[0] + "/src" if "/src/" in test_rel else "src"
+        for static, name in _JAVA_IMPORT.findall(text):
+            parts = name.split(".")
+            if static or parts[-1] == "*":
+                parts = parts[:-1]
+            for tree in ("test/java", "main/java"):
+                rel = f"{module}/{tree}/{'/'.join(parts)}.java"
+                if (root / rel).is_file():
+                    found.append(rel)
+                    break
+        return found
+    if not re.search(r"\.(?:[cm]?[jt]sx?)$", test_rel):
+        return found
+    here = Path(test_rel).parent
+    for spec in _TS_IMPORT.findall(text):
+        base = Path(os.path.normpath(here / spec)).as_posix()
+        for cand in (base, *(base + ext for ext in (".ts", ".tsx", ".js", ".mjs")),
+                     base + "/index.ts", base + "/index.js"):
+            if (root / cand).is_file():
+                found.append(cand)
+                break
+    return found
+
+
+def touched_via(test_rel: str, root: Path) -> tuple[str, ...]:
+    """What the branch changed among the test's own file and the files it imports directly."""
+    changed = _branch_changed(str(root), SNIPPET_BASE)
+    if not changed:
+        return ()
+    hits = [test_rel] if test_rel in changed else []
+    hits += [f for f in dict.fromkeys(_direct_imports(test_rel, root)) if f in changed]
+    return tuple(hits)
 
 
 def _names(tests, limit: int = 4) -> str:
@@ -420,7 +492,7 @@ def _folded_pair(puml_rel: str, test_rel: str, pieces: list[str],
                  quoted: list[str] = (),
                  scenarios: list[tuple[int, str]] = (),
                  cat: str | None = None, why: str | None = None,
-                 also: str | None = None) -> str:
+                 also: str | None = None, via: tuple[str, ...] = ()) -> str:
     """The test and the sequence its run recorded, foldable together — with the quoted
     test folded closed inside it, and the whole pair folded closed too.
 
@@ -462,7 +534,7 @@ def _folded_pair(puml_rel: str, test_rel: str, pieces: list[str],
     return (f'<details class="testpair" open id="{pair_anchor(puml_rel)}"'
             f' data-test="{html.escape(test_rel)}">'
             f'<summary data-tip="{html.escape(test_rel)}">'
-            f'{_cat_chip(cat, test_rel)}{_why_chip(why, also)}{name}</summary>'
+            f'{_cat_chip(cat, test_rel)}{_why_chip(why, also, via)}{name}</summary>'
             + src
             + "\n".join(x.strip("\n") for x in pieces)
             + "</details>")
@@ -989,9 +1061,13 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path,
                 why = ("tagged" if any(ln in tagged.get(test_rel, ()) for ln, _ in scenarios)
                        else None)
             also = ledger_status(test_rel, scenarios, test_changes) if why == "tagged" else None
+            via: tuple[str, ...] = ()
+            if why == "tagged" and also is None:
+                via = touched_via(test_rel, root)
+                also = "touched" if via else None
             parts.append(_folded_pair(puml_rel, test_rel, pieces, quoted, scenarios,
                                       _pair_cat(puml_rel, root,
-                                                authored_cat.get(test_rel)), why, also))
+                                                authored_cat.get(test_rel)), why, also, via))
             register(puml_rel, scenarios)
 
     orphaned = [x for x in snippets if id(x) not in used] + undrawn

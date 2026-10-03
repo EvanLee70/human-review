@@ -14,7 +14,8 @@ The order is the substance of this script, and it is why it is a script:
      this whole page exists to avoid. An empty run list is not a pass either — **absence is
      not success** — and a repository with genuinely no CI is let through only if the guide
      then says *"no build proved this"*.
-  2. **wipe** — and only now. Every fragment producer writes to a fixed path and the
+  2. **wipe** — and only now (`assets/`, and the earlier builds' `*.out` logs beside the
+     page). Every fragment producer writes to a fixed path and the
      renderer inlines whatever it finds with no freshness check, so a step that fails
      silently leaves the previous run's artifact in place: a green `compatible` seal for a
      diff it never saw. Because the wipe is destructive, it comes *after* the gate — a run
@@ -414,7 +415,34 @@ def clear_foreign_model_state(base: str) -> list[str]:
     return gone
 
 
+#: The logs a run leaves beside its page (`run-steps.out`, `refresh.out`, …), top level only.
+LOG_GLOB = "*.out"
+
+#: A log the shell opened for THIS process was created a moment before it started; one
+#: that old is still this run's.
+LOG_SLACK_S = 10.0
+
+
+def sweep_old_logs(review: Path, before: float) -> list[str]:
+    """Remove the top-level `*.out` logs last written before `before` (epoch seconds).
+
+    Eval run 11 served a `refresh.out` from another folder's build, a `run-steps-2.out`
+    measured from an old base and a `run-steps.out` naming tests that no longer exist —
+    beside a page they did not describe, for anyone opening the folder to read as this
+    run's. A log written since is the current run's and stays."""
+    gone = []
+    for f in sorted(review.glob(LOG_GLOB)) if review.is_dir() else []:
+        try:
+            if f.is_file() and f.stat().st_mtime < before:
+                f.unlink()
+                gone.append(f.name)
+        except OSError:
+            continue
+    return gone
+
+
 def main(argv=None) -> int:
+    began = time.time()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base", default="origin/main")
@@ -455,6 +483,8 @@ def main(argv=None) -> int:
     assets.mkdir(parents=True, exist_ok=True)
     for line in clear_foreign_model_state(args.base):
         print(f"[preflight] cleared {line}")
+    for name in sweep_old_logs(HR, began - LOG_SLACK_S):
+        print(f"[preflight] cleared {name}, an earlier build's log")
 
     ledger = Path(__file__).resolve().parent / "steps-ledger.py"
     subprocess.run([sys.executable, str(ledger), "reset"], check=False)

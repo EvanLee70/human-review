@@ -18,6 +18,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -186,6 +187,35 @@ def test_the_wipe_and_the_ledger_reset_happen_together(tmp_path):
     assert not (repo / ".human-review" / "assets" / "old.svg").exists()
     leftover = (repo / ".human-review" / ".steps.json")
     assert not leftover.exists() or json.loads(leftover.read_text()) == []
+
+
+def test_the_wipe_removes_earlier_builds_logs_and_keeps_this_runs(tmp_path):
+    """Eval run 11 served `refresh.out` from another folder's build and a `run-steps-2.out`
+    measured from an old base beside the new page. The wipe takes the top-level `*.out` an
+    earlier build wrote; a log the shell opened for this run (just now) stays, and so does
+    anything that is not a log. A refused gate removes nothing."""
+    repo = _repo(tmp_path)
+    hr = repo / ".human-review"
+    old = time.time() - 3600
+    for name in ("refresh.out", "run-steps-2.out"):
+        (hr / name).write_text("[run-steps] base 5a97353ee542\n")
+        os.utime(hr / name, (old, old))
+    (hr / "notes.txt").write_text("keep")
+    os.utime(hr / "notes.txt", (old, old))
+    (hr / "preflight.out").write_text("")                  # this run's own redirect
+
+    red = _stub_gh(tmp_path, [{"databaseId": 1, "status": "completed",
+                               "conclusion": "failure", "workflowName": "ci"}])
+    assert _run(repo, red).returncode == 1
+    assert (hr / "refresh.out").is_file(), "a refused run must not touch the last guide"
+
+    env = _stub_gh(tmp_path, [{"databaseId": 1, "status": "completed",
+                               "conclusion": "success", "workflowName": "ci"}])
+    p = _run(repo, env)
+    assert p.returncode == 0, p.stderr
+    assert not (hr / "refresh.out").exists() and not (hr / "run-steps-2.out").exists()
+    assert (hr / "preflight.out").is_file() and (hr / "notes.txt").is_file()
+    assert "cleared refresh.out" in p.stdout
 
 
 # ---- Which workflow is authoritative -------------------------------------------------------

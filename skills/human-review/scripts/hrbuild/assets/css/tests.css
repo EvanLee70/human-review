@@ -71,13 +71,25 @@ ul.req-tests li { list-style:none; }
    of by what they pin. One column, because the groups are wildly uneven — twenty-two new
    beside one that stopped running — and a grid would give the one that matters most the
    least room. The group that matters most is first and carries the amber edge the row
-   stamps already use, so it reads as a warning band rather than a fourth heading. */
-.tledger { display:grid; gap:1.4rem; margin:.9rem 0 1rem; }
+   stamps already use, so it reads as a warning band rather than a fourth heading.
+   Folded behind its counts — `+56 new · −6 gone · ✍10 edited ▸` — one line until asked
+   (eval run 11: open, it doubled the tab). The marker trails the counts, so the line reads
+   as numbers first; what each group means is on its heading's hover. */
+.tledger { margin:.9rem 0 1rem; }
+.tledger > summary { cursor:pointer; list-style:none; display:inline-block;
+        font-variant-numeric:tabular-nums; }
+.tledger > summary::-webkit-details-marker { display:none; }
+.tledger > summary::after { content:" \25B8"; color:var(--muted); }
+.tledger[open] > summary::after { content:" \25BE"; }
+.tledger .toff { color:#b26a00; }
+.tledger-body { display:grid; gap:1.4rem; margin-top:.8rem; }
+.tgroup h3[data-tip] { cursor:help; }
 .tgroup ul.req-tests { padding-left:0; }
 .tgroup-off { border-left:2px solid #b26a00; padding-left:.85rem; }
 .tgroup-off h3 { color:#b26a00; }
 @media (prefers-color-scheme: dark) {
   .tgroup-off { border-left-color:#e0a458; } .tgroup-off h3 { color:#e0a458; }
+  .tledger .toff { color:#e0a458; }
 }
 /* The traces: one row per recorded test, each opening on the Playwright trace viewer
    itself. The row is deliberately the same furniture as a ledger row — the same flag

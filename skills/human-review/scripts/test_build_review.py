@@ -1837,7 +1837,7 @@ def test_a_test_edited_through_a_helper_is_filed_under_edited_and_names_the_help
            "status": "modified", "line": 76,
            "viaHelper": [{"name": "anOwnerWithAPet", "line": 105, "added": 13, "removed": 6}]}
     out, moved = build.render_test_ledger([row, LEDGER_ROWS[-1]], Path("/repo"))
-    assert moved == 1 and "<h3>edited <b>1</b></h3>" in out
+    assert moved == 1 and ">edited <b>1</b></h3>" in out
     assert 'class="tnote tvia"' in out and f">{build.VIA_HELPER_LABEL}</span>" in out
     assert "it calls anOwnerWithAPet() (line 105, +13/−6)" in out
     assert "1 more test in the files this change set touched" in out
@@ -1928,7 +1928,8 @@ def test_a_test_that_never_runs_is_filed_under_that_and_not_under_new():
     """`new` and `@Disabled` is not news about coverage, it is news about a test that has
     never run — and filing it under "new" hides it among the twenty-one that do run."""
     out, _ = build.render_test_ledger(LEDGER_ROWS, Path("/repo"))
-    off = out[out.index("stopped running"):out.index("<h3>new")]
+    body = out[out.index('<div class="tledger-body">'):]
+    off = body[body.index("stopped running"):body.index(">new <b>")]
     assert "arrives_off" in off and "create_withVet" not in off
     assert '<span class="tflag added">new</span>' in off, \
         "the one group whose rows do not share a fate keeps the flag saying which it is"
@@ -1943,8 +1944,57 @@ def test_the_untouched_rest_are_counted_rather_than_listed():
 
 def test_a_group_heading_spares_its_rows_from_repeating_the_same_word():
     out, _ = build.render_test_ledger(LEDGER_ROWS, Path("/repo"))
-    gone = out[out.index("<h3>gone"):]
+    gone = out[out.index(">gone <b>"):]
     assert "obsolete" in gone and '<span class="tflag' not in gone[:gone.index("</section>")]
+
+
+def test_the_ledger_is_one_line_of_counts_with_the_lists_folded_under_it():
+    """Eval run 11: the section — a heading, four groups, a paragraph under each — doubled
+    the Tests tab, and fifty-six of its names were the new tests the card already lists.
+    The reviewer is busy: one line of counts, the names a click away, and what a group
+    means on its heading's hover rather than in a paragraph under it."""
+    out, _ = build.render_test_ledger(LEDGER_ROWS, Path("/repo"))
+    assert out.startswith('<details class="tledger" id="test-ledger"><summary')
+    assert "<details class=\"tledger\" id=\"test-ledger\" open" not in out, "folded"
+    face = out[out.index("<summary"):out.index("</summary>")]
+    assert ('<span class="toff">1 stopped running</span> · <span class="added">+1 new</span>'
+            ' · <span class="removed">\u22122 gone</span> · '
+            f'<span class="changed">{build.PENCIL}1 edited</span>') in face
+    # The untouched rest is a hover on the counts, not a sentence under them.
+    assert 'data-tip="1 more test in the files this change set touched' in face
+    assert '<p class="sub">' not in out and "<p" not in out
+    assert '<h3 data-tip="Written by this change set.">new <b>1</b></h3>' in out
+
+
+def test_the_ledger_has_no_heading_of_its_own(tmp_path):
+    """The summary line is the section's title; an explicit `title` still renders one."""
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "tc.json").write_text(json.dumps(
+        {"totals": {k: 0 for k in ("added", "modified", "deleted", "unchanged", "commented",
+                                   "disabled", "reenabled", "runningBefore", "runningAfter",
+                                   "gained", "lost")} | {"added": 1, "gained": 1},
+         "tests": [{"name": "create_withVet", "path": "src/test/VisitTest.java",
+                    "status": "added", "line": 10}]}), encoding="utf-8")
+    page, _ = _build(tmp_path, dict(
+        BARE, testChanges="assets/tc.json",
+        sections=[{"id": "requirements", "title": "R", "body": "<p>a</p>"}],
+        tabs=[{"id": "requirements", "label": "Tests",
+               "blocks": [{"type": "section", "id": "requirements"}]}]))
+    assert "What this change set did to the tests" not in page
+    assert '<details class="tledger" id="test-ledger">' in page
+
+
+def test_a_rewritten_test_says_one_word_and_names_its_old_title_on_the_hover():
+    out = build.render_tests(
+        [{"name": "so a late initial load does not overwrite a search",
+          "path": "src/app/l.spec.ts", "status": "modified", "line": 198,
+          "rewrittenFrom": "a search is not overwritten by the initial load answering late",
+          "rewrittenFromLine": 131}], Path("/repo"))
+    assert '<span class="tflag changed">modified</span>' in out
+    assert ('data-tip="Rewritten from “a search is not overwritten by the initial load '
+            'answering late”, line 131 at the base">rewritten</span>') in out
+    chip = build.tests_chip({"totals": dict(TOTALS, rewritten=2)})
+    assert "(2 rewritten)" in chip["tip"]
 
 
 def test_a_page_with_a_manifest_and_no_tests_block_still_shows_the_ledger(tmp_path):
@@ -3353,8 +3403,9 @@ def test_the_lede_is_counts_and_nothing_else(tmp_path):
     page, _ = _build(tmp_path, dict(
         BARE, findings=[{"title": "f", "body": "<p>b</p>"}],
         tabs=[{"id": "review", "label": "Review", "blocks": [{"type": "findings"}]}]))
-    assert ('<p class="sub counts pilelede">'
-            '<a href="#first">1 open LLM review issue</a></p>') in page
+    # No pull request: the line's only extra is that fact, as its hover (eval run 11).
+    assert ('<p class="sub counts pilelede" data-tip="No pull request yet — no GitHub '
+            'links or publishing."><a href="#first">1 open LLM review issue</a></p>') in page
     assert "stamped with" not in page and "worst first" not in page
 
 
@@ -4529,6 +4580,81 @@ def test_a_picture_says_whether_it_is_there_by_tag_or_because_the_branch_wrote_t
     assert "This branch wrote this test." in both
 
 
+def _git(cwd, *args):
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *args], cwd=cwd,
+                   check=True, capture_output=True)
+
+
+def test_a_tagged_test_whose_dsl_helper_the_branch_edited_says_touched(tmp_path, monkeypatch):
+    """Eval run 11: 'Add a visit to an existing pet…' is tagged, the branch edited the
+    add-visit.dsl.ts it imports and its picture moved +20/−20 — and its row said only
+    `tagged`. A direct import (or the test file itself) changed on the branch is `touched`;
+    a file only reachable through another import is not, and the tooltip names the file."""
+    spec = "petclinic-test/src/add-visit.spec.ts"
+    puml = "petclinic-test/generated/add-visit.spec.ts.add-a-visit.genseq.puml"
+    src = tmp_path / "petclinic-test/src"
+    (src / "support").mkdir(parents=True)
+    (tmp_path / "petclinic-test/generated").mkdir(parents=True)
+    (tmp_path / spec).write_text(
+        "import {test} from './support/trace-fixture';\n"
+        "import * as sentences from './add-visit.dsl';\n\n"
+        "test('Add a visit', {tag: '@generate_sequence'}, async () => {\n"
+        "  await sentences.addVisit();\n});\n")
+    (src / "add-visit.dsl.ts").write_text("import {deep} from './deep';\nexport const a = 1;\n")
+    (src / "deep.ts").write_text("export const deep = 1;\n")
+    (src / "support/trace-fixture.ts").write_text("export const test = 1;\n")
+    (tmp_path / puml).write_text(_seq_puml(spec, 4, "Add a visit"))
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "base")
+    seq = importlib.import_module("hrbuild.tabs.sequence")
+    monkeypatch.setattr(seq, "SNIPPET_BASE", "HEAD^")
+    review = tmp_path / ".human-review"
+    review.mkdir()
+    block = {"type": "testpairs", "title": "", "snippets": dict(build.AUTO_SNIPPETS)}
+
+    def chip(msg):
+        (src / "deep.ts").write_text(f"export const deep = {msg!r};\n")
+        _git(tmp_path, "commit", "-qam", msg)
+        seq._branch_changed.cache_clear()
+        out, _, _ = build.render_testpairs(block, {}, [], tmp_path, review)
+        return re.findall(r'<span class="seqwhy".*?</span>', out, re.S)[0]
+
+    # Only a file reached through the helper changed: not a direct import, still `tagged`.
+    assert ">tagged</span>" in chip("deep only")
+
+    (src / "add-visit.dsl.ts").write_text("import {deep} from './deep';\nexport const a = 2;\n")
+    touched = chip("edit the dsl")
+    assert 'data-why="tagged" data-status="touched"' in touched
+    assert ">tagged \u00b7 touched</span>" in touched
+    assert "add-visit.dsl.ts" in html.unescape(touched), "the hover names what changed"
+    assert "deep.ts" not in touched
+
+    # A ledger entry still wins: the branch EDITED this scenario says `edited test`.
+    ledger = [{"path": spec, "line": 4, "status": "modified", "name": "Add a visit"}]
+    out, _, _ = build.render_testpairs(block, {}, [], tmp_path, review, test_changes=ledger)
+    assert ">tagged \u00b7 edited test</span>" in out
+
+
+def test_direct_imports_resolve_java_classes_and_relative_ts_modules(tmp_path):
+    seq = importlib.import_module("hrbuild.tabs.sequence")
+    java = "app/src/test/java/p/AddVisitApiTest.java"
+    for rel in (java, "app/src/test/java/p/genseq/GenerateSequence.java",
+                "app/src/main/java/p/domain/Visit.java"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("class X {}\n")
+    (tmp_path / java).write_text(
+        "package p;\nimport p.genseq.GenerateSequence;\nimport p.domain.Visit;\n"
+        "import static p.domain.Visit.of;\nimport java.util.List;\nclass AddVisitApiTest {}\n")
+    assert seq._direct_imports(java, tmp_path) == [
+        "app/src/test/java/p/genseq/GenerateSequence.java",
+        "app/src/main/java/p/domain/Visit.java", "app/src/main/java/p/domain/Visit.java"]
+    feature = "t/src/owner-search.feature"
+    (tmp_path / feature).parent.mkdir(parents=True)
+    (tmp_path / feature).write_text("Feature: x\n")
+    assert seq._direct_imports(feature, tmp_path) == []
+
+
 def test_the_selection_line_folds_a_long_list_under_its_count():
     """Eval run 10: 'Not traced, over the cap of 6: requestedPage_returns… and 22 more.
     28 more of the branch's tests…' — one italic run-on paragraph. Each fact is now a count
@@ -5122,7 +5248,7 @@ def test_the_grade_reasons_are_short_and_come_from_the_content():
     clause — nothing the build writes itself. `verdict.why` wins when it is there."""
     spec = {"verdict": {"score": 6, "bullets": [
                 "No build proved this commit: <code>ci</code> failed.",
-                "One commit landed after the agent finished, and it is not generated."]},
+                "One commit landed after the agent finished, and it touches 3 files."]},
             "findings": [{"title": "a", "severity": "medium"}, {"title": "b", "severity": "low"},
                          {"title": "c", "severity": "low"}],
             "assumptions": [{"title": "x", "confidence": 0.5}, {"title": "y", "confidence": 0.9}]}
@@ -5136,17 +5262,17 @@ def test_the_grade_reasons_are_short_and_come_from_the_content():
     # The grade sits beside the bullets, not in a heading above them.
     assert "gradewhy-t" not in out and out.index("<ul>") < out.index("gradewhy-score")
     # `why` no longer replaces the computed reasons: it is the model's line under them.
-    spec["verdict"]["why"] = ["CI never ran"]
-    assert [s for s, _ in build.grade_reasons(spec)][-1] == "CI never ran"
+    spec["verdict"]["why"] = ["CI never ran on <code>0746abc5</code>"]
+    assert [s for s, _ in build.grade_reasons(spec)][-1] == "CI never ran on 0746abc5"
     assert [s for s, _ in build.grade_reasons(spec)][0].startswith("3 open review issues")
     assert build.grade_reasons_html({}) == ""
 
 
 def test_the_model_adds_at_most_two_lines_to_the_computed_reasons(capsys):
-    spec = {"verdict": {"score": 8, "bullets": ["One.", "Two.", "Three.", "Four."]},
+    spec = {"verdict": {"score": 8, "bullets": ["Step 1.", "Step 2.", "Step 3.", "Step 4."]},
             "findings": [{"title": "a", "severity": "low"}]}
     short = [s for s, _ in build.grade_reasons(spec)]
-    assert short == ["1 open review issue: 1 nit", "One", "Two"]
+    assert short == ["1 open review issue: 1 nit", "Step 1", "Step 2"]
     assert "shows the first 2" in capsys.readouterr().err
 
 
@@ -5324,10 +5450,12 @@ def test_a_hunk_beyond_reach_of_every_anchor_is_nobodys(tmp_path):
     assert "line 40 fixed" in spec["_reviewPoints"]["fixOther"]
 
 
-def test_a_hunk_two_fixed_cards_share_is_drawn_once_with_both_titles(tmp_path):
+def test_a_hunk_two_fixed_cards_share_is_drawn_once_under_the_first(tmp_path):
     """Eval run 8: two Fixed cards anchored at lines 179 and 192 of one spec, and the fix
     commit's single +25 hunk there was drawn in full under both, one after the other. It
-    is drawn once now, under the first card, naming both; the second points at it."""
+    is drawn once now, under the first card; the second points at it. Eval run 11: the
+    caption over it ('One hunk serves 2 fixes … shown once, here.') is gone — the pointer
+    under the second card is the one line that says it."""
     impl, fix = _fix_repo(tmp_path)
     first = {"title": "first fix", "refs": ["a.py:3"], "snippets": [{"ref": "a.py:3"}]}
     second = {"title": "second fix", "refs": ["a.py:3-4"], "snippets": [{"ref": "a.py:3-4"}]}
@@ -5338,7 +5466,7 @@ def test_a_hunk_two_fixed_cards_share_is_drawn_once_with_both_titles(tmp_path):
     both = first["_fixDiffs"] + second["_fixDiffs"]
     assert both.count("line 3 fixed") == 1, "one hunk, drawn once"
     assert "line 3 fixed" in first["_fixDiffs"]
-    assert "<b>first fix</b> and <b>second fix</b>" in first["_fixDiffs"]
+    assert "One hunk serves" not in first["_fixDiffs"] and "fixshared" not in first["_fixDiffs"]
     assert "diff shown under <b>first fix</b>" in second["_fixDiffs"]
     assert "<b>first fix</b>" in second["_fixDiffs"]
     assert second["snippets"] == [], "its lines are on the page already, in the shared hunk"
@@ -5764,11 +5892,13 @@ def test_the_review_chip_face_is_counts_only_so_the_scope_bar_keeps_one_row():
         "Coding agent: 6 unsure. Review: 10 open · 3 refuted · 6 fixed."
 
 
-def test_without_a_pull_request_the_page_says_so_once(tmp_path):
+def test_without_a_pull_request_the_page_says_so_on_hover_only(tmp_path):
+    """Eval run 11: a visible line under the counts, among the one-liners a busy reviewer
+    reads past. It is the counts line's hover now — where the publish button would be."""
     spec = {"pr": {"branch": "hr-claude-6"}}
     build.prepare_pr_push(spec, tmp_path, tmp_path, HERE)
     line = build.no_pr_line(spec)
-    assert line == '<p class="sub nopr">No pull request yet — no GitHub links or publishing.</p>'
+    assert line == ' data-tip="No pull request yet — no GitHub links or publishing."'
     spec = {"pr": {"number": 49}}
     build.prepare_pr_push(spec, tmp_path, tmp_path, HERE)
     assert build.no_pr_line(spec) == ""
@@ -5921,3 +6051,226 @@ def test_the_data_tab_shows_every_named_diagram_and_says_what_the_erd_cannot(tmp
     assert "domain delta" not in panel and "dgmviews" not in panel
     assert "indexes added on owners (id)" in panel
     assert '<button type="button" class="tab quiet" role="tab" id="tabbtn-data"' not in page
+
+
+# ── eval run 11: the Review tab, for a reviewer who is busy and stressed ────────────
+
+STREAM_JAVA = """class C {
+    List<Owner> load(List<Integer> ids) {
+        return ids.stream()
+                .map(id -> Optional.ofNullable(byId.get(id))
+                        .orElseThrow(() -> new IllegalStateException("gone")))
+                .toList();
+    }
+    int one() { return 1; }
+}
+"""
+
+
+def test_a_one_line_anchor_on_the_tail_of_a_statement_quotes_the_whole_statement(tmp_path):
+    """Run 11 pinned two findings to OwnerRestController.java:142 — `.toList();` — and the
+    throwing `.orElseThrow(…)` on 141 was off the card."""
+    (tmp_path / "C.java").write_text(STREAM_JAVA)
+    assert build.widen_anchor("C.java:6", tmp_path) == "C.java:3-6"
+    assert build.widen_anchor("C.java:4", tmp_path) == "C.java:3-6", "open both ways"
+    assert build.widen_anchor("C.java:8", tmp_path) == "C.java:8", "a whole statement stays"
+    assert build.widen_anchor("C.java:3-6", tmp_path) == "C.java:3-6", "a range is the author's"
+    (tmp_path / "n.md").write_text("a,\n.b\n")
+    assert build.widen_anchor("n.md:2", tmp_path) == "n.md:2", "only code files"
+    chain = "x = a\n" + "".join("    .f()\n" for _ in range(20)) + "    .g();\n"
+    (tmp_path / "L.java").write_text(chain)
+    lo, hi = map(int, build.widen_anchor("L.java:22", tmp_path).split(":")[1].split("-"))
+    assert hi == 22 and hi - lo + 1 == build.STATEMENT_LINES, "never more than six"
+
+
+def test_a_long_quote_opens_on_its_anchored_lines_and_folds_the_rest(tmp_path):
+    """Run 11: OwnerPageRequest.java:20 — a class opener — was closed down to its brace and
+    drew all 41 lines. The card opens what the ref names and folds the rest."""
+    body = "".join(f"    int f{i}() {{ return {i}; }}\n" for i in range(30))
+    (tmp_path / "K.java").write_text("final class K {\n" + body + "}\n")
+    card = build.snippet_card("K.java:1", None, tmp_path)
+    shown, folded = card.split('<details class="snipmore">')
+    assert '<span class="ln">1</span>' in shown and '<span class="ln">2</span>' not in shown
+    assert "<summary>31 more lines</summary>" in folded and '<span class="ln">32</span>' in folded
+    long = build.snippet_card("K.java:2-25", None, tmp_path)
+    assert long.split("<details")[0].count('class="ln-row') == build.SNIPPET_LINES
+    assert "12 more lines" in long
+    assert "snipmore" not in build.snippet_card("K.java:3-5", None, tmp_path)
+
+
+def _rewrap_repo(tmp_path):
+    """An implementation with two long lines, then a fix commit that only re-wraps them —
+    a string split with `+` and a doc comment opened onto three lines."""
+    git = _git_in(tmp_path)
+    (tmp_path / "A.java").write_text(
+        "class A {\n"
+        "    /** Records every statement, once plugged in. */\n"
+        "    String s = \"a long sentence here\";\n"
+        "    int x = 1;\n"
+        "}\n")
+    git("add", ".")
+    git("commit", "-qm", "impl")
+    impl = git("rev-parse", "HEAD")
+    (tmp_path / "A.java").write_text(
+        "class A {\n"
+        "    /**\n"
+        "     * Records every statement,\n"
+        "     * once plugged in.\n"
+        "     */\n"
+        "    String s = \"a long \"\n"
+        "            + \"sentence here\";\n"
+        "    int x = 1;\n"
+        "}\n")
+    git("add", ".")
+    git("commit", "-qm", "[auto-fix] wrap")
+    return impl, git("rev-parse", "HEAD")
+
+
+def test_a_hook_fix_that_only_rewraps_lines_is_one_folded_line_labelled_hook(tmp_path):
+    """Run 11: a pre-push hook's line-length fix drew 5 full diff blocks (~1,100px) under
+    `Reviewer:`, though its source chip said `pre-push hook`."""
+    impl, fix = _rewrap_repo(tmp_path)
+    card = {"title": "Lines over 119 characters blocked the push", "source": "pre-push hook",
+            "observation": "the hook refused two lines.", "fix": "wrapped each line",
+            "refs": ["A.java:2-7"]}
+    spec = {"autofixes": [card],
+            "_reviewPoints": {"source": "review-points.md",
+                              "provenance": {"implementation": impl, "reviewCommit": fix}}}
+    build.attribute_fix_hunks(spec, tmp_path, root=tmp_path)
+    assert card["_fixDiffs"].startswith(
+        '<details class="fmtonly"><summary data-tip="wrapped each line">2 lines re-wrapped'
+        '</summary><div class="ghdiff">')
+    page = build.render_autofixes([card], badge="fixed")
+    assert "<b>Hook:</b> the hook refused" in page and "Reviewer:" not in page
+    assert "f-fix" not in page, "the fix is the fold's hover"
+    assert build.format_only_hunk(["a = 1;"], ["a = 2;"]) is None
+    assert build.format_only_hunk(["  a(b, c);"], ["a(b,", "  c);"]) == (1, True)
+    assert build.format_only_hunk(["  a();"], ["    a();"]) == (1, False)
+
+
+def test_a_fix_line_that_only_restates_the_title_is_dropped():
+    card = {"title": "Retry on a failed owners page", "fix": "retry on a failed page."}
+    assert "f-fix" not in build.render_autofixes([card])
+    card["fix"] = "a Retry button in the error alert reloads the same filter and sort."
+    assert '<p class="f-fix"><b>Fix:</b> a Retry button' in build.render_autofixes([card])
+
+
+def test_the_refuted_piles_lede_is_its_headings_hover():
+    page = build.render_findings([{"title": "t", "severity": "info",
+                                   "why": "refuted — Owner.java:42 is @NotEmpty"}])
+    assert f'<h3 class="refuted-h" id="refuted" data-tip="{build.REFUTED_TIP}">' in page
+    assert "listed so you can check" not in page and "refuted-intro" not in page
+
+
+RUN11_FINDINGS = [
+    {"title": "Owner deleted between the page query and the graph fetch returns 500",
+     "severity": "medium"},
+    {"title": "Name sorts by last name while the cell shows First Last", "severity": "medium"},
+    {"title": "Huge page index", "severity": "info", "why": "refuted — offset is capped"}]
+
+
+def test_the_grade_panel_holds_six_lines_computed_first(capsys):
+    """Run 11: nine bullets against the reference's five. Computed lines first, the
+    informational ones (the spec commit, then a narrowed sentence) dropped past six, and
+    the model's lines only in what room is left."""
+    sig = build._signal
+    spec = {"verdict": {"score": 7, "bullets": ["<code>OwnerPageRequest</code> parses page=abc."]},
+            "findings": RUN11_FINDINGS, "assumptions": [{"title": "x", "confidence": .5}],
+            "_gradeSignals": [sig("ci-green", "CI green on 17ad7118", ""),
+                              sig("api-breaking", "2 breaking API changes", "", 7),
+                              sig("out-of-range", "2 commits on the branch before …", "", 7),
+                              sig("spec-commit", "Built against the spec in b12c9bdb", ""),
+                              sig("narrowed", "Ticket narrowed on purpose: “sortable”", "")]}
+    short = [s for s, _ in build.grade_reasons(spec)]
+    assert len(short) == build.GRADE_LINES_MAX == 6
+    assert short[0].startswith("CI green") and "Built against the spec in b12c9bdb" not in short
+    assert short[-1].startswith("Ticket narrowed"), "a narrowed sentence outranks the spec commit"
+    assert not any("OwnerPageRequest" in s for s in short), "no room left for the model"
+    spec["_gradeSignals"] = spec["_gradeSignals"][:2]
+    assert [s for s, _ in build.grade_reasons(spec)][-1] == "OwnerPageRequest parses page=abc"
+
+
+def test_a_model_line_that_repeats_names_nothing_or_misplaces_a_pile_is_dropped(capsys):
+    """Run 11's two model lines: `GET /api/owners now answers {content…}` under the computed
+    `2 breaking API changes`, and `Two declined items are product calls` over two items the
+    page shows as open WORTH A LOOK — a word the page never uses, naming nothing visible."""
+    spec = {"findings": RUN11_FINDINGS, "autofixes": [{"title": "Retry on a failed page"}],
+            "_gradeSignals": [build._signal("api-breaking", "2 breaking API changes", "", 7)]}
+    conflict = build.model_line_conflict
+    assert "repeats the computed api-breaking line" in conflict(
+        "GET /api/owners now answers <code>{content}</code> instead of an array.", spec)
+    declined = ("Two declined items are product calls, not code defects: Name sorts by last "
+                "name while the cell reads First Last, and an owner deleted between the page "
+                "query and the graph fetch answers 500.")
+    assert "and the page shows it open" in conflict(declined, spec)
+    assert conflict("Nothing here worries me much.", spec) == \
+        "it names no item, number, file or link"
+    assert "repeats the computed count" in conflict("Leaves 2 open review issues.", spec)
+    assert "shows it refuted" in conflict("Huge page index was fixed in the end.", spec)
+    assert conflict("Retry on a failed page was fixed; the 500 is product's call.", spec) is None
+    assert conflict("The stale-page race stays: see <code>load()</code>.", spec) is None
+
+
+def _picked_repo(tmp_path):
+    """`main` ← base; the feature branch carries two tooling commits before the reviewed
+    range, and the first of them has since been cherry-picked onto origin/main."""
+    git = _git_in(tmp_path)
+    git("checkout", "-qb", "main")
+    (tmp_path / "README").write_text("x\n")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    git("checkout", "-qb", "feature")
+    (tmp_path / "tool.sh").write_text("echo 1\n")
+    git("add", ".")
+    git("commit", "-qm", "tooling one")
+    one = git("rev-parse", "HEAD")
+    (tmp_path / "other.sh").write_text("echo 2\n")
+    git("add", ".")
+    git("commit", "-qm", "tooling two")
+    audited = git("rev-parse", "HEAD")
+    (tmp_path / "app.py").write_text("x = 1\n")
+    git("add", ".")
+    git("commit", "-qm", "feature")
+    git("checkout", "-q", "main")
+    # `-x`: a different message, so a different sha even within the same second (the
+    # same parent, tree, author and timestamp would rebuild `one` itself).
+    git("cherry-pick", "-x", one)
+    git("update-ref", "refs/remotes/origin/main", "main")
+    git("checkout", "-q", "feature")
+    return one, audited
+
+
+def test_commits_already_on_main_as_cherry_picks_are_not_counted_as_unreviewed(tmp_path):
+    """Run 11: `7 commits never reviewed` and `+7▸` — 5 of them patch-identical to commits
+    already on origin/main (`git cherry`). A merge brings none of them."""
+    one, audited = _picked_repo(tmp_path)
+    spec = {"_reviewPoints": {"provenance": {"auditedBase": audited}}}
+    rows = build._before_range_commits(spec, tmp_path, "origin/main")
+    assert [c["subject"] for c in rows] == ["tooling two"]
+    sig = build._out_of_range_signal(spec, tmp_path, "origin/main", tmp_path)
+    assert sig["short"] == "1 commit on the branch before the reviewed range"
+    out = tmp_path / ".human-review"
+    out.mkdir()
+    (out / "review-points.json").write_text(json.dumps(
+        {"provenance": {"auditedBase": audited}}))
+    state = build.page_base(tmp_path, out, "main")
+    assert [c.get("onBase", False) for c in state["outside"]] == [False, True]
+    badge = build.outside_badge(state)
+    assert ">+1<" in badge and "1 more already on origin/main." in badge
+    assert "Already on origin/main (cherry-picked)" in build.outside_note(state)
+    # The cherry-pick is origin/main's only commit the branch lacks: no drift to merge in.
+    assert state["ahead"] == 0 and state["aheadPicked"] == 1
+    assert build.base_warning(state) is None
+    assert build.fetch_base(tmp_path, "main") is False, "no network remote, no fetch"
+
+
+def test_a_capabilitys_spec_cited_by_its_path_is_linked_like_its_siblings(tmp_path):
+    """Run 11's CONTEXT card left `specs/owner-list/spec.md:123` plain beside linked
+    design.md citations."""
+    _spec_repo(tmp_path)
+    cap = tmp_path / "openspec" / "changes" / "page-owners" / "specs" / "owner-list"
+    cap.mkdir(parents=True)
+    (cap / "spec.md").write_text("# Owner list\n- The paginator stays to go back.\n")
+    item = {"title": "t", "severity": "info", "why": "specified: specs/owner-list/spec.md:2."}
+    assert build.link_spec_citations({"findings": [item]}, tmp_path, root=tmp_path) == 1
+    assert 'class="specref"' in item["why"] and "The paginator stays to go back." in item["why"]

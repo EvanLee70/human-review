@@ -85,6 +85,10 @@ FIELDS = {"file", "source", "severity", "alternative", "why", "fixed-in", "confi
 # told the reader *that* something changed and never *what was wrong*; the observation is
 # that missing sentence. `fix:` is the optional note on the repair itself.
 OBSERVATION_SENTENCES = 3
+#: The most lines a `file:` range should span: the page opens this many of a card's quote
+#: and folds the rest (`hrbuild/tabs/review.py:SNIPPET_LINES`). Eval run 11 anchored an
+#: assumption on a whole 41-line class.
+ANCHOR_LINES = 12
 SEVERITIES = {"high", "medium", "low", "info"}
 # How sure the agent is that the reading it chose is the right one. Only an assumption
 # can carry it: 1.0 = the ticket left no other reading, 0.5 = a coin flip between two,
@@ -319,6 +323,13 @@ def build_item(title: str, fields: list[tuple[str, str]], body: str, pile: str,
                 refs.append(ref)
                 if RANGED.search(ref):
                     snippets.append({"ref": ref, **({"caption": caption} if caption else {})})
+                    span = sum(int(b or a) - int(a) + 1 for a, b in
+                               re.findall(r"(\d+)(?:-(\d+))?", RANGED.search(ref).group(0)))
+                    if span > ANCHOR_LINES:
+                        warnings.append(
+                            f"{PILE_HEADING[pile]}: {title[:60]!r} (line {where}) — `file: "
+                            f"{ref}` spans {span} lines; anchor the lines that do the thing "
+                            f"(the page opens {ANCHOR_LINES} and folds the rest).")
                 elif caption:
                     problems.append(f"line {where}: {title[:40]!r} captions `{ref}`, which "
                                     "names no lines — a caption belongs to a snippet card, "

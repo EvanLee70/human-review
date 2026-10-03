@@ -101,6 +101,45 @@ def _resolve_base(root: Path, named: str) -> tuple[str, str] | None:
     return None
 
 
+def patch_equivalent(root: Path, upstream: str, head: str,
+                     limit: str | None = None) -> set[str]:
+    """The commits of `limit..head` whose patch `upstream` already carries — `git cherry`'s
+    `-` lines: the same change, cherry-picked onto the base under another sha.
+
+    Eval run 11 said "7 commits never reviewed" for a branch whose 5 tooling commits had
+    since been cherry-picked onto origin/main: counted by sha, a cherry-pick is a commit
+    the base lacks; counted by patch-id, it is already there."""
+    out = _git(root, "cherry", upstream, head, *([limit] if limit else []))
+    return {ln[2:].strip() for ln in (out or "").splitlines() if ln.startswith("- ")}
+
+
+#: Set to anything to keep a build off the network: no `git fetch` of the base.
+NO_FETCH_ENV = "HUMAN_REVIEW_NO_FETCH"
+
+
+def fetch_base(root: Path, named: str, timeout: float = 20) -> bool:
+    """`git fetch origin <base>` before the base is measured, when the clone has a network
+    remote — so `origin/main` is the base as it stands, not as it was at the last pull.
+    Quiet, bounded, never interactive; a failure (offline, no remote) keeps the refs the
+    clone has. True when it fetched."""
+    import os
+    import subprocess
+    if os.environ.get(NO_FETCH_ENV):
+        return False
+    branch = named.removeprefix("origin/")
+    url = _git(root, "remote", "get-url", "origin") or ""
+    if not re.match(r"^(?:https?://|ssh://|git@)", url) or not branch:
+        return False
+    try:
+        p = subprocess.run(["git", "fetch", "--quiet", "--no-tags", "origin",
+                            f"+refs/heads/{branch}:refs/remotes/origin/{branch}"],
+                           cwd=root, capture_output=True, text=True, timeout=timeout,
+                           env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return p.returncode == 0
+
+
 def base_state(root: Path, named: str) -> dict | None:
     """Where the base sits relative to the branch -- the two ways the comparison goes stale.
 
@@ -145,9 +184,16 @@ def base_state(root: Path, named: str) -> dict | None:
         # count is the number a reader acts on ("nine commits behind"), and the boolean
         # falls out of it.
         "ahead": count(f"{head}..{sha}"),
+        "aheadPicked": 0,
         "localRef": None,
         "localBehind": None,
     }
+    # The base's commits that are this branch's own, cherry-picked: not drift to merge in
+    # (eval run 11's "17 ahead" counted 5 of the branch's tooling commits picked onto main).
+    if state["ahead"]:
+        picked = len(patch_equivalent(root, head, sha, merge_base)) if merge_base else 0
+        state["ahead"] -= picked
+        state["aheadPicked"] = picked
     # Only meaningful when a *local* branch of that name exists beside the remote one we
     # preferred. `origin/main` given verbatim in the content file has no local twin to be
     # behind, and neither does a repository with no remote at all.
@@ -267,6 +313,11 @@ def page_base(root: Path, out_dir: Path | None, named: str) -> dict | None:
         log = _git(root, "log", "--format=%H%x1f%s", f"{mb}..{sha}") or ""
         out["outside"] = [dict(zip(("sha", "subject"), line.split("\x1f", 1)))
                           for line in log.splitlines() if "\x1f" in line]
+        # Already on the base under another sha: not a commit the merge would bring.
+        picked = patch_equivalent(root, out["sha"], sha, mb) if out.get("sha") else set()
+        for c in out["outside"]:
+            if c["sha"] in picked:
+                c["onBase"] = True
     return out
 
 
@@ -306,9 +357,13 @@ def base_warning(state: dict | None) -> str | None:
     # sentence on a hover that exists to say one thing: merge, then rebuild.
     other = (state.get("diffBaseSource") not in (None, "merge-base")
              and state.get("diffBase") and state.get("sha"))
+    picked = state.get("aheadPicked") or 0
     if ahead:
         parts.append(f"{state['ref']} is {ahead} commit{'s' if ahead != 1 else ''} ahead of "
-                     "the fork point. Merge or rebase, then rebuild.")
+                     "the fork point"
+                     + (f" (and has {picked} of this branch's commits, cherry-picked)"
+                        if picked else "")
+                     + ". Merge or rebase, then rebuild.")
     if behind and not other:
         # Not `git fetch`: the count above was read off the remote-tracking ref, so the
         # fetch has already happened, and it never moves the local branch anyway. What

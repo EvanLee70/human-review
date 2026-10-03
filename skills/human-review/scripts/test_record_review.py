@@ -475,3 +475,12 @@ def test_ci_does_not_wait_for_a_commit_that_never_reached_origin(tmp_path):
     r = subprocess.run([sys.executable, str(RR), "ci", "--wait-minutes", "5"],
                        cwd=repo, capture_output=True, text=True, env=ENV, timeout=60)
     assert r.returncode == 2 and "not on origin" in r.stdout
+
+
+def test_the_prompt_asks_for_the_line_that_does_the_thing_and_a_dozen_lines_at_most():
+    """Eval run 11 anchored two findings on `.toList();` (the throwing line was the one
+    above) and an assumption on a class's opening line, which quoted all 41 lines of it."""
+    flat = " ".join(PROMPT.split())
+    assert "**Anchor the line that does the thing**" in flat
+    assert "not the `.toList();` that ends its statement" in flat
+    assert "12 lines at most: the page opens 12 and folds the rest" in flat

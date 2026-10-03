@@ -951,6 +951,70 @@ def test_a_narrow_tab_list_must_not_report_the_other_tabs_as_drift(tmp_path, mon
     assert "drifted apart" not in capsys.readouterr().err
 
 
+def _writes(when, mid, path, tool="Write", side=True):
+    args = {"command": path} if tool == "Bash" else {"file_path": path}
+    return {"type": "assistant", "timestamp": when, "isSidechain": side,
+            "message": {"id": mid, "model": "claude-sonnet-5-20260101",
+                        "usage": {"input_tokens": 1000, "output_tokens": 100},
+                        "content": [{"type": "tool_use", "id": f"t-{mid}", "name": tool,
+                                     "input": args}]}}
+
+
+def test_a_subagent_is_billed_to_the_tab_whose_file_it_wrote_before_any_window(
+        tmp_path, monkeypatch):
+    """Eval run 11: the Sonnet subagent that wrote `.human-review/feature-script.js` ran at
+    08:47:51, before the 'feature recording' window opened at 08:50:43, so the clock filed
+    it under "no single tab" and Demo read "no model spend". What it wrote names its tab:
+    feature-script.js → Demo, test-mapping*.json → Tests, content.json → Review."""
+    build = tmp_path / "build.jsonl"
+    build.write_text("\n".join(json.dumps(r) for r in [
+        _assistant("p1", "2026-10-03T08:47:40Z"),
+        # The parent writes content.json for every tab: no single tab's.
+        _writes("2026-10-03T09:02:00Z", "p2", "/r/.human-review/content.json", side=False),
+    ]) + "\n", encoding="utf-8")
+    film = tmp_path / "agent-film.jsonl"
+    film.write_text("\n".join(json.dumps(r) for r in [
+        _assistant("f1", "2026-10-03T08:47:51Z", side=True),
+        # As the real one did: a heredoc, not the Write tool.
+        _writes("2026-10-03T08:48:30Z", "f2",
+                "cd /r; cat > .human-review/feature-script.js <<'EOF'\nconst a = 1;\nEOF",
+                tool="Bash"),
+    ]) + "\n", encoding="utf-8")
+    mapper = tmp_path / "agent-map.jsonl"
+    mapper.write_text(json.dumps(
+        _writes("2026-10-03T08:49:00Z", "m1", "/r/.human-review/test-mapping.proposals.json",
+                tool="Edit")) + "\n", encoding="utf-8")
+    stray = tmp_path / "agent-other.jsonl"
+    stray.write_text("\n".join(json.dumps(r) for r in [
+        _writes("2026-10-03T08:49:10Z", "o1", "/r/src/content.json"),
+        # Reading the film's script is not writing it.
+        _writes("2026-10-03T08:49:20Z", "o2", "cat /r/.human-review/feature-script.js | head",
+                tool="Bash"),
+    ]) + "\n", encoding="utf-8")
+    steps = tmp_path / ".steps.json"
+    steps.write_text(json.dumps([
+        {"tabs": ["behaviour"], "label": "feature recording",
+         "start": "2026-10-03T08:50:43+00:00", "end": "2026-10-03T08:55:50+00:00"},
+        {"tabs": ["requirements"], "label": "test manifest",
+         "start": "2026-10-03T08:52:00+00:00", "end": "2026-10-03T08:53:00+00:00"},
+        {"tabs": ["guide"], "label": "assemble",
+         "start": "2026-10-03T09:01:05+00:00", "end": "2026-10-03T09:03:08+00:00"},
+    ]), encoding="utf-8")
+    monkeypatch.setattr(rc, "transcript", lambda s: build)
+    monkeypatch.setattr(rc, "subagent_transcripts", lambda path: [film, mapper, stray])
+    tabs = ["review", "behaviour", "requirements"]
+    assert rc.subagent_writes(build, tabs) == {str(film): ["behaviour"],
+                                               str(mapper): ["requirements"]}
+    doc = rc.tab_cost_report("run", None, steps, tabs)
+    assert doc["tabs"]["behaviour"]["messages"] == 2, "both of the film subagent's turns"
+    assert doc["tabs"]["behaviour"]["cost"] > 0
+    assert doc["tabs"]["requirements"]["messages"] == 1
+    assert doc["tabs"]["review"]["messages"] == 0, "a parent's content.json is no tab's"
+    parts = doc["residual_parts"]
+    assert parts["subagent"]["messages"] == 2, "a content.json outside .human-review is not"
+    assert parts["conversation"]["messages"] == 2
+
+
 # --------------------------------------------------------------------------- #
 # the ledger's phases key
 # --------------------------------------------------------------------------- #

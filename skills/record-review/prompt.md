@@ -66,7 +66,11 @@ search the disk, re-derive the base, or compose reviewer prompts — the script 
                    section nobody else can write. A choice the human made in this
                    conversation is not your assumption — give it `source: human` and
                    confidence 1.0, or leave it out.
-   Every entry names a file:line. An unanchored entry is dropped by the build. Write each
+   Every entry names a file:line. An unanchored entry is dropped by the build. **Anchor
+   the line that does the thing** — the call that throws, not the `.toList();` that ends
+   its statement; a class or method by the line that matters in it, never its opening
+   line (that quotes the whole body). 12 lines at most: the page opens 12 and folds the
+   rest. Write each
    line number as it reads now, with your fixes on disk; `finish` carries an assumption
    written at the implementation commit across the fixes, and prints a WARNING for any
    ref whose line is gone or blank — a card the page cannot show the code for. On a Fixed

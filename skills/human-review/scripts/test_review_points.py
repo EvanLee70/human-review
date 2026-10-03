@@ -1156,3 +1156,20 @@ def test_reanchor_falls_back_past_a_blank_line_but_never_past_a_deleted_one(tmp_
     got = rp.reanchor(tmp_path, "a.py:10", [impl, fix])
     assert got["ref"] is None and got["from"] == impl
     assert rp.reanchor(tmp_path, "a.py:5", [rp.WORKTREE, impl])["ref"] == "a.py:8"
+
+
+# ── eval run 11 ─────────────────────────────────────────────────────────────────
+
+def test_an_anchor_spanning_more_than_a_dozen_lines_is_warned_about():
+    """Run 11 quoted a 41-line class on one card. A range longer than the page opens is
+    named, so the agent anchors the lines that do the thing."""
+    doc = """## Fixed
+
+### Retry on a failed page
+- file: a.ts:270-284
+- file: b.ts:10-21
+- observation: no way to retry.
+"""
+    said = [w for w in rp.parse(doc)["warnings"] if "spans" in w]
+    assert len(said) == 1 and "`file: a.ts:270-284` spans 15 lines" in said[0], said
+    assert f"opens {rp.ANCHOR_LINES} and folds the rest" in said[0]

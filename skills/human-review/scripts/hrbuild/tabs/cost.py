@@ -264,9 +264,13 @@ def _cost_tokens(n: float, models=None) -> str:
     # The shares are of TOKENS, and say so. Eval run 10's guide row read `Opus 5.5 96% /
     # Sonnet 5.5 4%` beside a cost in which the Sonnet step was $0.43 of $1.58 — 27% —
     # and a bare percentage in a table of dollars reads as a share of the dollars.
-    text = (big[0][0] if len(big) == 1 else
-            " / ".join(f"{k} {v / total * 100:.0f}%" for k, v in big) + " of tokens")
-    return f'{out}<span class="costsub">{html.escape(text)}</span>'
+    if len(big) == 1:
+        return f'{out}<span class="costsub">{html.escape(big[0][0])}</span>'
+    # Eval run 11: 'Opus 5.5 64% / Sonnet 5.5 36% of tokens' widened the column and wrapped
+    # the table. The face names the model that spent most; the split is on hover.
+    split = " / ".join(f"{k} {v / total * 100:.0f}%" for k, v in big) + " of tokens"
+    return (f'{out}<span class="costsub" data-tip="{html.escape(split, quote=True)}">'
+            f'{html.escape(big[0][0])}</span>')
 
 
 COST_TAB_ID = "cost"
@@ -856,9 +860,9 @@ def _extension_line(r: dict, rate: float) -> str:
     win = was.get("window") or []
     since = _when(win[1]) if len(win) == 2 else ""
     to = _when(r.get("extendedTo"))
-    span = f" ({since} &rarr; {to.split(' ')[-1]})" if since and to else ""
-    sign = "+" if d_cost >= 0 else "&minus;"
-    tsign = "+" if d_tok >= 0 else "&minus;"
+    span = f" ({since} \u2192 {to.split(' ')[-1]})" if since and to else ""
+    sign = "+" if d_cost >= 0 else "\u2212"
+    tsign = "+" if d_tok >= 0 else "\u2212"
     return (f"extended to the last CI round{span}: {sign}{_cost_money(abs(d_cost))} / "
             f"{tsign}{_cost_tokens(abs(d_tok))} tok since the committed record, which says "
             f"{_cost_money(then_c)} / {_cost_tokens(was.get('tokens') or 0)}")
@@ -891,9 +895,9 @@ def components_html(comp: dict | None) -> str:
                                                 if model else "")
                              + (f"; plus {_minutes(extra)} of refreshes, no model"
                                 if extra else ""))
+        # Plain text, on the label's hover — eval run 11: as a visible line it was audit
+        # trivia for a stressed reader, and the widest thing on the tab.
         ext = _extension_line(r, rate)
-        if ext:
-            lines.append(ext)
         if r.get("source") == "derived":
             # Copy pass (3 Oct 2026): which record file was missing is the pipeline's
             # business; the reader needs to know the number is an estimate.
@@ -904,6 +908,8 @@ def components_html(comp: dict | None) -> str:
         for e in r.get("entries") or []:
             for k, v in (e.get("models") or {}).items():
                 models[k] = models.get(k, 0) + v
+        if ext:
+            label = f'<span data-tip="{html.escape(ext, quote=True)}">{label}</span>'
         out.append(f'<tr data-component="{html.escape(r["key"])}"><td>{label}{sub}</td>'
                    f'<td>{_cost_tokens(r.get("tokens") or 0, models)}</td>'
                    f'<td>{_component_money(r, rate)}</td></tr>')

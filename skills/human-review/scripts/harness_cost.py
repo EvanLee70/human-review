@@ -1311,15 +1311,22 @@ def run_end(review: Path, started) -> "dt.datetime | None":
 
 
 def _steps(review: Path, lo, hi) -> list[dict]:
-    """The step ledger's producers that ran inside the run, each with its seconds."""
-    out = []
+    """The step ledger's producers that ran inside the run, each with its seconds.
+
+    One row per step: a step the run ran again (eval run 11 recorded the Demo film twice,
+    the first attempt failed) keeps its LAST run, which is the one the page shows. Two rows
+    made `stepSeconds` 1109 against a 934 s run."""
+    out: dict[tuple, dict] = {}
     for s in _raw_steps(review):
         a, b = parse(s.get("start")), parse(s.get("end"))
         if a is None or b is None or not _within(a, lo, hi):
             continue
-        out.append({"label": s.get("label") or ",".join(s.get("tabs") or []),
-                    "tabs": s.get("tabs") or [], "seconds": round((b - a).total_seconds())})
-    return out
+        label = s.get("label") or ",".join(s.get("tabs") or [])
+        key = (label, tuple(s.get("tabs") or []))
+        out.pop(key, None)
+        out[key] = {"label": label, "tabs": s.get("tabs") or [],
+                    "seconds": round((b - a).total_seconds())}
+    return list(out.values())
 
 
 def run_session_harness(review: Path) -> tuple[str, str | None]:

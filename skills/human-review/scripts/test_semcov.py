@@ -251,6 +251,66 @@ def test_the_script_pairs_what_shared_evidence_decides_and_leaves_the_rest_open(
     assert got["Owners are greeted by a pirate."]["scripted"] == []
 
 
+# --- the branch's own tests reach the sentences they prove ---------------------------------
+#
+# Eval run 11: the branch's new e2e scenarios ended "paired with no sentence". A sentence
+# takes its best few candidates, a dozen new component specs out-scored (or tied with) the
+# scenario on `sort`, and the scenario fell off the very sentence it proves.
+
+def _doc(title: str, prior: float = 1.0) -> dict:
+    return {"title": S.terms(title), "body": set(), "asserts": set(), "cov": set(),
+            "lits": set(), "prior": prior, "body_text": title, "from": 1}
+
+
+def _crowded():
+    """Twelve new specs that each share three words with the sentence, one new scenario
+    that shares one, and thirty tests about something else — so `sort` is still a rare
+    word on the card."""
+    rows, docs = [], {}
+    for k in range(12):
+        rows.append({"id": f"spec.ts:{k + 1}", "title": f"grid column sorting {k}",
+                     "cat": "unit", "status": "new"})
+    rows.append({"id": "search.feature:39", "title": "Sorting by city, then reversing it",
+                 "cat": "e2e", "status": "new"})
+    for k in range(30):
+        rows.append({"id": f"VetTest.java:{k + 1}", "title": f"vet visit booking {k}",
+                     "cat": "api", "status": "unchanged"})
+    for r in rows:
+        docs[r["id"]] = _doc(r["title"], S.PRIOR[r["status"]])
+    sentences = [{"id": "s1", "text": "The grid should be sortable by any column",
+                  "section": ""},
+                 {"id": "s2", "text": "A vet booking is shown on the visit.", "section": ""}]
+    return sentences, rows, docs
+
+
+def test_a_test_the_branch_wrote_is_offered_to_the_sentences_it_scores_best_on():
+    sentences, rows, docs = _crowded()
+    scripted = S.match(sentences, rows, Path("."), docs)
+    pool = scripted["open"].get("s1") or scripted["candidates"]["s1"]
+    assert "search.feature:39" in pool, "past the per-sentence cut, and offered anyway"
+    assert scripted["offered"]["s1"].count("search.feature:39") == 1
+    # In rank order: the scenario scores under every spec, so it comes after them.
+    assert pool.index("search.feature:39") > pool.index("spec.ts:1")
+    asked = S.model_input({"number": 1}, sentences, rows, scripted, docs)
+    s1 = next(x for x in asked["sentences"] if x["id"] == "s1")
+    assert "search.feature:39" in s1["candidates"] + [t["id"] for t in s1["scripted"]]
+    assert "search.feature:39" in {t["id"] for t in asked["tests"]}
+    # Untouched tests are not pushed anywhere they did not earn on their own.
+    assert not any(t.startswith("VetTest") for v in scripted["offered"].values() for t in v)
+
+
+def test_a_tie_is_dealt_out_across_the_layers_not_broken_by_path():
+    """`petclinic-test/…` sorts after `petclinic-frontend/…`: broken alphabetically, every
+    e2e scenario went to the back of its tie, and the cut kept the specs."""
+    cat = {"a.spec.ts:1": "unit", "b.spec.ts:2": "unit", "c.spec.ts:3": "unit",
+           "z.feature:4": "e2e", "y/ApiTest.java:5": "api"}
+    scored = [(1.0, t, "asserted", []) for t in sorted(cat)] + [(0.5, "d.spec.ts:6",
+                                                                  "asserted", [])]
+    got = [x[1] for x in S._spread(sorted(scored, key=lambda x: (-x[0], x[1])), cat)]
+    assert got == ["z.feature:4", "y/ApiTest.java:5", "a.spec.ts:1", "b.spec.ts:2",
+                   "c.spec.ts:3", "d.spec.ts:6"]
+
+
 # --- the page ---------------------------------------------------------------------------
 
 def _render(tmp_path):
@@ -287,11 +347,14 @@ def test_sentences_are_coloured_as_the_mapping_says(tmp_path):
 
 def test_who_paired_a_sentence_is_said_on_its_hover_and_once_not_after_every_clause(tmp_path):
     """Eval run 8: a 🤖 after each of 30+ highlighted clauses made the ticket column
-    unreadable. The provenance is on the sentence's hover and in one note under the header."""
+    unreadable. The provenance is on the sentence's hover and, once, on the hover of the
+    tally line — eval run 11: a visible line of its own was one more line between a busy
+    reviewer and the ticket, and changed no decision."""
     _, entries, page, _ = _render(tmp_path)
     css = (S.ASSETS / "reqmap.css").read_text(encoding="utf-8")
     assert "[data-src=model]::after" not in css
-    assert page.count(S.AI_NOTE) == 1 and 'class="rm-ainote"' in page
+    assert page.count(S.AI_NOTE) == 1 and 'class="rm-ainote"' not in page
+    assert f'<span class="rm-tallyt" data-tip="{S.AI_NOTE}">' in page
     js = (S.ASSETS / "reqmap.js").read_text(encoding="utf-8")
     assert "'🤖 checked by AI':'paired by script'" in js
     # No model answer, no note.
@@ -324,8 +387,8 @@ def test_what_is_not_green_is_counted_at_the_top_of_the_ticket_with_a_jump_to_it
     green = [dict(e, coverage="covered") for e in entries]
     root = tmp_path / "repo"
     all_green = S.render(g["ticket"], g["blocks"], g["rows"], green, root)
-    assert (f'<p class="rm-tally" data-all="yes">All {len(claims)} claims fully covered '
-            "by a test.</p>") in all_green
+    assert (f'<p class="rm-tally" data-all="yes" data-tip="{S.AI_NOTE}">All {len(claims)} '
+            "claims fully covered by a test.</p>") in all_green
     assert "rm-jump" not in all_green.split('class="rm-data"')[0].split("</style>")[-1]
 
 

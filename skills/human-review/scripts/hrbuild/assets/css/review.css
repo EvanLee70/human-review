@@ -103,7 +103,7 @@ ol.findings > li.n-assumed { --num-bg:#5b3fa8; border-left:3px solid #5b3fa8; }
    count what is open), receding like the fixed pile, with a REFUTED badge of their own
    rather than the open pile's CONTEXT. Eval run 10 drew them as cards 11–13 of `10 open`. */
 .refuted-h { font-size:1rem; margin:1.4rem 0 .2rem; color:var(--muted); }
-.refuted-intro { margin:0 0 .4rem; }
+.refuted-h[data-tip] { cursor:help; }
 ul.findings.refuted { list-style:none; padding:0; margin:.4rem 0 1rem; }
 ul.findings.refuted > li { background:var(--code-bg); border:1px dashed var(--line);
                     border-radius:8px; padding:.7rem 1rem; margin:.5rem 0; }
@@ -198,6 +198,13 @@ a.specref-gh:hover, a.specref-gh:focus-visible { color:var(--link); }
    titles; the other card carries only the pointer. */
 .fixshared { margin:.45rem 0 .2rem; color:var(--muted); font-size:.86rem; }
 .fixshared b { color:var(--fg); font-weight:600; }
+/* What a card folds: a quote past its first dozen lines, and a fix whose hunks only
+   re-wrapped lines (eval run 11: five diff blocks of line wraps, ~1,100px). One muted line
+   each until opened. */
+details.snipmore, details.fmtonly { margin:.1rem 0 .45rem; }
+details.snipmore > summary, details.fmtonly > summary { cursor:pointer; color:var(--muted);
+                                                        font-size:.84rem; }
+details.fmtonly > summary[data-tip] { cursor:help; }
 @media (max-width:560px) {
   .gradewhy { grid-template-columns:1fr; }
   .gradewhy-score { border-left:0; border-top:1px solid var(--line); margin-top:.45rem;

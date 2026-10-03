@@ -625,6 +625,70 @@ def attribute_steps(session_file: Path, steps: list[dict]) -> list[dict]:
     return out
 
 
+#: What a subagent WROTE says which tab it worked for, and that is read before any step's
+#: clock. Eval run 11: the Sonnet subagent that wrote the Demo film's script ran at
+#: 08:47:51, three minutes before the 'feature recording' window opened at 08:50:43, so
+#: the clock filed its $0.36 under "no single tab" and Demo read "no model spend".
+#: `(file pattern, tab ids)` — the first id the page has wins, as in `MODEL_RUN_TABS`.
+WRITE_TABS = [
+    (re.compile(r"(?:^|/)\.human-review/feature-script\.js$"), ("behaviour", "demo", "video")),
+    (re.compile(r"(?:^|/)\.human-review/test-mapping[^/]*\.json$"), ("requirements", "tests")),
+    (re.compile(r"(?:^|/)\.human-review/content\.json$"), ("review",)),
+]
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+
+#: A shell write: the target of `>`/`>>`/`tee`. Eval run 11's film subagent wrote its
+#: script with `cat > .human-review/feature-script.js <<'EOF'`, never with Write.
+_SHELL_TARGET = re.compile(r"""(?:>>?|\btee\s+(?:-a\s+)?)\s*['"]?([^\s'";|&<>()]+)""")
+#: …or a script that names the file and writes: `p='.human-review/x'; open(p,'w')`.
+_SCRIPT_WRITES = re.compile(r"""\bopen\([^)]*['"][wa]\+?['"]|\.write_text\(|\bwriteFileSync\(""")
+_PATHISH = re.compile(r"""[^\s'"=;|&<>()]+""")
+
+
+def _write_targets(b: dict) -> list[str]:
+    """The files one tool call writes, as far as its arguments say."""
+    args = b.get("input") or {}
+    if b.get("name") in WRITE_TOOLS:
+        return [str(args.get("file_path") or args.get("notebook_path") or "")]
+    if b.get("name") != "Bash":
+        return []
+    cmd = str(args.get("command") or "")
+    out = _SHELL_TARGET.findall(cmd)
+    if _SCRIPT_WRITES.search(cmd):
+        out += _PATHISH.findall(cmd)
+    return out
+
+
+def written_tabs(transcript: Path, tabs) -> list[str]:
+    """The page tabs a conversation's own writes (Write/Edit, or a shell redirect or a
+    script writing the file) say it worked for, in the order it first wrote for each."""
+    hits: list[str] = []
+    for rec in _rows(transcript):
+        for b in _blocks(rec):
+            if b.get("type") != "tool_use":
+                continue
+            for target in _write_targets(b):
+                for rx, ids in WRITE_TABS:
+                    if rx.search(target):
+                        tab = next((t for t in ids if t in tabs), None)
+                        if tab and tab not in hits:
+                            hits.append(tab)
+    return hits
+
+
+def subagent_writes(session_file: Path, tabs) -> dict[str, list[str]]:
+    """`{subagent transcript: [tab, …]}` for every subagent of the run that wrote one of
+    the files `WRITE_TABS` names. The parent is left out: it writes `content.json` for
+    every tab at once, which says nothing about any one of them."""
+    out = {}
+    for p, side in run_files(session_file):
+        if side:
+            hit = written_tabs(p, tabs)
+            if hit:
+                out[str(p)] = hit
+    return out
+
+
 def _step_takes(step: dict, turn, origin: dict | None) -> bool:
     """Is this turn one the step may be charged? By clock alone when nothing says who ran
     the step (a caller with no transcripts); by clock *and* conversation when it does."""
@@ -633,7 +697,8 @@ def _step_takes(step: dict, turn, origin: dict | None) -> bool:
     return origin.get(id(turn)) in step["owners"]
 
 
-def tab_costs(turns, steps: list[dict], wanted: list[str], origin: dict | None = None) -> dict:
+def tab_costs(turns, steps: list[dict], wanted: list[str], origin: dict | None = None,
+              written: dict[str, list[str]] | None = None) -> dict:
     """Attribute each turn's cost to the tab(s) whose step window it falls in.
 
     A turn inside more than one matching tab's window — one step feeding two tabs at
@@ -660,6 +725,9 @@ def tab_costs(turns, steps: list[dict], wanted: list[str], origin: dict | None =
     `origin` maps `id(turn)` to the transcript it came from (`gather_turns(origin=…)`), and
     with it a step carrying `owners` (`attribute_steps`) takes only its own conversation's
     turns — a parallel subagent's turn in the same minutes goes to the residual instead.
+
+    `written` (`subagent_writes`) comes first: a subagent that wrote a tab's file is that
+    tab's work wherever its clock fell, split evenly when it wrote for several.
     """
     per_tab ={t: {"cost": 0.0, "tokens": 0.0, "messages": 0, "models": {},
                     "has_closed": False, "has_unclosed": False}
@@ -688,7 +756,13 @@ def tab_costs(turns, steps: list[dict], wanted: list[str], origin: dict | None =
         c = price(family(model), u)
         tok = turn_tokens(u)
         hit = set()
-        if when is not None:
+        src = origin.get(id(turn)) if (origin is not None and side) else None
+        pinned = [t for t in (written or {}).get(src, ()) if t in per_tab]
+        if pinned:
+            hit = set(pinned)
+            for t in pinned:
+                per_tab[t]["has_closed"] = True
+        elif when is not None:
             for s in closed:
                 if s["start"] <= when <= s["end"] and _step_takes(s, turn, origin):
                     hit |= {t for t in s["tabs"] if t in per_tab}
@@ -1432,7 +1506,8 @@ def tab_cost_report(session: str | None, since: "dt.datetime | None", steps_path
     if turns is None or origin is None:
         origin = {}
         turns, _ = gather_turns(path, since, include_subagents, origin=origin)
-    result = tab_costs(turns, attribute_steps(path, steps), tabs, origin=origin)
+    result = tab_costs(turns, attribute_steps(path, steps), tabs, origin=origin,
+                       written=subagent_writes(path, tabs))
     tabs_out = {
         t: {"measured": row["has_closed"], "cost": row["cost"],
             "tokens": round(row["tokens"]), "messages": row["messages"],
@@ -2527,7 +2602,8 @@ def main(argv=None) -> int:
         if ledger_found:
             wanted = sorted({t for s in steps for t in s["tabs"]})
             residual = tab_costs(turns, attribute_steps(path, steps), wanted,
-                                 origin=origin)["residual"]
+                                 origin=origin,
+                                 written=subagent_writes(path, wanted))["residual"]
             if residual["messages"]:
                 tip += (f" {money(residual['cost'])} of that is not attributed to any "
                        "single tab — assembling the guide itself, plus any step whose "

@@ -84,8 +84,15 @@ def _split_outside(state: dict | None) -> tuple[list[dict], list[dict]]:
     `_before_range_commits`). Eval run 10 counted b12c9bdb — this change's proposal, design
     and spec — among the tooling commits nobody reviewed; it is what the change was built
     against, and is listed as that, not counted."""
-    outside = (state or {}).get("outside") or []
+    outside = [c for c in (state or {}).get("outside") or [] if not c.get("onBase")]
     return [c for c in outside if not c.get("spec")], [c for c in outside if c.get("spec")]
+
+
+def _picked_outside(state: dict | None) -> list[dict]:
+    """The commits before the counts that the base already carries, cherry-picked under
+    another sha (`chips.py:patch_equivalent`). Eval run 11 counted 5 of them among
+    "7 never reviewed": a merge would bring none of them, so the `+N` leaves them out."""
+    return [c for c in (state or {}).get("outside") or [] if c.get("onBase")]
 
 
 def outside_badge(state: dict | None) -> str:
@@ -99,11 +106,14 @@ def outside_badge(state: dict | None) -> str:
     beside it leave out — so it rides on the chip that names the branch, as a count. The
     sentence is in its hover; the commits are in the list it opens."""
     other, specs = _split_outside(state)
+    picked = _picked_outside(state)
     if not other and not specs:
         return ""
     n = len(other)
     tip = (f"{n} earlier commit{'' if n == 1 else 's'} on this branch "
            f"{_outside_where(state)}." if n else "")
+    if picked:
+        tip += f" {len(picked)} more already on {state.get('ref') or 'the base'}."
     if specs:
         tip += ((" Plus" if tip else "Before the review:") + " the spec this change was "
                 f"built against ({', '.join(c['sha'][:8] for c in specs)}).")
@@ -133,6 +143,7 @@ def outside_note(state: dict | None, repo: str = "") -> str:
     tabs), and never between the chips and the strip, where opening it would move every
     tab out from under the pointer. Esc or a click outside closes it (tabs.js)."""
     other, specs = _split_outside(state)
+    picked = _picked_outside(state)
     if not other and not specs:
         return ""
     n = len(other)
@@ -156,6 +167,10 @@ def outside_note(state: dict | None, repo: str = "") -> str:
         parts.append(f'<p class="sn-head sn-spec">The spec this change was built against '
                      f'(<code>{where}</code>), before the reviewed range — not unreviewed '
                      f'code</p><ul class="sn-list">{"".join(one(c) for c in specs)}</ul>')
+    if picked:
+        parts.append(f'<p class="sn-head">Already on {html.escape(state.get("ref") or "the base")}'
+                     f' (cherry-picked)</p>'
+                     f'<ul class="sn-list">{"".join(one(c) for c in picked)}</ul>')
     return (f'<div class="scopenote" id="{OUTSIDE_ID}" hidden>{"".join(parts)}</div>')
 
 

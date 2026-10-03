@@ -748,6 +748,19 @@ def test_a_swapped_media_type_is_one_change_on_the_band_as_in_the_visual_diff():
     assert ovd.change_total(entries, global_changes) == oac.change_count(result)
 
 
+def test_the_folded_count_owns_up_to_oasdiff_s_own_on_hover_and_only_there():
+    """Run 11: the band said "7 changes", `oasdiff changelog` says "8 changes" — a judge
+    re-ran the tool and caught the band in an unexplained disagreement. The count stays the
+    rows' count; the difference is said on hover, never as more prose on the band."""
+    band = oac.panel(oac.read_changelog(_swap_entries()), None)
+    assert re.search(r'<span data-tip="4 in oasdiff; a swapped media type is one row here">'
+                     r'3 changes</span>', band), band
+    assert _panel_text(band).startswith("Breaking changes · 3 changes, 2 breaking"), "no new words"
+    # Nothing folded, nothing to own up to.
+    plain = [e for e in _swap_entries() if e["id"] != "response-media-type-added"]
+    assert "data-tip" not in oac.panel(oac.read_changelog(plain), None)
+
+
 def test_the_band_and_the_toggle_print_the_same_number_end_to_end():
     if not HAVE_OASDIFF:
         print(f"skip {SKIP_REASON}")

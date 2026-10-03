@@ -229,6 +229,60 @@ def test_recursion_costs_one():
     assert ec.extract(files)[0]["flowCc"] == 1
 
 
+def test_only_a_call_that_can_only_mean_this_method_is_recursion():
+    """Eval run 11: `return Integer.parseInt(value);` inside a helper named `parseInt` was
+    charged +1 'recursion' — the name matched, the receiver was the JDK."""
+    def rec(body: str) -> int:
+        files = {"a/src/main/java/app/A.java":
+                 "package app;\npublic class A {\n  @GetMapping(\"/a\")\n"
+                 f"  public int parseInt(String v) {{ {body} }}\n}}\n"}
+        return ec.extract(files)[0]["flowCc"]
+    assert rec("return Integer.parseInt(v);") == 0, "a library type's method of the same name"
+    assert rec("return super.parseInt(v);") == 0, "the parent's body, not a loop back"
+    assert rec("return v.trim().parseInt(v);") == 0, "a call on whatever trim() returns"
+    assert rec("return parseInt(v);") == 1
+    assert rec("return this.parseInt(v);") == 1
+    assert rec("return A.parseInt(v);") == 1, "a static call through the own class"
+
+
+MCP_SECURITY = """
+package app.mcp;
+public class McpTools {
+    @McpTool(name = "cancel_visit")
+    public void cancel() { int id = Integer.parseInt(name()); java.util.List.of(id); UUID.randomUUID(); }
+}
+"""
+PAGE_REQUEST = """
+package app.rest;
+public class OwnerPageRequest {
+    private static int parseInt(String name, String value) { try { return 1; } catch (Exception e) { return 0; } }
+    public static UUID randomUUID() { if (x) { y(); } return null; }
+}
+"""
+
+
+def test_a_library_type_s_method_never_binds_to_a_project_method_of_the_same_name():
+    """Eval run 11: McpSecurity's `Integer.parseInt(…)` resolved by unique simple name to the
+    branch's new private `OwnerPageRequest#parseInt`, and four untouched MCP tools grew +2."""
+    [entry] = ec.extract({"a/src/main/java/app/mcp/McpTools.java": MCP_SECURITY,
+                          "a/src/main/java/app/rest/OwnerPageRequest.java": PAGE_REQUEST})
+    assert [m["method"] for m in entry["flow"]] == ["app.mcp.McpTools#cancel"]
+    assert entry["flowCc"] == 0
+
+
+def test_a_capitalised_constant_is_still_typed_and_an_untyped_lowercase_receiver_still_guesses():
+    files = {
+        "a/src/main/java/app/A.java":
+            "package app;\npublic class A {\n  private static final B INSTANCE = new B();\n"
+            "  @GetMapping(\"/a\")\n  public void go() { INSTANCE.run(); helper.walk(); }\n}\n",
+        "a/src/main/java/app/B.java":
+            "package app;\npublic class B {\n  public void run() { if (x) { y(); } }\n"
+            "  public void walk() { if (x) { y(); } }\n}\n",
+    }
+    [entry] = ec.extract(files)
+    assert [m["method"] for m in entry["flow"]] == ["app.A#go", "app.B#run", "app.B#walk"]
+
+
 STREAMED = """
 package app.rest;
 

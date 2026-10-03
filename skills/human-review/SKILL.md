@@ -90,7 +90,7 @@ one-line scope banner; an empty change set is "Nothing to review." and stop.
 ${SKILL}/scripts/preflight.py --base "$BASE"
 ```
 
-It pushes, waits for CI **on the pushed commit**, and only then wipes `assets/`, clears the
+It pushes, waits for CI **on the pushed commit**, and only then wipes `assets/` and earlier builds' `*.out` logs, clears the
 model state that is not HEAD's (`.model-prev/` and `.model-runs.json`/`.film-runs.json` rows
 from another branch or from before the fork — the last run's branch is kept in `.branch`),
 resets the ledger and writes the run's start markers. Exit 1 means the branch is not proven and nothing

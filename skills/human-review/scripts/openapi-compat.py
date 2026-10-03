@@ -220,8 +220,11 @@ def read_changelog(entries: list) -> dict:
         ops.setdefault((method, path), []).append(e)
 
     breaks, additive = [], []
+    folded = 0  # entries the fold removed — what oasdiff's own count has over ours
     for (method, path), found in ops.items():
+        raw = len(found)
         found = fold_swaps(found)
+        folded += raw - len(found)
         subject = {"method": method, "path": path}
         # Split per *entry*, not per operation. An operation with one breaking change and
         # five optional additions used to land whole under "What breaks", and every count
@@ -249,6 +252,7 @@ def read_changelog(entries: list) -> dict:
     return {"state": state, "breaks": breaks, "additive": additive,
             "deprecated": deprecated,
             "elsewhere": [oas_reason(e) for e in elsewhere],
+            "folded": folded,
             "source": "oasdiff", "complete": True}
 
 
@@ -775,6 +779,15 @@ def panel(result: dict, ours: dict | None,
 
     if not result.get("complete", True) and state != NO_CHANGES:
         counts += " — a lower bound, <code>oasdiff</code> is not installed"
+    # Eval run 11: the band counted one fewer than `oasdiff changelog` itself prints — the
+    # fold above turns a swapped media type's removal + addition into one row. The count
+    # stays the rows' count; the hover owns up to the difference, in no more words than that
+    # (the page's own tooltip, `data-tip`; a native title is banned by test_tooltips.py).
+    folded = result.get("folded") or 0
+    if folded and total:
+        tip = f"{total + folded} in oasdiff; a swapped media type is one row here"
+        counts = counts.replace(f"{total} change{s}",
+                                f'<span data-tip="{tip}">{total} change{s}</span>', 1)
 
     # The space between the spans is not cosmetic: a reader copying the line out would
     # get "Backwards compatible· …" with the dot glued on. It is a no-break space, and so is

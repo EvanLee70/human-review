@@ -11,8 +11,10 @@ Run with:  python3 -m pytest test_harness_cost.py
 """
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -746,5 +748,32 @@ def test_an_extended_autofix_row_keeps_what_the_record_said(tmp_path, monkeypatc
     from hrbuild.tabs import cost
     out = cost.components_html({"rows": [{**row, "label": "auto-fixes", "entries": []}],
                                 "usd": 2.2583, "aic": 0.0})
-    assert "extended to the last CI round" in out
-    assert "+$0.28 / +1.1M tok since the committed record, which says $1.97 / 6.5M" in out
+    # Eval run 11: on the label's hover, not as a visible line under it.
+    tip = re.search(r'<td><span data-tip="([^"]*)">auto-fixes</span>', out)
+    assert tip, out
+    said = html.unescape(tip.group(1))
+    assert said.startswith("extended to the last CI round")
+    assert "+$0.28 / +1.1M tok since the committed record, which says $1.97 / 6.5M" in said
+    visible = re.sub(r'data-tip="[^"]*"', "", out)
+    assert "extended to the last CI round" not in visible
+
+
+def test_a_step_run_twice_is_one_row_of_wallclock_the_last_run(tmp_path):
+    """Eval run 11 recorded the Demo film twice (the first attempt failed), and
+    `wallclock.steps` listed 'feature recording' twice: stepSeconds 1109 > a 934 s run."""
+    hr = tmp_path / ".human-review"
+    hr.mkdir()
+    (hr / ".steps.json").write_text(json.dumps([
+        {"tabs": ["behaviour"], "label": "feature recording",
+         "start": "2026-10-03T08:50:43+00:00", "end": "2026-10-03T08:55:50+00:00"},
+        {"tabs": ["dsaudit"], "label": "design-system audit",
+         "start": "2026-10-03T08:55:50+00:00", "end": "2026-10-03T08:56:30+00:00"},
+        {"tabs": ["behaviour"], "label": "feature recording",
+         "start": "2026-10-03T08:57:06+00:00", "end": "2026-10-03T09:01:00+00:00"},
+        {"tabs": ["guide"], "label": "assemble",
+         "start": "2026-10-03T09:01:05+00:00", "end": "2026-10-03T09:03:08+00:00"}]))
+    wall = hc.wallclock(hr, "2026-10-03T08:47:35+00:00", "2026-10-03T09:03:09+00:00")
+    film = [s for s in wall["steps"] if s["label"] == "feature recording"]
+    assert film == [{"label": "feature recording", "tabs": ["behaviour"], "seconds": 234}]
+    assert wall["stepSeconds"] == 234 + 40 + 123
+    assert wall["stepSeconds"] <= wall["seconds"]

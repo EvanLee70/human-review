@@ -1101,7 +1101,10 @@ def match(sentences: list[dict], rows: list[dict], root: Path,
     links that only run through it make it `exercised`."""
     docs = docs if docs is not None else test_documents(rows, root)
     idf, df, n = _idf(docs)
+    cat_of = {r["id"]: r.get("cat") for r in rows}
     decided, open_, cands = [], {}, {}
+    ranked: dict[str, list[str]] = {}
+    by_test: dict[str, list[tuple[float, str]]] = {}
     for s in sentences:
         if _OUT_OF_SCOPE.search(s.get("section") or ""):
             decided.append({"id": s["id"], "coverage": "n/a", "tests": [], "by": "script",
@@ -1119,7 +1122,11 @@ def match(sentences: list[dict], rows: list[dict], root: Path,
             sc, strength, ev = _best(units, lits, docs[r["id"]], idf, df, n)
             if sc > 0:
                 scored.append((round(sc, 6), r["id"], strength, ev))
-        scored.sort(key=lambda x: (-x[0], x[1]))
+        scored = _spread(sorted(scored, key=lambda x: (-x[0], x[1])), cat_of)
+        ranked[s["id"]] = [x[1] for x in scored]
+        for x in scored:
+            if x[0] >= CANDIDATE_AT:
+                by_test.setdefault(x[1], []).append((x[0], s["id"]))
         # Candidates *beyond* the links: the pool used to be the best eight overall, so a
         # sentence with six links took two others to the model, and run 8's e2e scenario
         # "Searching with an empty last name shows the first page of every owner" (scoring
@@ -1160,7 +1167,63 @@ def match(sentences: list[dict], rows: list[dict], root: Path,
             else:
                 entry["coverage"] = "covered"
         decided.append(entry)
-    return {"decided": decided, "open": open_, "candidates": cands}
+    offered = _offers(rows, by_test)
+    for sid, tids in offered.items():
+        keep = set(tids) | set(cands.get(sid) or [])
+        cands[sid] = [t for t in ranked[sid] if t in keep]
+        if sid in open_:
+            keep |= set(open_[sid])
+            open_[sid] = [t for t in ranked[sid] if t in keep]
+    return {"decided": decided, "open": open_, "candidates": cands, "offered": offered}
+
+
+#: The branch's own tests are offered to this many sentences each — their best-scoring —
+#: whatever the per-sentence cut leaves out.
+OFFER_TOP = 3
+#: What the branch did to a test that makes it the branch's own: written, or edited.
+OWN = ("new", "changed")
+
+
+def _offers(rows: list[dict], by_test: dict) -> dict[str, list[str]]:
+    """`{sentence id: [test id, …]}` — every test this branch wrote or edited, offered as a
+    candidate to the OFFER_TOP sentences it scores best on.
+
+    Eval run 11: the branch's new e2e scenarios — 'Sorting by city, then reversing it',
+    'Paging through every owner…', 'A new search starts again from the first page' — ended
+    'paired with no sentence'. Each sentence takes only its best few candidates, and twenty
+    new component specs tie with a scenario on `sort`, so the scenario fell off the end of
+    the very sentences it proves. Seen from the test, those sentences are its best; so the
+    pairing is also proposed from that side, and the model reads it where it belongs."""
+    status = {r["id"]: r.get("status") for r in rows}
+    out: dict[str, list[str]] = {}
+    for tid, hits in by_test.items():
+        if status.get(tid) not in OWN:
+            continue
+        for _, sid in sorted(hits, key=lambda x: -x[0])[:OFFER_TOP]:
+            out.setdefault(sid, []).append(tid)
+    return out
+
+
+def _spread(scored: list[tuple], cat_of: dict) -> list[tuple]:
+    """`scored` (best first) with every run of equal scores dealt out across the layers —
+    a UI scenario, an API test, a unit spec, then the next of each — instead of by path.
+    The cut that follows keeps the head of the list, and a tie broken alphabetically sent
+    `petclinic-test/…` (every e2e scenario) to the back of each tie behind twenty
+    `petclinic-frontend/…` specs."""
+    out, i = [], 0
+    while i < len(scored):
+        j = i
+        while j < len(scored) and scored[j][0] == scored[i][0]:
+            j += 1
+        tie = scored[i:j]
+        lanes = [[x for x in tie if cat_of.get(x[1]) == c] for c in CATS]
+        lanes.append([x for x in tie if cat_of.get(x[1]) not in CATS])
+        while any(lanes):
+            for lane in lanes:
+                if lane:
+                    out.append(lane.pop(0))
+        i = j
+    return out
 
 
 # --- the model's half -------------------------------------------------------------------
@@ -1183,6 +1246,7 @@ def model_input(ticket: dict, sentences: list[dict], rows: list[dict], scripted:
     rows_by = {r["id"]: r for r in rows}
     links = {e["id"]: e for e in scripted["decided"]}
     cands = scripted.get("candidates") or {}
+    offered = scripted.get("offered") or {}
     asked, want = [], []
     for s in sentences:
         sid = s["id"]
@@ -1191,8 +1255,12 @@ def model_input(ticket: dict, sentences: list[dict], rows: list[dict], scripted:
             continue
         made = [{"id": t["id"], "why": t.get("why") or ""} for t in (e or {}).get("tests") or []]
         made_ids = {t["id"] for t in made}
-        pool = scripted["open"].get(sid) if e is None else cands.get(sid)
-        others = [t for t in (pool or []) if t not in made_ids][:MAX_CANDIDATES]
+        pool = [t for t in (scripted["open"].get(sid) if e is None else cands.get(sid)) or []
+                if t not in made_ids]
+        # The best few, plus every test of the branch's own this sentence is among the
+        # best for (`_offers`) — still in rank order.
+        keep = set(pool[:MAX_CANDIDATES]) | set(offered.get(sid) or [])
+        others = [t for t in pool if t in keep]
         item = {"id": sid, "text": by_id[sid]["text"],
                 "section": by_id[sid].get("section") or "",
                 "scripted": made, "candidates": others}
@@ -1662,7 +1730,9 @@ def _sentence_html(s: dict, entry: dict) -> str:
             f'id="rm-s-{s["id"]}">{inner}</span>')
 
 
-#: The one line that says a model read the tests — instead of a 🤖 after every sentence.
+#: Who read the tests, said once — on the hover of the tally line, never as a line of its
+#: own (eval run 11: the reviewer is busy, and a line that only says where the colours came
+#: from changes no decision) — instead of a 🤖 after every sentence.
 AI_NOTE = "🤖 AI-checked; hover a sentence for details"
 
 
@@ -1697,15 +1767,15 @@ def _ticket_html(ticket: dict, blocks: list[dict], entries: dict) -> str:
     # under the header strip. It used to sit *in* the strip as "Requirement text: GitHub
     # issue #25, named by content.json pr.ticket" — a file and a key a reviewer never needs,
     # squeezing the author and the date into a four-line column beside it.
-    # Who coloured the sentences, said once: a sentence's own hover says whether AI read
-    # its tests or the script paired it — a robot after every clause (thirty on eval run 8)
-    # made the column unreadable.
-    note = (f'<span class="rm-ainote">{" · " if ticket.get("origin") else ""}{AI_NOTE}</span>'
-            if any(e.get("by") == "model" for e in entries.values()) else "")
-    src = (f'<p class="rm-src">{html.escape(ticket.get("origin") or "")}{note}</p>'
-           if ticket.get("origin") or note else "")
+    # Who coloured the sentences, said once and on a hover: a sentence's own hover says
+    # whether AI read its tests or the script paired it — a robot after every clause
+    # (thirty on eval run 8) made the column unreadable, and a line of its own (run 11) was
+    # one more line between the reviewer and the ticket.
+    ai = AI_NOTE if any(e.get("by") == "model" for e in entries.values()) else ""
+    src = (f'<p class="rm-src">{html.escape(ticket.get("origin") or "")}</p>'
+           if ticket.get("origin") else "")
     return ('<div class="rm-ticket"><div class="rm-tkhead">' + head + '</div>' + src
-            + tally_html(blocks, entries)
+            + tally_html(blocks, entries, ai)
             + '<div class="rm-issue">' + "".join(body) + "</div></div>")
 
 
@@ -1716,7 +1786,7 @@ TALLY = (("missing", "missing"), ("partial", "partially"), ("exercised", "execut
          ("narrowed", "narrowed"))
 
 
-def tally_html(blocks: list[dict], entries: dict) -> str:
+def tally_html(blocks: list[dict], entries: dict, who: str = "") -> str:
     """One line at the top of the ticket frame counting the sentences that are NOT solid
     green, each count a link that jumps to the first of them (and, in `reqmap.js`, on to
     the next one per press).
@@ -1741,11 +1811,13 @@ def tally_html(blocks: list[dict], entries: dict) -> str:
                          f'href="#rm-s-{hit[0]["id"]}" data-tip="{tip}">'
                          f'{len(hit)} {word}</a>')
     n = len(claims)
+    # `who` read the tests (`AI_NOTE`), on the hover of the line's own words.
+    tip = f' data-tip="{html.escape(who, quote=True)}"' if who else ""
     if not parts:
-        return (f'<p class="rm-tally" data-all="yes">All {n} claim{"s" if n != 1 else ""} '
+        return (f'<p class="rm-tally" data-all="yes"{tip}>All {n} claim{"s" if n != 1 else ""} '
                 "fully covered by a test.</p>")
     off = n - sum(1 for e in claims if e["coverage"] == "covered")
-    return (f'<p class="rm-tally"><span class="rm-tallyt">{off} of {n} claims not fully '
+    return (f'<p class="rm-tally"><span class="rm-tallyt"{tip}>{off} of {n} claims not fully '
             f'covered:</span> ' + " ".join(parts) + "</p>")
 
 

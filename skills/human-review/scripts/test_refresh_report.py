@@ -375,3 +375,35 @@ def test_a_refresh_never_writes_or_touches_the_film_script(tmp_path, monkeypatch
         assert refresh.main(["--dry-run", "--no-serve", "--steps", steps]) == 0
     assert (script.stat().st_mtime_ns, script.read_bytes()) == before
     assert refresh.film_script(d) == script
+
+
+def test_a_refresh_removes_the_logs_of_builds_before_this_run(tmp_path, monkeypatch, capsys):
+    """Eval run 11: the served folder held a `refresh.out` from another folder's build and
+    a `run-steps-2.out` measured from an old base. A refresh removes the top-level `*.out`
+    last written before this run's `.started`; this run's own logs stay. A dry run, and a
+    run with no `.started` to compare against, remove nothing."""
+    import os
+    import time
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(refresh, "broken_points_promise", lambda base: None)
+    monkeypatch.setattr(refresh, "plan", lambda *a, **k: [])
+    d = _review(tmp_path)
+    now = time.time()
+    for name, age in (("refresh.out", 7200), ("run-steps-2.out", 90000), ("run-steps.out", 60),
+                      ("review.html", 7200)):
+        (d / name).write_text("x", encoding="utf-8")
+        os.utime(d / name, (now - age, now - age))
+
+    assert refresh.main(["--no-serve"]) == 0
+    assert (d / "refresh.out").exists(), "no .started: nothing says which build is this one"
+
+    started = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(now - 600))
+    (d / ".started").write_text(started + "\n", encoding="utf-8")
+    assert refresh.main(["--dry-run", "--no-serve"]) == 0
+    assert (d / "refresh.out").exists(), "a dry run changes nothing"
+
+    assert refresh.main(["--no-serve"]) == 0
+    assert not (d / "refresh.out").exists() and not (d / "run-steps-2.out").exists()
+    assert (d / "run-steps.out").exists(), "written after .started: this run's"
+    assert (d / "review.html").exists(), "only logs"
+    assert "removed refresh.out" in capsys.readouterr().out

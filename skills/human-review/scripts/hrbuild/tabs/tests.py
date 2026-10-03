@@ -187,6 +187,13 @@ def render_tests(rows, root: Path, flags: bool = True) -> str:
             # Renamed in place: one test kept under a new title, not one lost and one new.
             note = (f' <span class="tnote trenamed">renamed from '
                     f'“{html.escape(r["renamedFrom"])}”</span>') + note
+        elif r.get("rewrittenFrom"):
+            # Rewritten — moved, or retitled over the same skeleton: one word on the row,
+            # the old title on the hover.
+            was = f'“{r["rewrittenFrom"]}”' + (f', line {r["rewrittenFromLine"]} at the base'
+                                               if r.get("rewrittenFromLine") else "")
+            note = (f' <span class="tnote trenamed" data-tip="Rewritten from '
+                    f'{html.escape(was, quote=True)}">rewritten</span>') + note
         if r.get("viaHelper"):
             # Its own lines are as they were; a same-file helper it calls is not.
             note = (f' <span class="tnote tvia" data-tip="'
@@ -216,16 +223,19 @@ def render_test_ledger(rows, root: Path) -> tuple[str, int]:
     "new" would hide it among twenty-one that do run. The untouched rest are counted in a
     sentence rather than listed — a reviewer scrolling past a hundred unchanged names to
     find the two that went away is a reviewer who stops scrolling.
+
+    Folded behind one line, the counts (eval run 11): open, the four lists doubled the
+    tab's height, and fifty-six of their names were the new tests the card beside the
+    ticket already lists. The line is the answer most reviewers came for; the names are a
+    click away, and what each group means is on its heading's hover, not under it.
     """
     groups = [
-        ("stopped running", "Still written, and no longer part of any run — nothing "
-                            "under them is asserted on any build.", []),
-        ("new", "Tests this change set wrote.", []),
-        ("gone", "Tests the run has lost — deleted outright (each links to where it stood "
-                 "at the base commit), or commented out in place.", []),
-        ("edited", "Tests whose body this change set moved — or, marked “edited via "
-                   "helper”, a same-file helper they call: worth reading for what they "
-                   "stopped asserting, not only for what they now do.", []),
+        ("stopped running", "Still written, and no longer part of any run.", []),
+        ("new", "Written by this change set.", []),
+        ("gone", "Deleted, or commented out in place. A deleted one opens where it stood "
+                 "at the base commit.", []),
+        ("edited", "Body changed, rewritten, or edited through a same-file helper it "
+                   "calls.", []),
     ]
     untouched = 0
     for r in rows:
@@ -252,15 +262,23 @@ def render_test_ledger(rows, root: Path) -> tuple[str, int]:
         mixed = name == "stopped running"
         blocks.append(
             f'<section class="tgroup{" tgroup-off" if mixed else ""}">'
-            f'<h3>{html.escape(name)} <b>{len(items)}</b></h3>'
-            f'<p class="sub">{html.escape(why)}</p>'
+            f'<h3 data-tip="{html.escape(why, quote=True)}">{html.escape(name)} '
+            f'<b>{len(items)}</b></h3>'
             + render_tests(items, root, flags=mixed)
             + "</section>"
         )
-    rest = (f'<p class="sub">{untouched} more test'
-            f'{"s" if untouched != 1 else ""} in the files this change set touched, '
-            "left exactly as they were.</p>") if untouched else ""
-    return '<div class="tledger">' + "".join(blocks) + "</div>" + rest, moved
+    off, new, gone, edited = (len(g[2]) for g in groups)
+    face = " · ".join(x for x in (
+        f'<span class="toff">{off} stopped running</span>' if off else "",
+        f'<span class="added">+{new} new</span>' if new else "",
+        f'<span class="removed">−{gone} gone</span>' if gone else "",
+        f'<span class="changed">{PENCIL}{edited} edited</span>' if edited else "",
+    ) if x) or "no test moved"
+    rest = (f'{untouched} more test{"s" if untouched != 1 else ""} in the files this '
+            "change set touched, left exactly as they were") if untouched else ""
+    tip = f' data-tip="{html.escape(rest, quote=True)}"' if rest else ""
+    return (f'<details class="tledger" id="test-ledger"><summary{tip}>{face}</summary>'
+            '<div class="tledger-body">' + "".join(blocks) + "</div></details>"), moved
 
 
 
@@ -395,6 +413,8 @@ def tests_chip(doc: dict | None) -> dict | None:
            + f', {t["modified"]} edited'
            # A retitled test is counted here and not as one gone plus one new.
            + (f' ({t["renamed"]} renamed)' if t.get("renamed") else "")
+           # …and so is one rewritten: moved, or retitled over the same skeleton.
+           + (f' ({t["rewritten"]} rewritten)' if t.get("rewritten") else "")
            # Untouched itself, edited through a same-file helper it calls.
            + (f' ({t["viaHelper"]} via a helper)' if t.get("viaHelper") else "")
            + f', {gone}'

@@ -111,11 +111,13 @@ from hrbuild.shared.chips import (
     _compare_href, _numstat, _resolve_base, BASE_SOURCES, COMMITS_JSON, measured_from,
     page_base, POINTS_JSON, _front_matter, _is_ancestor, _recorded_bases,
     GENERATED_GLOBS, generated_globs, REVIEW_BOOKKEEPING, _project_cfg,
-    raised_by_reviewer, review_chip_face, review_chip_key, reviewer_names, _REVIEWER_WORD
+    raised_by_reviewer, review_chip_face, review_chip_key, reviewer_names, _REVIEWER_WORD,
+    patch_equivalent, NO_FETCH_ENV, fetch_base
 )
 from hrbuild.shared.masthead import (
     FAVICON, FAVICON_EMOJI, FAVICON_SVG, masthead_html, outside_note, page_title, ref_badges,
-    title_ticket_ref, OUTSIDE_ID, outside_badge, _outside_where, _split_outside
+    title_ticket_ref, OUTSIDE_ID, outside_badge, _outside_where, _split_outside,
+    _picked_outside
 )
 from hrbuild.shared.footer import (
     DEMO_DOCKER_URL, DEMO_PAGES_URL, DEMO_ZIP_URL, FOOTER_BOILERPLATE, HOME_URL, INVITATION,
@@ -168,7 +170,11 @@ from hrbuild.tabs.review import (
     CITING_FIELDS, CITE_QUOTE, _CITE, _CITE_GUARD, _spec_change_dir, _doc_lines,
     _cited_quote, _find_line, _resolve_citation, link_spec_citations, urllib_quote,
     _before_range_commits, _spec_commit_signals, _PILE_COUNT, _Q_REF, model_line_conflict,
-    _drop_model_line
+    _drop_model_line, SNIPPET_LINES, STATEMENT_LINES, _STATEMENT_SUFFIXES, _CONT_START,
+    _OPEN_END, widen_anchor, _snapped_spans, _spans_ref, _first_lines, snippet_card,
+    GRADE_LINES_MAX, SPARE_SIGNALS, _REPEATS, _PILE_WORD, _PILE_OF_WORD, _PILE_SAID,
+    _plain_words, named_items, hunk_bodies, _layout_free, format_only_hunk, _OBS_LABELS,
+    _obs_label, _STOPWORDS, _words, restates_title, REFUTED_TIP
 )
 from hrbuild.tabs.sequence import (
     CODE_BADGE, FILE_PAGE, FILE_PENCIL, FILE_PLUS, render_testpairs, SEQ_ARROW, SEQ_DECL,
@@ -182,7 +188,8 @@ from hrbuild.tabs.sequence import (
     _drew_nothing, _FEATURE_DECL, _FEATURE_STOP, _JAVA_DECL, _ref, _SKIP_LINE, _STRINGS,
     _tagged_decl, _test_kind, _TS_DECL,
     SEQ_SELECTION, SEQ_WHY, sequence_selection, _slug, picked_for, _why_chip, _names,
-    selection_note_html, SEQ_ALSO, ledger_status, SEL_INLINE, _sel_item, _sel_name
+    selection_note_html, SEQ_ALSO, ledger_status, SEL_INLINE, _sel_item, _sel_name,
+    SEQ_TOUCHED, touched_via, _branch_changed, _direct_imports, _TS_IMPORT, _JAVA_IMPORT
 )
 from hrbuild.tabs.tests import (
     LEDGER_TAB, render_requirements, render_test_ledger, render_tests, render_traces,
@@ -361,6 +368,9 @@ def _main(argv=None) -> int:
     # base the producers ran against, else the fork point from the PR's base. Asked here,
     # before the first snippet renders, because the snippets are the first consumer. The
     # drift facts on the ref chip (`ahead`, `localBehind`) stay about the named base ref.
+    # The base as it stands on the remote, not as it was at the last pull: eval run 11
+    # counted the branch's drift against a local `main` hours behind origin.
+    fetch_base(root, (spec.get("pr") or {}).get("base") or "origin/main")
     base_st = page_base(root, out_dir, (spec.get("pr") or {}).get("base") or "origin/main")
     page_rev = (base_st or {}).get("diffBase")
     if page_rev:
@@ -378,8 +388,9 @@ def _main(argv=None) -> int:
     default_diff_base = review_step_rev(out_dir)
     for f in spec.get("findings", []) + spec.get("assumptions", []) + spec.get("autofixes", []):
         f["_refs"] = resolve_refs(f.get("refs", []), root)
+        # `snippet_card`: the anchor widened to its statement, at most a dozen lines open.
         f["_snippets"] = "".join(
-            snippet_html(s["ref"], s.get("caption"), root) for s in f.get("snippets", [])
+            snippet_card(s["ref"], s.get("caption"), root) for s in f.get("snippets", [])
         )
         # An applied fix that shows no diff is a claim with nothing behind it, so the build
         # says so — loudly enough to fix, quietly enough not to block a page whose ledger
@@ -952,9 +963,11 @@ def _main(argv=None) -> int:
             placed_ledger.append(True)
             if not frag:
                 return "", 0, 0
-            return (heading(block, "test-ledger",
-                            block.get("title", "What this change set did to the tests"))
-                    + frag, 1, moved)
+            # No default heading: the ledger's own summary line — `+56 new · −6 gone ·
+            # ✍10 edited` — is its title, and the anchor (eval run 11). An explicit
+            # `title` still renders.
+            return (heading(block, "test-ledger-title", block.get("title", "")) + frag,
+                    1, moved)
         if kind == "traces":
             touched = {(Path(t["path"]).name, t.get("line"))
                        for t in test_doc.get("tests", []) if t.get("status") != "unchanged"}
