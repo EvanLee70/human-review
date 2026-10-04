@@ -45,12 +45,41 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
-import fcntl
 import json
 import os
 import sys
 import tempfile
 from pathlib import Path
+
+# `fcntl` does not exist on Windows, and importing it at module level made every command
+# here die on import — `reset` and `check` included, which take no lock at all. Both
+# branches give `locked()` the same thing: one exclusive lock that is waited for.
+if os.name == "nt":
+    import msvcrt
+    import time
+
+    def _lock(fh) -> None:
+        # `LK_LOCK` gives up after ten one-second tries, where `flock` waits for as long as
+        # it takes. Polling the non-blocking form keeps the wait unbounded and short.
+        while True:
+            fh.seek(0)
+            try:
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                return
+            except PermissionError:
+                time.sleep(0.05)
+
+    def _unlock(fh) -> None:
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _lock(fh) -> None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+
+    def _unlock(fh) -> None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 DEFAULT_PATH = ".human-review/.steps.json"
 
@@ -107,11 +136,11 @@ def locked(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = path.with_name(path.name + ".lock")
     with open(lock, "a+") as fh:
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        _lock(fh)
         try:
             yield
         finally:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            _unlock(fh)
 
 
 def start(path: Path, tabs: list[str], label: str = "", rev: str = "") -> int:
