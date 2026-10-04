@@ -383,6 +383,34 @@ def open_in_editor(path, line):
     return "os"
 
 
+def review_open(path, line, sha, root, branch):
+    """Ask the editor bridge to open `path` in a window holding the *reviewed* version of it.
+
+    Any window will do as the one asked: the extension compares the file at each window's
+    HEAD with the blob at `sha` and hands the click to a window that matches, or refuses
+    with a sentence and a prompt for an agent (409). Returns `(status, body)` from the first
+    window that answers, or None when no bridge is listening — then the caller opens the file
+    the way it always has, because without the bridge there is nothing to check against."""
+    payload = json.dumps({"file": str(path), "line": line, "sha": sha, "root": root,
+                          "branch": branch}).encode()
+    for f in sorted((Path.home() / ".walkie-talkie" / "ide").glob("vscode-*.json")):
+        try:
+            entry = json.loads(f.read_text())
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{entry['port']}/review-open", method="POST", data=payload,
+                headers={"x-relay-token": entry["token"], "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            # 404: a bridge too old to know the route — the next window may be newer.
+            if e.code == 404:
+                continue
+            return e.code, e.read()
+        except Exception:
+            continue
+    return None
+
+
 def bridge_diff(target: Path, sha: str, line: int) -> bool:
     """Ask the VS Code window that owns `target` to open the diff *and* put the caret on
     `line`. True when one took it.
@@ -1433,6 +1461,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     target.resolve().relative_to(ROOT.resolve())
                 except ValueError:
                     ok = False
+            # A guide that carries its commit asks for the reviewed version of the file, not
+            # for whatever is at this path now; the bridge's answer goes back as it is.
+            sha = q.get("sha", [""])[0]
+            answer = ok and sha and review_open(target, line, sha, q.get("root", [""])[0],
+                                                q.get("branch", [""])[0])
+            if answer:
+                status, body = answer
+                if status == 200:
+                    Handler.opens += 1
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if ok:
                 # Counted separately from `hits`: a click that reaches the editor is the
                 # one thing about this page that cannot be seen from outside — and on the

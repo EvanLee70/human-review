@@ -309,6 +309,9 @@ button.chip-rerun-ai .rr-ico { font-size:1em; vertical-align:-.05em; }
               transition:opacity .16s, transform .16s; max-width:80vw; overflow:hidden;
               text-overflow:ellipsis; white-space:nowrap; }
 #copy-toast.shown { opacity:1; transform:translateX(-50%) translateY(0); }
+#copy-toast.asks { pointer-events:auto; display:flex; align-items:center; gap:.7rem; }
+#copy-toast.asks button { font:inherit; font-weight:600; cursor:pointer; border:0; border-radius:999px;
+              padding:.15rem .7rem; background:var(--card); color:var(--fg); }
 .titlerow .chip-mode, .titlerow .chip-serve, .titlerow .chip-rerun, .titlerow .titlescore {
             flex:0 0 auto; align-self:center;
             padding:.15rem .7rem; border-radius:999px; border-width:1px;

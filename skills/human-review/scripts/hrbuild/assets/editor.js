@@ -42,6 +42,7 @@
       document.body.appendChild(toast);
     }
     toast.textContent = message;
+    toast.classList.remove('asks');
     toast.classList.add('shown');
     clearTimeout(flash.timer);
     if (sticky) return;
@@ -56,6 +57,31 @@
   // than in SERVER_JS because the toast and its stylesheet are this file's; SERVER_JS
   // runs first and builds `window.HR`, and every consumer of this runs after EDITOR_JS.
   window.HR.flash = flash;
+
+  // A refusal that the reader can act on: the sentence, and one button that copies the
+  // prompt an agent needs to make the click work. It stays until it is used or replaced —
+  // a button that fades in 2.6 seconds is a button nobody manages to press.
+  function offerPrompt(message, prompt) {
+    flash(message, true);
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = 'Copy prompt';
+    b.addEventListener('click', function () {
+      copy(prompt).then(function () { flash('Copied \u2014 paste it to an agent'); });
+    });
+    toast.appendChild(b);
+    toast.classList.add('asks');
+  }
+
+  // What the build stamped on <html>: the commit this guide quotes, the checkout it was built
+  // in, and — when the editor extension was installed — the id that owns its URI handler.
+  // Without a commit there is nothing to check a window against, and every path below
+  // behaves as it did before the stamp existed.
+  var STAMP = document.documentElement.dataset || {};
+  function commitQuery() {
+    return 'sha=' + encodeURIComponent(STAMP.hrHead) + '&root=' + encodeURIComponent(STAMP.hrRoot || '')
+      + '&branch=' + encodeURIComponent(STAMP.hrBranch || '');
+  }
 
   // `vscode://file//abs/path.java:487:1` → the two halves the server wants.
   function parse(href) {
@@ -250,13 +276,33 @@
     // dead-end instead of degrading.
     var duri = link.getAttribute('data-diff-uri');
     if (!SERVED && !EMBEDDED && duri) { window.location.href = duri; return; }
+    // Off disk, at top level, with the extension: its handler finds the window holding the
+    // reviewed version of the file, and says so in VS Code when none does.
+    var aimed = !SERVED && !EMBEDDED && !base && STAMP.hrHead && STAMP.hrOpenUri
+      && parse(link.getAttribute('href'));
+    if (aimed) {
+      window.location.href = 'vscode://' + STAMP.hrOpenUri + '/review-open?file='
+        + encodeURIComponent(aimed.path) + '&line=' + aimed.line + '&' + commitQuery();
+      return;
+    }
     var ref2 = SERVED && parse(link.getAttribute('href'));
     if (ref2) {
-      fetch('/__open__?path=' + encodeURIComponent(ref2.path) + '&line=' + ref2.line)
+      fetch('/__open__?path=' + encodeURIComponent(ref2.path) + '&line=' + ref2.line
+            + (STAMP.hrHead ? '&' + commitQuery() : ''))
         .then(function (r) {
-          // 404 means the server would not open it — a reference outside the repository,
-          // or a file that has since moved. Say so rather than leave the click silent.
-          if (!r.ok) flash('Could not open ' + ref2.path.split('/').pop());
+          if (r.status === 204) return;
+          return r.text().then(function (t) {
+            var said = null;
+            try { said = JSON.parse(t); } catch (e) { /* a bare 404 has no body */ }
+            if (r.ok) {
+              if (said && said.edited) flash('Opened \u2014 edited since the reviewed commit');
+              return;
+            }
+            if (said && said.prompt) { offerPrompt(said.message, said.prompt); return; }
+            // 404 means the server would not open it — a reference outside the repository,
+            // or a file that has since moved. Say so rather than leave the click silent.
+            flash((said && said.message) || ('Could not open ' + ref2.path.split('/').pop()));
+          });
         })
         .catch(function () { flash('The review server is no longer running'); });
       return;
