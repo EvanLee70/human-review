@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="en" data-hr-root="/Users/victorrentea/workspace/petclinic-pr-visit-has-vet" data-hr-head="cbaa17bdf354be94b36996c6c7efbd02e6b4c057" data-hr-branch="test-pr" data-hr-open-uri="victorrentea.victor-vsc"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Link Visit with Vet</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48dGV4dCB5PSIuOWVtIiBmb250LXNpemU9IjkwIiBmb250LWZhbWlseT0iQXBwbGUgQ29sb3IgRW1vamksU2Vnb2UgVUkgRW1vamksTm90byBDb2xvciBFbW9qaSxzYW5zLXNlcmlmIj7wn5Gx8J+Pu+KAjeKZgu+4jzwvdGV4dD48L3N2Zz4=">
@@ -652,6 +652,9 @@ button.chip-rerun-ai .rr-ico { font-size:1em; vertical-align:-.05em; }
               transition:opacity .16s, transform .16s; max-width:80vw; overflow:hidden;
               text-overflow:ellipsis; white-space:nowrap; }
 #copy-toast.shown { opacity:1; transform:translateX(-50%) translateY(0); }
+#copy-toast.asks { pointer-events:auto; display:flex; align-items:center; gap:.7rem; }
+#copy-toast.asks button { font:inherit; font-weight:600; cursor:pointer; border:0; border-radius:999px;
+              padding:.15rem .7rem; background:var(--card); color:var(--fg); }
 .titlerow .chip-mode, .titlerow .chip-serve, .titlerow .chip-rerun, .titlerow .titlescore {
             flex:0 0 auto; align-self:center;
             padding:.15rem .7rem; border-radius:999px; border-width:1px;
@@ -1503,6 +1506,36 @@ details.seqsel-k > ul { margin:.3rem 0 .2rem; padding:.4rem .6rem .4rem 1.6rem; 
 details.seqsel-k > ul > li { break-inside:avoid; }
 .seqsel code { font-size:.92em; overflow-wrap:anywhere; }
 .seqsel-f { color:var(--muted); font-size:.92em; }
+/* "How were these produced?" — the tab's first line, shut. Set as a quiet control, not a
+   heading: a reader who knows what a trace is should pay one muted line for it, and the
+   fold's ▸ says there is more without saying it loudly. The nested "What does a trace
+   look like?" wears the same dress one step in. */
+details.seqhow { margin:.5rem 0 .7rem; font-size:.9rem; line-height:1.6; }
+details.seqhow > summary, details.seqhow-shot > summary { cursor:pointer; list-style:none;
+  display:inline-flex; gap:.35rem; align-items:baseline; color:var(--muted); }
+details.seqhow > summary::-webkit-details-marker,
+details.seqhow-shot > summary::-webkit-details-marker { display:none; }
+details.seqhow > summary::before, details.seqhow-shot > summary::before {
+  content:"\25B8\FE0E"; font-size:.75rem; }
+details.seqhow[open] > summary::before,
+details.seqhow-shot[open] > summary::before { content:"\25BE\FE0E"; }
+details.seqhow > summary:hover, details.seqhow-shot > summary:hover { color:var(--link); }
+details.seqhow > ol { margin:.35rem 0 .45rem; padding-left:1.5rem; }
+details.seqhow > ol > li { margin:.1rem 0; }
+/* The two words the fold exists to define, set as what they are: a definition, in the
+   weight a reader's eye stops on, not the italic a browser gives a <dfn>. */
+details.seqhow dfn { font-style:normal; font-weight:650; }
+details.seqhow-shot { margin:.2rem 0 0 1.5rem; }
+.seqhow-cap { color:var(--muted); margin:.3rem 0 .45rem; }
+/* The trace at the column's full width — it was shot at that width, so the waterfall's
+   labels land at the page's own text size — and a click away from full resolution. A
+   frame, because Grafana's own dark is a different dark from this page's, and on the
+   light page a dark picture with no edge reads as a hole. A trace of a hundred spans is
+   three screens tall, so it scrolls inside its frame rather than shrinking to fit: shrunk,
+   it would be a texture, not a trace. */
+.seqhow-img { display:block; border:1px solid var(--line); border-radius:8px;
+  max-height:min(75vh, 46rem); overflow:auto; cursor:zoom-in; }
+.seqhow-img img { display:block; width:100%; height:auto; }
 /* The edge is --link, not --accent. --accent is this page's red, and red is spent
    everywhere else on something being wrong — a removed line, a failing test, a level
    nothing covers. A lede states what the tab found; stamping it with the same red made
@@ -4294,7 +4327,7 @@ cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet \
   if (led && head) head.appendChild(led);
 });</script>
 <script type="application/json" id="hr-traces">{"viewer": "assets/traceviewer/index.html", "tests": [{"test": "add-visit.spec.ts:34", "trace": "assets/traces/001-add-a-visit-to-an-existing-pet-from-the-owner-detail-page.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/001-add-a-visit-to-an-existing-pet-from-the-owner-detail-page.zip"}, {"test": "add-visit.spec.ts:51", "trace": "assets/traces/002-add-a-visit-attended-by-a-vet.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/002-add-a-visit-attended-by-a-vet.zip"}, {"test": "book-visit-with-vet.feature:18", "trace": "assets/traces/003-record-which-vet-attends-a-visit-the-vet-chosen-while-bookin.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/003-record-which-vet-attends-a-visit-the-vet-chosen-while-bookin.zip"}, {"test": "book-visit-with-vet.feature:23", "trace": "assets/traces/004-record-which-vet-attends-a-visit-a-visit-need-not-be-set-a-v.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/004-record-which-vet-attends-a-visit-a-visit-need-not-be-set-a-v.zip"}, {"test": "add-owner.spec.ts:47", "trace": "assets/traces/005-adds-an-owner-from-the-new-owner-form-and-finds-them-by-last.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/005-adds-an-owner-from-the-new-owner-form-and-finds-them-by-last.zip"}, {"test": "add-owner.spec.ts:59", "trace": "assets/traces/006-edits-an-owner-from-their-own-page-and-the-change-sticks.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/006-edits-an-owner-from-their-own-page-and-the-change-sticks.zip"}, {"test": "no-reset-endpoint.spec.ts:24", "trace": "assets/traces/007-the-backend-offers-no-way-to-wipe-its-data-post-reset-is-not.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/007-the-backend-offers-no-way-to-wipe-its-data-post-reset-is-not.zip"}, {"test": "no-reset-endpoint.spec.ts:24", "trace": "assets/traces/008-the-backend-offers-no-way-to-wipe-its-data-post-api-reset-is.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/008-the-backend-offers-no-way-to-wipe-its-data-post-api-reset-is.zip"}, {"test": "no-reset-endpoint.spec.ts:24", "trace": "assets/traces/009-the-backend-offers-no-way-to-wipe-its-data-post-reset-is-not.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/009-the-backend-offers-no-way-to-wipe-its-data-post-reset-is-not.zip"}, {"test": "no-reset-endpoint.spec.ts:24", "trace": "assets/traces/010-the-backend-offers-no-way-to-wipe-its-data-post-api-reset-is.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/010-the-backend-offers-no-way-to-wipe-its-data-post-api-reset-is.zip"}, {"test": "no-reset-endpoint.spec.ts:24", "trace": "assets/traces/011-the-backend-offers-no-way-to-wipe-its-data-post-actuator-res.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/011-the-backend-offers-no-way-to-wipe-its-data-post-actuator-res.zip"}, {"test": "owner-search.feature:11", "trace": "assets/traces/012-search-owners-by-last-name-filter-owners-by-a-case-sensitive.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/012-search-owners-by-last-name-filter-owners-by-a-case-sensitive.zip"}, {"test": "owner-search.feature:26", "trace": "assets/traces/013-search-owners-by-last-name-searching-with-an-empty-last-name.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/013-search-owners-by-last-name-searching-with-an-empty-last-name.zip"}, {"test": "visits.spec.ts:27", "trace": "assets/traces/014-visits-page-shows-all-visits-on-initial-load.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/014-visits-page-shows-all-visits-on-initial-load.zip"}, {"test": "visits.spec.ts:44", "trace": "assets/traces/015-visits-page-rows-are-sorted-descending-by-date.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/015-visits-page-rows-are-sorted-descending-by-date.zip"}, {"test": "visits.spec.ts:52", "trace": "assets/traces/016-visits-page-owner-link-navigates-to-owner-detail.zip", "status": "passed", "cmd": "cd /Users/victorrentea/workspace/petclinic-pr-visit-has-vet && npx playwright show-trace /Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.human-review/assets/traces/016-visits-page-owner-link-navigates-to-owner-detail.zip"}]}</script></section>
-<section class="panel" id="sequence" role="tabpanel" aria-labelledby="tabbtn-sequence"><p class="paneltag">Sequence</p><h3 id="sequences">Sequence diagrams of tests</h3>
+<section class="panel" id="sequence" role="tabpanel" aria-labelledby="tabbtn-sequence"><p class="paneltag">Sequence</p><details class="seqhow"><summary>How were these produced?</summary><ol><li>The tests ran against the real app, with OpenTelemetry tracing switched on.</li><li>Each HTTP call and database query was recorded as a <dfn>span</dfn>: who called whom, and for how long. The spans that one action set off form a <dfn>trace</dfn>.</li><li>Each test's traces were drawn as its diagram below.</li></ol><details class="seqhow-shot"><summary>What does a trace look like?</summary><p class="seqhow-cap">The trace of <a href="#seq-petclinic-test-generated-addvisitapitest-java-adds-a-visit-to-an-existing-pet-genseq-puml">AddVisitApiTest: adds a visit to an existing pet</a>, in Grafana Tempo. Compare it with that test's diagram below.</p><a class="seqhow-img" href="assets/sequence.trace.png" target="_blank" rel="noopener" data-tip="Open full size"><img src="assets/sequence.trace.png" alt="A trace in Grafana Tempo: AddVisitApiTest: adds a visit to an existing pet" loading="lazy"></a></details></details><h3 id="sequences">Sequence diagrams of tests</h3>
 <details class="testpair" open id="seq-petclinic-test-generated-addvisitapitest-java-adds-a-visit-to-an-existing-pet-genseq-puml" data-test="petclinic-backend/src/test/java/victor/training/petclinic/rest/AddVisitApiTest.java"><summary data-tip="petclinic-backend/src/test/java/victor/training/petclinic/rest/AddVisitApiTest.java"><span class="testcat" data-cat="api" data-runner="junit" data-tip="REST/MCP, a JUnit test">API · JUnit</span><span class="seqwhy" data-why="tagged" data-tip="Has the tracing tag">tagged</span>AddVisitApiTest: adds a visit to an existing pet</summary><details class="testsrc"><summary><span class="foldlbl"></span><div class="srcbar"><a class="srcref diffref srcbar-diff" target="_blank" rel="noopener" href="https://github.com/victorrentea/petclinic/compare/d4a63eb6606204961ca074ded7f6c90fd11586d6...cbaa17bdf354be94b36996c6c7efbd02e6b4c057#diff-18e39e4c7e9994e1bfb9bd6ac93ad2299a462667918915aff1557b068e0d4adf" data-tip="GitHub"><svg class="ico ico-gh" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27s-1.36.09-2 .27c-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.27-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg></a><a class="srcref srcbar-path" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/test/java/victor/training/petclinic/rest/AddVisitApiTest.java:72:1" data-tip="Open in VS Code: petclinic-backend/src/test/java/victor/training/petclinic/rest/AddVisitApiTest.java">AddVisitApiTest.java:72-97</a><span class="filemark" data-kind="unchanged" role="img" aria-label="unchanged" data-tip="Unchanged"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="fm-page" d="M9.5 1.1l3.4 3.5.1.4v2h-1V6H8V2H3v11h4v1H2.5l-.5-.5v-12l.5-.5h6.7l.3.1zM9 2v3h2.9L9 2z"/></svg></span></div></summary><figure class="snippet">
 
 <pre class="code lang-java"><code><span class="ln-row"><span class="dm"> </span><span class="ln">72</span><span class="nd">@GenerateSequence</span></span>
@@ -4595,7 +4628,7 @@ RagIngestion.poll()"><code class="cx-path">RagIngestion.poll</code><a class="cg-
 <div class="cow-row cow-row-standard"><div class="cow-head"><span class="cow-flag">&#9888;&#65039;</span><span class="cow-approval">APPROVAL REQUIRED</span><span class="cow-owner">@victorrentea/tech-leads</span></div><ul class="cow-files"><li><span class="cow-st" data-st="edited" role="img" aria-label="modified" data-tip="This branch modified the file"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="cow-page" d="M9.5 1.1l3.4 3.5.1.4v2h-1V6H8V2H3v11h4v1H2.5l-.5-.5v-12l.5-.5h6.7l.3.1zM9 2v3h2.9L9 2z"/><path class="cow-badge" d="M8.65 13.65 13.65 8.65 15.55 10.55 10.55 15.55ZM8.65 13.65 10.55 15.55 7.9 16.3Z"/><path class="cow-badge" d="M12.5 9.8 14.4 11.7 13.75 12.35 11.85 10.45Z"/></svg></span><a class="cow-file" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-visit-has-vet/openapi.yaml:1:1">openapi.yaml</a></li><li><span class="cow-st" data-st="edited" role="img" aria-label="modified" data-tip="This branch modified the file"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="cow-page" d="M9.5 1.1l3.4 3.5.1.4v2h-1V6H8V2H3v11h4v1H2.5l-.5-.5v-12l.5-.5h6.7l.3.1zM9 2v3h2.9L9 2z"/><path class="cow-badge" d="M8.65 13.65 13.65 8.65 15.55 10.55 10.55 15.55ZM8.65 13.65 10.55 15.55 7.9 16.3Z"/><path class="cow-badge" d="M12.5 9.8 14.4 11.7 13.75 12.35 11.85 10.45Z"/></svg></span><a class="cow-file" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/docs/generated/DB.sql:1:1">petclinic-backend/docs/generated/DB.sql</a></li><li><span class="cow-st" data-st="edited" role="img" aria-label="modified" data-tip="This branch modified the file"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="cow-page" d="M9.5 1.1l3.4 3.5.1.4v2h-1V6H8V2H3v11h4v1H2.5l-.5-.5v-12l.5-.5h6.7l.3.1zM9 2v3h2.9L9 2z"/><path class="cow-badge" d="M8.65 13.65 13.65 8.65 15.55 10.55 10.55 15.55ZM8.65 13.65 10.55 15.55 7.9 16.3Z"/><path class="cow-badge" d="M12.5 9.8 14.4 11.7 13.75 12.35 11.85 10.45Z"/></svg></span><a class="cow-file" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/docs/generated/DomainModel.puml:1:1">petclinic-backend/docs/generated/DomainModel.puml</a></li><li><span class="cow-st" data-st="added" role="img" aria-label="added" data-tip="This branch added the file"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="cow-page" d="M9.5 1.1l3.4 3.5.1.4v2h-1V6H8V2H3v11h4v1H2.5l-.5-.5v-12l.5-.5h6.7l.3.1zM9 2v3h2.9L9 2z"/><path class="cow-badge" d="M13 16h-1v-3H9v-1h3V9h1v3h3v1h-3v3z"/></svg></span><a class="cow-file" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-visit-has-vet/petclinic-backend/src/main/resources/db/migration/V4__visit_vet.sql:1:1">V4__visit_vet.sql</a><span class="cow-by">claimed by <a class="cow-rule" data-tip="The rule that claimed this file" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.github/CODEOWNERS:14:1">/petclinic-backend/src/main/resources/db/migration/</a></span></li></ul></div>
 <div class="cow-row cow-row-critical"><div class="cow-head"><span class="cow-flag">&#128681;</span><span class="cow-approval">APPROVAL REQUIRED</span><span class="cow-owner">@victorrentea/elders</span></div><ul class="cow-files"><li><span class="cow-st" data-st="edited" role="img" aria-label="modified" data-tip="This branch modified the file"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="cow-page" d="M9.5 1.1l3.4 3.5.1.4v2h-1V6H8V2H3v11h4v1H2.5l-.5-.5v-12l.5-.5h6.7l.3.1zM9 2v3h2.9L9 2z"/><path class="cow-badge" d="M8.65 13.65 13.65 8.65 15.55 10.55 10.55 15.55ZM8.65 13.65 10.55 15.55 7.9 16.3Z"/><path class="cow-badge" d="M12.5 9.8 14.4 11.7 13.75 12.35 11.85 10.45Z"/></svg></span><a class="cow-file" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-visit-has-vet/refactoring-legacy/pom.xml:1:1">pom.xml</a><span class="cow-by">claimed by <a class="cow-rule" data-tip="The rule that claimed this file" href="vscode://file//Users/victorrentea/workspace/petclinic-pr-visit-has-vet/.github/CODEOWNERS:32:1">**/pom.xml</a></span></li></ul></div>
 </div></section>
-<section class="panel" id="cost" role="tabpanel" aria-labelledby="tabbtn-cost"><p class="paneltag">Cost</p><table class="costtab costledger costfour"><thead><tr><th scope="col">component</th><th scope="col">cost</th></tr></thead><tbody><tr data-component="implementation"><td>Implementation<span class="costsub">Claude Code <code>47d2ba31</code> &middot; first edit → commit #1 &middot; 2 Sep 18:41 &rarr; 17 Sep 21:29</span><span class="costsub">estimated from session logs</span></td><td><span class="costmoney" data-tip="36.9M tokens">$23.37</span><span class="costsub">Opus 5</span></td></tr><tr data-component="review"><td>Review<span class="costsub">Claude Code <code>47d2ba31</code> &middot; forked reviewers &middot; 17 Sep 21:30 &rarr; 21:34</span><span class="costsub">estimated from session logs</span></td><td><span class="costmoney" data-tip="6.8M tokens">$5.99</span><span class="costsub">Opus 5</span></td></tr><tr data-component="autofix"><td>Auto-fixes<span class="costsub">Claude Code <code>47d2ba31</code> &middot; last reviewer turn → the review commit &middot; 17 Sep 21:34 &rarr; 21:39</span><span class="costsub">estimated from session logs</span></td><td><span class="costmoney" data-tip="13.1M tokens">$7.73</span><span class="costsub">Opus 5</span></td></tr><tr data-component="guide"><td>This guide<span class="costsub">Claude Code <code>b49e84fb</code> &middot; page build — the last full regeneration; the run&#x27;s own window held no turn &middot; 19 Sep 02:34 &rarr; 02:34</span><span class="costsub">took 19 min; plus 8 min of refreshes, no model</span><span class="costsub">estimated from session logs</span></td><td><span class="costmoney" data-tip="706k tokens">$0.39</span><span class="costsub">Opus 5</span></td></tr></tbody><tfoot><tr class="costtotal"><td>Total</td><td><span class="costmoney" data-tip="57.5M tokens">$37.48</span></td></tr></tfoot></table></section>
+<section class="panel" id="cost" role="tabpanel" aria-labelledby="tabbtn-cost"><p class="paneltag">Cost</p><table class="costtab costledger costfour"><thead><tr><th scope="col">component</th><th scope="col">cost</th></tr></thead><tbody><tr data-component="implementation"><td>Implementation<span class="costsub">Claude Code <code>47d2ba31</code> &middot; first edit → commit #1 &middot; 2 Sep 18:41 &rarr; 17 Sep 21:29</span><span class="costsub">estimated from session logs</span></td><td><span class="costmoney" data-tip="36.9M tokens">$23.37</span><span class="costsub">Opus 5</span></td></tr><tr data-component="review"><td>Review<span class="costsub">Claude Code <code>47d2ba31</code> &middot; forked reviewers &middot; 17 Sep 21:30 &rarr; 21:34</span><span class="costsub">estimated from session logs</span></td><td><span class="costmoney" data-tip="6.8M tokens">$5.99</span><span class="costsub">Opus 5</span></td></tr><tr data-component="autofix"><td>Auto-fixes<span class="costsub">Claude Code <code>47d2ba31</code> &middot; last reviewer turn → the review commit &middot; 17 Sep 21:34 &rarr; 21:39</span><span class="costsub">estimated from session logs</span></td><td><span class="costmoney" data-tip="13.1M tokens">$7.73</span><span class="costsub">Opus 5</span></td></tr><tr data-component="guide"><td>This guide<span class="costsub">Claude Code <code>b49e84fb</code> &middot; page build — the last full regeneration; the run&#x27;s own window held no turn &middot; 19 Sep 02:34 &rarr; 02:34</span><span class="costsub">took 19 min; plus 10 min of refreshes, no model</span><span class="costsub">estimated from session logs</span></td><td><span class="costmoney" data-tip="706k tokens">$0.39</span><span class="costsub">Opus 5</span></td></tr></tbody><tfoot><tr class="costtotal"><td>Total</td><td><span class="costmoney" data-tip="57.5M tokens">$37.48</span></td></tr></tfoot></table></section>
 <footer><p class="footrow"><span></span> <span class="takeaway">Built by <a href="https://github.com/victorrentea/human-review" target="_blank" rel="noopener">https://github.com/victorrentea/human-review</a>. Browse it <a href="https://victorrentea.github.io/human-review/demo/review.html" target="_blank" rel="noopener">online</a>. Adopt what you like in your project. Bug or idea → <a href="https://github.com/victorrentea/human-review/issues/new/choose" target="_blank" rel="noopener">Open an issue</a>.</span></p><div class="allbar"><button type="button" class="allbtn" aria-pressed="false" data-label-off="show single page" data-label-on="back to one tab at a time" data-tip="All tabs on one page (for ⌘F)">show single page</button></div></footer>
 </div>
 <script>
@@ -6055,6 +6088,7 @@ document.querySelectorAll('.vidwrap').forEach(function (wrap) {
       document.body.appendChild(toast);
     }
     toast.textContent = message;
+    toast.classList.remove('asks');
     toast.classList.add('shown');
     clearTimeout(flash.timer);
     if (sticky) return;
@@ -6069,6 +6103,31 @@ document.querySelectorAll('.vidwrap').forEach(function (wrap) {
   // than in SERVER_JS because the toast and its stylesheet are this file's; SERVER_JS
   // runs first and builds `window.HR`, and every consumer of this runs after EDITOR_JS.
   window.HR.flash = flash;
+
+  // A refusal that the reader can act on: the sentence, and one button that copies the
+  // prompt an agent needs to make the click work. It stays until it is used or replaced —
+  // a button that fades in 2.6 seconds is a button nobody manages to press.
+  function offerPrompt(message, prompt) {
+    flash(message, true);
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = 'Copy prompt';
+    b.addEventListener('click', function () {
+      copy(prompt).then(function () { flash('Copied \u2014 paste it to an agent'); });
+    });
+    toast.appendChild(b);
+    toast.classList.add('asks');
+  }
+
+  // What the build stamped on <html>: the commit this guide quotes, the checkout it was built
+  // in, and — when the editor extension was installed — the id that owns its URI handler.
+  // Without a commit there is nothing to check a window against, and every path below
+  // behaves as it did before the stamp existed.
+  var STAMP = document.documentElement.dataset || {};
+  function commitQuery() {
+    return 'sha=' + encodeURIComponent(STAMP.hrHead) + '&root=' + encodeURIComponent(STAMP.hrRoot || '')
+      + '&branch=' + encodeURIComponent(STAMP.hrBranch || '');
+  }
 
   // `vscode://file//abs/path.java:487:1` → the two halves the server wants.
   function parse(href) {
@@ -6263,13 +6322,33 @@ document.querySelectorAll('.vidwrap').forEach(function (wrap) {
     // dead-end instead of degrading.
     var duri = link.getAttribute('data-diff-uri');
     if (!SERVED && !EMBEDDED && duri) { window.location.href = duri; return; }
+    // Off disk, at top level, with the extension: its handler finds the window holding the
+    // reviewed version of the file, and says so in VS Code when none does.
+    var aimed = !SERVED && !EMBEDDED && !base && STAMP.hrHead && STAMP.hrOpenUri
+      && parse(link.getAttribute('href'));
+    if (aimed) {
+      window.location.href = 'vscode://' + STAMP.hrOpenUri + '/review-open?file='
+        + encodeURIComponent(aimed.path) + '&line=' + aimed.line + '&' + commitQuery();
+      return;
+    }
     var ref2 = SERVED && parse(link.getAttribute('href'));
     if (ref2) {
-      fetch('/__open__?path=' + encodeURIComponent(ref2.path) + '&line=' + ref2.line)
+      fetch('/__open__?path=' + encodeURIComponent(ref2.path) + '&line=' + ref2.line
+            + (STAMP.hrHead ? '&' + commitQuery() : ''))
         .then(function (r) {
-          // 404 means the server would not open it — a reference outside the repository,
-          // or a file that has since moved. Say so rather than leave the click silent.
-          if (!r.ok) flash('Could not open ' + ref2.path.split('/').pop());
+          if (r.status === 204) return;
+          return r.text().then(function (t) {
+            var said = null;
+            try { said = JSON.parse(t); } catch (e) { /* a bare 404 has no body */ }
+            if (r.ok) {
+              if (said && said.edited) flash('Opened \u2014 edited since the reviewed commit');
+              return;
+            }
+            if (said && said.prompt) { offerPrompt(said.message, said.prompt); return; }
+            // 404 means the server would not open it — a reference outside the repository,
+            // or a file that has since moved. Say so rather than leave the click silent.
+            flash((said && said.message) || ('Could not open ' + ref2.path.split('/').pop()));
+          });
         })
         .catch(function () { flash('The review server is no longer running'); });
       return;
@@ -6580,6 +6659,17 @@ document.addEventListener('click', dvQueueStick, true);
     var was = fold.open;
     requestAnimationFrame(function () { if (fold.open !== was) fold.open = was; });
   }, true);
+
+  // The caption over the trace shot links to the pair of the test that trace belongs to,
+  // and that pair is shut: a link to a shut fold scrolls to its one-line summary and stops,
+  // which leaves the reader one click short of the diagram they were told to compare. Opened
+  // here, before the browser follows the link, so the scroll lands on the open pair.
+  document.addEventListener('click', function (ev) {
+    var link = ev.target.closest && ev.target.closest('.seqhow-cap a[href^="#"]');
+    if (!link) return;
+    var pair = document.getElementById(decodeURIComponent(link.getAttribute('href').slice(1)));
+    if (pair && pair.tagName === 'DETAILS') pair.open = true;
+  });
 })();
 </script>
 <script>
