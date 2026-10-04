@@ -12,6 +12,9 @@
 
 ## What you see
 
+- **How were these produced?** — shut, at the top: three lines on what a span and a
+  trace are, and one fold further in a screenshot of a real trace of a test on the tab,
+  in Grafana Tempo, linked to that test's diagram so the two can be compared.
 - **One fold per test** — tagged API · JUnit, UI · Playwright or UI · Gherkin. Open one and
   the diagram that test's run actually produced is beside its source.
 - **Why each picture is there** — `tagged` (the test carries `@generate_sequence` /
@@ -68,6 +71,10 @@
 
   The project's runners decide how a named test is traced; petclinic's read `GENSEQ_SELECT`
   beside the tag. What was picked and left is in `assets/sequence.selection.json`.
+- For the trace screenshot, a Grafana with the run's traces while the stack is up — the
+  `app`'s own `GRAFANA_URL` by default, or `"trace": {"grafana": …, "attribute":
+  "span.test.name"}` — and a span attribute carrying each test's name. Without them the
+  tab simply offers no picture; `"trace": false` turns it off.
 
 ## Deeper
 

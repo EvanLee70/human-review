@@ -62,4 +62,15 @@
     var was = fold.open;
     requestAnimationFrame(function () { if (fold.open !== was) fold.open = was; });
   }, true);
+
+  // The caption over the trace shot links to the pair of the test that trace belongs to,
+  // and that pair is shut: a link to a shut fold scrolls to its one-line summary and stops,
+  // which leaves the reader one click short of the diagram they were told to compare. Opened
+  // here, before the browser follows the link, so the scroll lands on the open pair.
+  document.addEventListener('click', function (ev) {
+    var link = ev.target.closest && ev.target.closest('.seqhow-cap a[href^="#"]');
+    if (!link) return;
+    var pair = document.getElementById(decodeURIComponent(link.getAttribute('href').slice(1)));
+    if (pair && pair.tagName === 'DETAILS') pair.open = true;
+  });
 })();

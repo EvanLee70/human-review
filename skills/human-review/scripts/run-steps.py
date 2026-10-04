@@ -512,8 +512,11 @@ def _sequence(ctx: Ctx):
                else ""))
     # The previous run's drawings go before anything can fail: a run that is skipped below
     # shows the committed diagrams, and a stale copy of last time's would win over them.
+    # Its trace shot with them: a picture of last run's trace, offered as this run's.
     if not ctx.dry:
         shutil.rmtree(GENSEQ_OVERLAY, ignore_errors=True)
+        for p in TRACE_SHOT_FILES:
+            p.unlink(missing_ok=True)
     # Asked first, and only when the step will not start the stack itself: with `app` the
     # addresses do not exist until `up` creates them (the same reasoning `_dsaudit_prereq`
     # has). In the step and not in its prerequisite because the Sequence tab has to say why
@@ -535,8 +538,15 @@ def _sequence(ctx: Ctx):
     held = {} if ctx.dry else {p: (Path(p).read_bytes() if Path(p).is_file() else None)
                                for p in genseq_files()}
     runs = []
+
+    def shoot(app: AppInstance, since: float) -> None:
+        # While the stack is up — its trace store goes down with it. Among the diagrams this
+        # run drew (written since the commands started); the branch's own tests first.
+        drawn_now = drawn_since(since)
+        _trace_shot(ctx, cfg, app, drawn_now, prefer_diagrams(drawn_now, selection), since)
+
     try:
-        _run_traced(ctx, cfg, commands, runs, values)
+        _run_traced(ctx, cfg, commands, runs, values, after=shoot)
     finally:
         # Before the restore below, which rewrites the files it puts back and would
         # otherwise read as diagrams this run drew.
@@ -795,8 +805,10 @@ def write_selection(selection: dict | None) -> None:
 
 
 def _run_traced(ctx: Ctx, cfg: dict, commands, runs: list[dict],
-                values: dict[str, str] | None = None) -> None:
-    """Start the stack (when `app` says how), probe what it must carry, run the commands."""
+                values: dict[str, str] | None = None, after=None) -> None:
+    """Start the stack (when `app` says how), probe what it must carry, run the commands —
+    then `after(app, started)`, still inside the block, while the stack is up."""
+    t_start = time.time()
     with app_instance(ctx, cfg.get("app"), _app_slots(ctx)) as app:
         if app.started:
             ctx.notes.append(f"the traced suites ran against {app.base}, started by this run "
@@ -836,6 +848,82 @@ def _run_traced(ctx: Ctx, cfg: dict, commands, runs: list[dict],
             runs.append({"command": cmd, "exit": r.returncode, "outcome": outcome,
                          "detail": detail, "log": _tail(out), "skips": skipped_lines(out),
                          "seconds": round(time.monotonic() - t0, 1)})
+        if after is not None and not ctx.dry:
+            after(app, t_start)
+
+
+#: The Sequence tab's picture of one real trace (`trace-shot.py`) and what it shows. Read by
+#: `hrbuild/tabs/sequence.py` (`TRACE_SHOT`, `TRACE_SHOT_META`).
+TRACE_SHOT = ART / "sequence.trace.png"
+TRACE_SHOT_FILES = (TRACE_SHOT, TRACE_SHOT.with_suffix(".json"))
+
+
+def drawn_since(since: float) -> list[str]:
+    """The traced diagrams written since `since` (epoch seconds) — what the commands that
+    started then drew, asked of the files themselves while they are still the run's."""
+    out = []
+    for p in genseq_files():
+        try:
+            if p.endswith(".genseq.puml") and os.stat(p).st_mtime >= since:
+                out.append(p)
+        except OSError:
+            continue
+    return out
+
+
+def prefer_diagrams(drawn: list[str], selection: dict | None) -> list[str]:
+    """The drawn diagrams of the tests this branch wrote or edited (`select`'s picks).
+
+    A diagram is named `<test file>.<scenario slug>.genseq.puml`, and the pick knows the
+    test file and the scenario's name — the same slug the generator made."""
+    want = {f"{Path(t.get('path') or '').name}.{_slugify(t.get('name') or '')}"
+            for t in (selection or {}).get("picked") or [] if isinstance(t, dict)}
+    return [p for p in drawn
+            if Path(p).name.removesuffix(".genseq.puml") in want]
+
+
+def _slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")
+
+
+def _trace_shot(ctx: Ctx, cfg: dict, app: AppInstance, drawn: list[str],
+                prefer: list[str], since: float) -> None:
+    """One trace of this run, shot in Grafana, for the Sequence tab — never a failure.
+
+    `steps.sequence.trace` is optional: `false` turns it off, `{"grafana": …,
+    "attribute": …}` says where the store is and which span attribute carries a test's name.
+    Without it the Grafana is the stack's own `GRAFANA_URL` (`app.vars`, what `start-docker.sh
+    ports` prints for a traced instance), else the environment's. No Grafana, no trace, no
+    browser: a note, and the tab offers no picture — it never stops the diagrams."""
+    tcfg = cfg.get("trace", {})
+    if tcfg is False or not drawn:
+        return
+    tcfg = tcfg if isinstance(tcfg, dict) else {}
+    grafana = expand_vars(str(tcfg.get("grafana") or ""), app.vars) if tcfg.get("grafana") \
+        else app.vars.get("GRAFANA_URL") or os.environ.get("GRAFANA_URL", "")
+    if not grafana or "{" in grafana:
+        ctx.notes.append("no trace shot for the Sequence tab: no Grafana to take it from "
+                         "(steps.sequence.trace.grafana, or GRAFANA_URL in app.vars)")
+        return
+    py = sh(f"{HERE}/playwright-python.sh", ctx, check=False, capture=True)
+    python = (py.stdout or "").strip().splitlines()[-1:] if py.returncode == 0 else []
+    if not python:
+        ctx.notes.append("no trace shot for the Sequence tab: Playwright for Python could "
+                         "not be provisioned (playwright-python.sh)")
+        return
+    args = [f"--grafana {shlex.quote(grafana)}", f"--since {int(since)}",
+            f"--out {shlex.quote(str(TRACE_SHOT))}"]
+    if tcfg.get("attribute"):
+        args.append(f"--attribute {shlex.quote(str(tcfg['attribute']))}")
+    args += [f"--diagram {shlex.quote(p)}" for p in drawn]
+    args += [f"--prefer {shlex.quote(p)}" for p in prefer]
+    r = sh(f"{shlex.quote(python[0])} {HERE}/trace-shot.py " + " ".join(args), ctx,
+           check=False, capture=True)
+    said = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
+    print("\n".join(said), flush=True)
+    if r.returncode != 0:
+        ctx.notes.append("no trace shot for the Sequence tab: "
+                         + (said[-1] if said else f"trace-shot.py exit {r.returncode}"))
 
 
 #: Where `_sequence` files what its traced run drew: the review directory, mirroring each

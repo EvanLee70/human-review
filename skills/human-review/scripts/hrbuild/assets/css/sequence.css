@@ -141,3 +141,33 @@ details.seqsel-k > ul { margin:.3rem 0 .2rem; padding:.4rem .6rem .4rem 1.6rem; 
 details.seqsel-k > ul > li { break-inside:avoid; }
 .seqsel code { font-size:.92em; overflow-wrap:anywhere; }
 .seqsel-f { color:var(--muted); font-size:.92em; }
+/* "How were these produced?" — the tab's first line, shut. Set as a quiet control, not a
+   heading: a reader who knows what a trace is should pay one muted line for it, and the
+   fold's ▸ says there is more without saying it loudly. The nested "What does a trace
+   look like?" wears the same dress one step in. */
+details.seqhow { margin:.5rem 0 .7rem; font-size:.9rem; line-height:1.6; }
+details.seqhow > summary, details.seqhow-shot > summary { cursor:pointer; list-style:none;
+  display:inline-flex; gap:.35rem; align-items:baseline; color:var(--muted); }
+details.seqhow > summary::-webkit-details-marker,
+details.seqhow-shot > summary::-webkit-details-marker { display:none; }
+details.seqhow > summary::before, details.seqhow-shot > summary::before {
+  content:"\25B8\FE0E"; font-size:.75rem; }
+details.seqhow[open] > summary::before,
+details.seqhow-shot[open] > summary::before { content:"\25BE\FE0E"; }
+details.seqhow > summary:hover, details.seqhow-shot > summary:hover { color:var(--link); }
+details.seqhow > ol { margin:.35rem 0 .45rem; padding-left:1.5rem; }
+details.seqhow > ol > li { margin:.1rem 0; }
+/* The two words the fold exists to define, set as what they are: a definition, in the
+   weight a reader's eye stops on, not the italic a browser gives a <dfn>. */
+details.seqhow dfn { font-style:normal; font-weight:650; }
+details.seqhow-shot { margin:.2rem 0 0 1.5rem; }
+.seqhow-cap { color:var(--muted); margin:.3rem 0 .45rem; }
+/* The trace at the column's full width — it was shot at that width, so the waterfall's
+   labels land at the page's own text size — and a click away from full resolution. A
+   frame, because Grafana's own dark is a different dark from this page's, and on the
+   light page a dark picture with no edge reads as a hole. A trace of a hundred spans is
+   three screens tall, so it scrolls inside its frame rather than shrinking to fit: shrunk,
+   it would be a texture, not a trace. */
+.seqhow-img { display:block; border:1px solid var(--line); border-radius:8px;
+  max-height:min(75vh, 46rem); overflow:auto; cursor:zoom-in; }
+.seqhow-img img { display:block; width:100%; height:auto; }

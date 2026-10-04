@@ -4577,6 +4577,107 @@ def _git(cwd, *args):
                    check=True, capture_output=True)
 
 
+# ── "How were these produced?" ──────────────────────────────────────────────────────
+# Victor, 4 Oct 2026: the page's readers do not know what an OpenTelemetry trace is, and
+# even he, looking at the Sequence tab, could not tell how its diagrams had been made.
+
+SEARCH_PUML = ("petclinic-test/generated/owner-search.feature."
+               "searching-with-an-empty-last-name-shows-the-first-page.genseq.puml")
+TESTPAIRS = {"type": "testpairs", "title": "", "snippets": {"auto": "genseq"}}
+
+
+def _one_traced_pair(tmp_path) -> Path:
+    feat = "petclinic-test/src/owner-search.feature"
+    (tmp_path / "petclinic-test/src").mkdir(parents=True)
+    (tmp_path / "petclinic-test/generated").mkdir(parents=True)
+    (tmp_path / feat).write_text(SEARCH_FEATURE)
+    (tmp_path / SEARCH_PUML).write_text(
+        _seq_puml(feat, 4, "Searching with an empty last name shows the first page"))
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "c")
+    review = tmp_path / ".human-review"
+    (review / "assets").mkdir(parents=True)
+    return review
+
+
+def _shot(review: Path, **meta) -> None:
+    (review / "assets/sequence.trace.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    if meta:
+        (review / "assets/sequence.trace.json").write_text(json.dumps(meta))
+
+
+def _how(out: str) -> str:
+    return out[:out.index('<details class="testpair"')]
+
+
+def test_the_tab_opens_on_how_its_pictures_were_made_shut_and_without_a_shot_offers_none(
+        tmp_path):
+    review = _one_traced_pair(tmp_path)
+    out, weight, _ = build.render_testpairs(TESTPAIRS, {}, [], tmp_path, review)
+
+    assert out.startswith('<details class="seqhow">'), "first thing on the tab, and shut"
+    how = _how(out)
+    assert "<summary>How were these produced?</summary>" in how
+    assert how.count("<li>") == 3, "three steps, no more"
+    assert "OpenTelemetry" in how and "<dfn>span</dfn>" in how and "<dfn>trace</dfn>" in how
+    # No machinery in it: the reviewer is busy, and the two words are what they lack.
+    assert not re.search(r"\.(sh|py|ts|json|puml)\b|run-tests|trace-shot", how)
+    assert "seqhow-shot" not in out and "sequence.trace.png" not in out, \
+        "no picture on disk, no fold offering one"
+    assert weight == 1, "an explanation is not an exhibit"
+
+
+def test_the_trace_is_one_fold_further_in_full_size_and_names_the_pair_it_was_drawn_as(
+        tmp_path):
+    review = _one_traced_pair(tmp_path)
+    _shot(review, diagram=SEARCH_PUML, traces=1, test="owner-search.feature")
+    how = _how(build.render_testpairs(TESTPAIRS, {}, [], tmp_path, review)[0])
+
+    shot = how[how.index('<details class="seqhow-shot">'):]
+    assert shot.startswith('<details class="seqhow-shot"><summary>What does a trace look '
+                           'like?</summary>'), "nested, and shut too"
+    assert how.index("</ol>") < how.index("seqhow-shot"), "at the END of the explanation"
+    assert '<img src="assets/sequence.trace.png"' in shot
+    assert 'href="assets/sequence.trace.png" target="_blank"' in shot, \
+        "a click opens it full size, never a thumbnail"
+    assert f'href="#{build.pair_anchor(SEARCH_PUML)}"' in shot
+    assert "The trace of" in shot
+    assert "Searching with an empty last name shows the first page" in shot, \
+        "named as its pair is, so the two can be read side by side"
+    assert "Grafana Tempo" in shot
+
+
+def test_a_shot_of_a_test_with_several_traces_says_it_is_one_of_them(tmp_path):
+    review = _one_traced_pair(tmp_path)
+    _shot(review, diagram=SEARCH_PUML, traces=4)
+    how = _how(build.render_testpairs(TESTPAIRS, {}, [], tmp_path, review)[0])
+    assert "One of the 4 traces of" in how
+
+
+def test_a_shot_whose_test_is_not_on_the_tab_links_nowhere(tmp_path):
+    """A shot left from a run whose pictures this page no longer shows still explains what
+    a trace is; it must not link to a pair that is not there."""
+    review = _one_traced_pair(tmp_path)
+    _shot(review, diagram="x/generated/Gone.java.gone.genseq.puml", traces=1,
+          test="Gone.java")
+    shot = _how(build.render_testpairs(TESTPAIRS, {}, [], tmp_path, review)[0])
+    assert "seqhow-shot" in shot and 'href="#seq-' not in shot
+    assert "The trace of Gone.java" in shot
+    # And a PNG with no record beside it is still offered, said plainly.
+    (review / "assets/sequence.trace.json").unlink()
+    shot = _how(build.render_testpairs(TESTPAIRS, {}, [], tmp_path, review)[0])
+    assert "A trace of this run, in Grafana Tempo." in shot
+
+
+def test_a_tab_with_no_pictures_has_nothing_to_explain(tmp_path):
+    review = tmp_path / ".human-review"
+    (review / "assets").mkdir(parents=True)
+    _shot(review, diagram=SEARCH_PUML, traces=1)
+    out, weight, _ = build.render_testpairs({"title": ""}, {}, [], tmp_path, review)
+    assert out == "" and weight == 0
+
+
 def test_a_tagged_test_whose_dsl_helper_the_branch_edited_says_touched(tmp_path, monkeypatch):
     """Eval run 11: 'Add a visit to an existing pet…' is tagged, the branch edited the
     add-visit.dsl.ts it imports and its picture moved +20/−20 — and its row said only

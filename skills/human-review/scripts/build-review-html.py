@@ -79,7 +79,7 @@ from hrbuild.shared.snippets import (
     DIFF_CONTEXT, diff_html, DIFF_INLINE_TOKEN, diff_link_html, DIFF_TOKEN, diff_uri_handler,
     expand_snippets, github_blob_base, review_step_rev, SNIPPET_BASE, snippet_html,
     SNIPPET_TOKEN, _extract_module, _first_changed, _github_compare_link, _icon, _parse_unified,
-    _shown_in_compare, _snippet_links, _unmoved_since, set_diff_base
+    _shown_in_compare, _snippet_links, _unmoved_since, set_diff_base, commit_stamp
 )
 from hrbuild.shared.svg import (
     CREOLE_IN_TITLE, CREOLE_LINK, DIAGRAM_COLOR_VARS, DIAGRAM_FILL_ATTR, DIAGRAM_STYLE_COLOR,
@@ -190,7 +190,8 @@ from hrbuild.tabs.sequence import (
     _tagged_decl, _test_kind, _TS_DECL,
     SEQ_SELECTION, SEQ_WHY, sequence_selection, _slug, picked_for, _why_chip, _names,
     selection_note_html, SEQ_ALSO, ledger_status, SEL_INLINE, _sel_item, _sel_name,
-    SEQ_TOUCHED, touched_via, _branch_changed, _direct_imports, _TS_IMPORT, _JAVA_IMPORT
+    SEQ_TOUCHED, touched_via, _branch_changed, _direct_imports, _TS_IMPORT, _JAVA_IMPORT,
+    TRACE_SHOT, TRACE_SHOT_META, TRACE_HOW, trace_how_html, _trace_shot_html
 )
 from hrbuild.tabs.tests import (
     LEDGER_TAB, render_requirements, render_test_ledger, render_tests, render_traces,
@@ -1330,7 +1331,7 @@ def _main(argv=None) -> int:
                                               for c in base_st["outside"]]}
 
     doc = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="en"{commit_stamp(root)}><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(spec.get('title', 'Review guide'))}</title>
 <link rel="icon" type="image/svg+xml" href="{FAVICON}">

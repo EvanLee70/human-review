@@ -943,6 +943,76 @@ def _unchanged_sequence(puml_rel: str, test_rel: str, root: Path, out_dir: Path)
             + body + '</div>')
 
 
+#: One trace of the traced run, shot in Grafana while its stack was up (`trace-shot.py`,
+#: from `run-steps.py` `_sequence`), and beside it what it shows: which diagram, how many
+#: traces that test made. Absent on a run with no Grafana to shoot — the picture is then
+#: simply not offered.
+TRACE_SHOT = "assets/sequence.trace.png"
+TRACE_SHOT_META = "assets/sequence.trace.json"
+
+#: The three steps from a test to the picture of it, for a reader who has never met a
+#: trace. Tiny on purpose, and free of the machinery — no script, no file, no command: the
+#: reviewer is busy, and what they lack is the two words, not the plumbing.
+TRACE_HOW = (
+    "The tests ran against the real app, with OpenTelemetry tracing switched on.",
+    "Each HTTP call and database query was recorded as a <dfn>span</dfn>: who called whom, "
+    "and for how long. The spans that one action set off form a <dfn>trace</dfn>.",
+    "Each test's traces were drawn as its diagram below.",
+)
+
+
+def _trace_shot_html(out_dir: Path, root: Path, shown: dict[str, str]) -> str:
+    """The nested fold with the trace itself, or "" when this run shot none.
+
+    It names the test the trace belongs to and links to that test's pair when the pair is
+    on this tab (`shown`: diagram path -> test file), so the waterfall and the sequence can
+    be read side by side. The image links to itself: a trace is wide and dense, and the
+    reader who wants it bigger gets the full-resolution file, not a thumbnail."""
+    if not (Path(out_dir) / TRACE_SHOT).is_file():
+        return ""
+    try:
+        meta = json.loads((Path(out_dir) / TRACE_SHOT_META).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        meta = {}
+    meta = meta if isinstance(meta, dict) else {}
+    rel = meta.get("diagram") if isinstance(meta.get("diagram"), str) else ""
+    many = meta.get("traces") if isinstance(meta.get("traces"), int) else 1
+    test = shown.get(rel)
+    title = ""
+    if test:
+        title = next((t for _, t in _scenarios_drawn(rel, test, root) if t), "")
+    name = title or (Path(test).name if test else str(meta.get("test") or ""))
+    which = (f"One of the {many} traces" if many > 1 else "The trace")
+    if test:
+        said = (f'{which} of <a href="#{pair_anchor(rel)}">{html.escape(name)}</a>, in '
+                "Grafana Tempo. Compare it with that test's diagram below.")
+    elif name:
+        said = f"{which} of {html.escape(name)}, in Grafana Tempo."
+    else:
+        said = "A trace of this run, in Grafana Tempo."
+    alt = f"A trace in Grafana Tempo{': ' + name if name else ''}"
+    return ('<details class="seqhow-shot"><summary>What does a trace look like?</summary>'
+            f'<p class="seqhow-cap">{said}</p>'
+            f'<a class="seqhow-img" href="{TRACE_SHOT}" target="_blank" rel="noopener"'
+            ' data-tip="Open full size">'
+            f'<img src="{TRACE_SHOT}" alt="{html.escape(alt, quote=True)}" loading="lazy">'
+            "</a></details>")
+
+
+def trace_how_html(out_dir: Path, root: Path, shown: dict[str, str]) -> str:
+    """"How were these produced?" — shut, at the top of the tab, over every picture on it.
+
+    The diagrams on this tab are drawn from OpenTelemetry traces, and nothing on the page
+    said so: a reader who does not know what a trace is met a column of arrows with no
+    account of where they came from, and even the person who set the pipeline up could not
+    tell from the page. Three lines, folded, so the reader who knows pays one line of
+    height for it; the picture of a real trace one fold further in, for whoever wants to
+    see the thing the three lines describe."""
+    steps = "".join(f"<li>{s}</li>" for s in TRACE_HOW)
+    return ('<details class="seqhow"><summary>How were these produced?</summary>'
+            f"<ol>{steps}</ol>" + _trace_shot_html(out_dir, root, shown) + "</details>")
+
+
 def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path,
                      test_changes: list | None = None):
     """Each acceptance test next to the sequence its own run recorded.
@@ -1103,11 +1173,16 @@ def render_testpairs(block, dspec, manifest_rows, root: Path, out_dir: Path,
     if index:
         parts.append('<script type="application/json" id="hr-genseq">'
                      + json.dumps(index).replace("</", "<\\/") + "</script>")
+    # First, above even the band: it is about every picture on the tab, the committed ones
+    # a band may be warning about included. Only over pictures — a tab with none has
+    # nothing for it to explain, and returned above.
+    how = trace_how_html(out_dir, root, {rel: test_rel for test_rel, entries in plan.items()
+                                         for rel, _ in entries}) if plan else ""
     # Weight counts every exhibit; changes count only the manifest's rows. An unchanged
     # pair is context, exactly as a `puml` block is, and must not un-strike the tab —
     # unless the suites were not re-traced: a strike says "this branch left the sequences
     # alone", and a run that drew nothing cannot know that.
-    return (band + "\n".join(([head] if head else []) + parts) + "\n",
+    return (how + band + "\n".join(([head] if head else []) + parts) + "\n",
             len(rows) + unchanged + stale + len(orphaned),
             len(rows) or int(sequence_verdict_alarm(out_dir) is not None))
 

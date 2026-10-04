@@ -313,6 +313,10 @@ model knows better than the diagrams and the tags do.
 the tab's `tip` is the only sentence it gets. Every paragraph an author has ever put here has
 been about the *pipeline*: why the tab was empty last time, which suite was not re-run. When
 the suites were not re-traced, `run-steps.py` says so itself, in the band over the pairs.
+The one explanation the tab does carry is the build's, not the author's: a shut *How were
+these produced?* at its top — three lines on spans and traces — with, one fold further in,
+a screenshot of a real trace of a test on the tab, taken in Grafana by the `sequence` step
+while its stack was up (`trace-shot.py` → `assets/sequence.trace.png`; absent, not offered).
 
 **The kind of test — `UI` / `API` / `unit` — is not authored.** Every pair leads with the
 Tests tab's own chip, read off the diagram it holds: the first lifeline is the end the run

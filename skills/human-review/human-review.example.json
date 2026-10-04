@@ -104,6 +104,14 @@
                    "item": "{class}#{name}", "join": ",", "max": 2}
         }
       },
+      "//36": "`trace` (optional): while the stack is still up, one trace this run drew is",
+      "//37": "shot in Grafana for the Sequence tab's \"What does a trace look like?\" —",
+      "//38": "a test whose run is ONE trace first, the branch's own tests first. The",
+      "//39": "Grafana is `grafana` ({NAME}s from app.vars expand), else app.vars'",
+      "//40": "GRAFANA_URL, else $GRAFANA_URL; `attribute` is the span attribute a test's",
+      "//41": "run carries its name in (default span.test.name). `false` turns it off; no",
+      "//42": "Grafana or no matching trace leaves the picture out and says so in a note.",
+      "trace": {"grafana": "http://localhost:3300", "attribute": "span.test.name"},
       "commands": [
         "cd petclinic-test && GENSEQ_SELECT={tests.e2e} ./run-tests-with-tracing.sh",
         "cd petclinic-backend && mvn -o -Pgenseq test -Dgroups=genseq",

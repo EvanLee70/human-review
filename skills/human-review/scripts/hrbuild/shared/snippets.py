@@ -335,6 +335,27 @@ def diff_uri_handler() -> str | None:
     return None
 
 
+def commit_stamp(root: Path) -> str:
+    """The attributes `<html>` carries so a click can ask for the version of a file this
+    page quotes: the checkout it was built in, its HEAD, its branch, and the extension that
+    can check a window against them (the same one, and the same override, as the diff).
+
+    A reference is an absolute path, and a path names a place, not a version: opened in a
+    window on another branch, or on this checkout three commits later, it shows a plausible
+    wrong file. With the commit on the page, the editor bridge opens it only where the file
+    is the one reviewed, and says so when nowhere is."""
+    def git(*args):
+        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    head = git("rev-parse", "HEAD")
+    if not head:
+        return ""
+    attrs = {"data-hr-root": str(root), "data-hr-head": head,
+             "data-hr-branch": git("branch", "--show-current"),
+             "data-hr-open-uri": diff_uri_handler() or ""}
+    return "".join(f' {k}="{html.escape(v)}"' for k, v in attrs.items() if v)
+
+
 def diff_link_html(rel: str, base: str, root: Path, face: str | None = None,
                    line: int | None = None) -> str:
     """A link that opens `<rel>` as a diff: the file at `base` on the left, the working
