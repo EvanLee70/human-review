@@ -1,0 +1,12 @@
+{
+ "diagram": "petclinic-test/generated/OwnerListTest.java.contentcarriesnestedpetstypesandvisits.genseq.puml",
+ "test": "OwnerListTest.java",
+ "trace": "fe0f3d8f93370a6028213295510009a9",
+ "traces": 1,
+ "spans": 8,
+ "services": [
+  "petclinic-backend"
+ ],
+ "root": "test: contentCarriesNestedPetsTypesAndVisits()",
+ "at": "2026-10-04T07:58:40+00:00"
+}
